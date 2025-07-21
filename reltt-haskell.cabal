@@ -78,6 +78,7 @@ test-suite reltt-haskell-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      ComprehensiveTheoremAppSpec
       ContextSpec
       ErrorsSpec
       IntegrationSpec
@@ -85,9 +86,13 @@ test-suite reltt-haskell-test
       ParserSpec
       PrettyPrintSpec
       ProofCheckerSpec
+      PTheoremAppSpec
       REPLSpec
       TermOpsSpec
       TestHelpers
+      TheoremApplicationSpec
+      TheoremArgSpec
+      TheoremArgValidationSpec
       TwoPhaseParsingSpec
       TypeOpsSpec
       Paths_reltt_haskell

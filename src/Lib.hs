@@ -2,6 +2,7 @@ module Lib
   ( Term (..),
     RType (..),
     Proof (..),
+    TheoremArg (..),
     Declaration (..),
     MacroBody (..),
     Binding (..),
@@ -43,7 +44,7 @@ data RType
 
 data Proof
   = PVar String Int SourcePos
-  | PTheorem String SourcePos
+  | PTheoremApp String [TheoremArg] SourcePos  -- theorem application (empty list = no args)
   | LamP String RType Proof SourcePos
   | AppP Proof Proof SourcePos
   | TyApp Proof RType SourcePos
@@ -76,6 +77,13 @@ data Binding
   = TermBinding String -- (t : Term)
   | RelBinding String -- (R : Rel)
   | ProofBinding String RelJudgment -- (p : t[R]u)
+  deriving (Show, Eq)
+
+-- | Arguments to theorem applications
+data TheoremArg
+  = TermArg Term
+  | RelArg RType
+  | ProofArg Proof
   deriving (Show, Eq)
 
 -- | Context for type checking, tracking bound variables and their types
@@ -155,7 +163,7 @@ rtypePos (Prom _ pos) = pos
 -- | Extract source position from Proof
 proofPos :: Proof -> SourcePos
 proofPos (PVar _ _ pos) = pos
-proofPos (PTheorem _ pos) = pos
+proofPos (PTheoremApp _ _ pos) = pos
 proofPos (LamP _ _ _ pos) = pos
 proofPos (AppP _ _ pos) = pos
 proofPos (TyApp _ _ pos) = pos

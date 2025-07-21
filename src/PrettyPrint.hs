@@ -16,6 +16,7 @@ module PrettyPrint
     prettyProofWithConfig,
     prettyRelJudgmentWithConfig,
     prettyDeclarationWithConfig,
+    prettyTheoremArgWithConfig,
   )
 where
 
@@ -131,7 +132,10 @@ prettyProofWithConfig config proof = case proof of
     if showIndices config
       then name ++ "_" ++ show idx
       else name
-  PTheorem name _ -> name
+  PTheoremApp name args _ -> 
+    if null args 
+      then name 
+      else name ++ " " ++ unwords (map (prettyTheoremArgWithConfig config) args)
   LamP name rtype body _ ->
     let lambda = if useUnicode config then "λ" else "\\"
      in lambda ++ name ++ ":" ++ prettyRTypeWithConfig config rtype ++ ". " ++ prettyProofWithConfig config body
@@ -327,6 +331,13 @@ prettyError err = case err of
     "Composition error: proofs " ++ prettyProof proof1 ++ " and " ++ prettyProof proof2 ++ " have mismatched middle terms " ++ prettyTerm t1 ++ " and " ++ prettyTerm t2 ++ prettyContext ctx
   InternalError msg ctx ->
     "Internal error: " ++ msg ++ prettyContext ctx
+
+-- Pretty print theorem arguments  
+prettyTheoremArgWithConfig :: PrettyConfig -> TheoremArg -> String
+prettyTheoremArgWithConfig config arg = case arg of
+  TermArg term -> "(" ++ prettyTermWithConfig config term ++ ")"
+  RelArg rtype -> "(" ++ prettyRTypeWithConfig config rtype ++ ")" 
+  ProofArg proof -> "(" ++ prettyProofWithConfig config proof ++ ")"
 
 -- Helper function to pretty print error context
 prettyContext :: ErrorContext -> String

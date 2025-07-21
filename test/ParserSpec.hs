@@ -1888,7 +1888,7 @@ theoremReferencingSpec = describe "Theorem referencing" $ do
           "test_ref"
           [TermBinding "s"]
           (RelJudgment (Var "s" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "s" 0 (initialPos "test")))
-          (PTheorem "identity_lemma" (initialPos "test")) -- theorem reference
+          (PTheoremApp "identity_lemma" [] (initialPos "test")) -- theorem reference
       ]
 
   it "distinguishes between theorem names and proof variables" $ do
@@ -1902,7 +1902,7 @@ theoremReferencingSpec = describe "Theorem referencing" $ do
       parseFile
       input
       [ TheoremDef "simple" [TermBinding "t"] (RelJudgment (Var "t" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "t" 0 (initialPos "test"))) (Iota (Var "t" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")) (initialPos "test")),
-        TheoremDef "test" [TermBinding "s"] (RelJudgment (Var "s" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "s" 0 (initialPos "test"))) (PTheorem "simple" (initialPos "test"))
+        TheoremDef "test" [TermBinding "s"] (RelJudgment (Var "s" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "s" 0 (initialPos "test"))) (PTheoremApp "simple" [] (initialPos "test"))
       ]
 
   it "handles theorem name shadowing by proof variables" $ do

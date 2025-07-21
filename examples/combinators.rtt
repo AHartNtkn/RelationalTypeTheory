@@ -1,0 +1,91 @@
+-- combinators.rtt: Standard combinators and their relational properties
+-- This file defines classical combinators (I, K, S, etc.) and proves their properties
+-- when viewed as relations in RelTT.
+
+-- =============================================================================
+-- IDENTITY COMBINATOR
+-- =============================================================================
+
+-- The identity combinator: I = λx.x
+-- As a function, it returns its argument unchanged
+-- As a relation, it expresses equality between terms
+i := λx.x;
+
+⊢ i_eval (x : Term) : (i x) [i] x :=
+    (i x) ⇃ ι⟨x,i⟩ ⇂ x;
+
+-- =============================================================================
+-- RELATIONAL PROPERTIES OF IDENTITY
+-- =============================================================================
+-- When I is used as a relation, x [I] y holds iff x = y
+-- This gives I the standard properties of equality: reflexivity, symmetry, transitivity
+
+-- Reflexivity: ∀x. x [I] x
+-- Every term is related to itself by the identity relation
+-- Uses ι to show that x is related to (i x) = x
+⊢ i_reflexivity (x : Term) : x [i] x := x ⇃ ι⟨x,i⟩ ⇂ x;
+
+-- Symmetry: ∀x,y. x [I] y → y [I] x  
+-- If x equals y, then y equals x
+-- Uses rho elimination: given x[i]y and x[i]x, conclude y[i]x
+⊢ i_symmetry (x : Term) (y : Term) (p : x [i] y) : y [i] x := 
+    ρ{z.z,x} p - (i_eval x);
+
+-- Transitivity: ∀x,y,z. x [I] y → y [I] z → x [I] z
+-- If x equals y and y equals z, then x equals z
+-- Uses π-elimination to unpack (p,q) : x [i ∘ i] z, then ρ-elimination to simplify
+⊢ i_transitivity (x : Term) (y : Term) (z : Term) 
+    (p : x [i] y) (q : y [i] z) : x [i] z := 
+    π (p,q) - w.rel.eq. ρ{u.x,u} eq - (x ⇃ rel ⇂ (i w));
+
+-- =============================================================================
+-- K COMBINATOR (CONSTANT FUNCTION)
+-- =============================================================================
+
+-- The K combinator: K = λx.λy.x
+-- As a function, K x y = x (returns the first argument, ignoring the second)
+-- As a relation, K relates pairs (x,y) to x
+k := λx.λy.x;
+
+⊢ k_eval (x : Term) (y : Term) : (k x y) [i] x :=
+    (k x y) ⇃ ι⟨x,i⟩ ⇂ x;
+
+-- =============================================================================
+-- S COMBINATOR (SUBSTITUTION/APPLICATION)
+-- =============================================================================
+
+-- The S combinator: S = λx.λy.λz.x z (y z)
+-- As a function, S f g x = f x (g x) (applies f to x and g x)
+-- This is the fundamental combinator for combining functions
+s := λx.λy.λz.x z (y z);
+
+⊢ s_eval (x : Term) (y : Term) (z : Term) : (s x y z) [i] (x z (y z)) :=
+    (s x y z) ⇃ ι⟨x z (y z),i⟩ ⇂ (x z (y z));
+
+-- =============================================================================
+-- TURNER COMBINATORS
+-- =============================================================================
+
+-- The B combinator (composition): B = λx.λy.λz.x (y z)
+-- As a function, B f g x = f (g x) (function composition)
+-- This is the standard composition combinator
+b := λx.λy.λz.x (y z);
+
+⊢ b_eval (x : Term) (y : Term) (z : Term) : (b x y z) [i] (x (y z)) :=
+    (b x y z) ⇃ ι⟨x (y z),i⟩ ⇂ (x (y z));
+
+-- The C combinator (flip): C = λx.λy.λz.x z y
+-- As a function, C f x y = f y x (flips the order of arguments)
+-- This combinator reverses argument order for binary functions
+c := λx.λy.λz.x z y;
+
+⊢ c_eval (x : Term) (y : Term) (z : Term) : (c x y z) [i] (x z y) :=
+    (c x y z) ⇃ ι⟨x z y,i⟩ ⇂ (x z y);
+
+-- The W combinator (duplication): W = λx.λy.x y y
+-- As a function, W f x = f x x (applies function to same argument twice)
+-- This combinator duplicates its second argument
+w := λx.λy.x y y;
+
+⊢ w_eval (x : Term) (y : Term) : (w x y) [i] (x y y) :=
+    (w x y) ⇃ ι⟨x y y,i⟩ ⇂ (x y y);

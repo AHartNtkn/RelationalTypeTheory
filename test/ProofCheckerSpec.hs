@@ -1310,7 +1310,7 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
         -- Create context and test theorem reference
         ctx = emptyTypingContext
         macroEnv = noMacros
-        theoremRef = PTheorem "identity" (initialPos "test") -- theorem reference
+        theoremRef = PTheoremApp "identity" [] (initialPos "test") -- theorem reference
     case inferProofType ctx macroEnv theoremEnv theoremRef of
       Right result -> do
         let expectedJudgment = RelJudgment (Var "t" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "t" 0 (initialPos "test"))
@@ -1322,7 +1322,7 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
     let ctx = emptyTypingContext
         macroEnv = noMacros
         theoremEnv = noTheorems
-        undefinedRef = PTheorem "nonexistent" (initialPos "test")
+        undefinedRef = PTheoremApp "nonexistent" [] (initialPos "test")
 
     case inferProofType ctx macroEnv theoremEnv undefinedRef of
       Left _ -> return () -- Expected failure
@@ -1352,7 +1352,7 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
 
         ctx = emptyTypingContext
         macroEnv = noMacros
-        theoremRef = PTheorem "complex" (initialPos "test")
+        theoremRef = PTheoremApp "complex" [] (initialPos "test")
 
     case inferProofType ctx macroEnv theoremEnv theoremRef of
       Right result -> do
@@ -1377,7 +1377,7 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
 
         -- Test proof variable (index 0)
         proofVarRef = PVar "testTheorem" 0 (initialPos "test")
-        theoremRef = PTheorem "testTheorem" (initialPos "test")
+        theoremRef = PTheoremApp "testTheorem" [] (initialPos "test")
 
     -- Test proof variable gives different result than theorem reference
     case (inferProofType ctx macroEnv theoremEnv proofVarRef, inferProofType ctx macroEnv theoremEnv theoremRef) of
@@ -1408,7 +1408,7 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
 
         -- Create an application using the theorem reference
         -- This is a simplified test - in practice would need proper type matching
-        theoremRef = PTheorem "id" (initialPos "test")
+        theoremRef = PTheoremApp "id" [] (initialPos "test")
 
     case inferProofType termCtx macroEnv identityTheorem theoremRef of
       Right result -> do
@@ -1424,7 +1424,7 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
     let ctx = emptyTypingContext
         macroEnv = noMacros
         theoremEnv = noTheorems
-        anyTheoremRef = PTheorem "anything" (initialPos "test")
+        anyTheoremRef = PTheoremApp "anything" [] (initialPos "test")
 
     case inferProofType ctx macroEnv theoremEnv anyTheoremRef of
       Left _ -> return () -- Expected failure
@@ -1452,11 +1452,11 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
         ctx = emptyTypingContext
         macroEnv = noMacros
         invalidProofVar = PVar "testName" (-1) (initialPos "test") -- Wrong way to reference theorem
-        correctTheoremRef = PTheorem "testName" (initialPos "test") -- Right way to reference theorem
+        correctTheoremRef = PTheoremApp "testName" [] (initialPos "test") -- Right way to reference theorem
     case (inferProofType ctx macroEnv theoremEnv invalidProofVar, inferProofType ctx macroEnv theoremEnv correctTheoremRef) of
-      (Left _, Right _) -> return () -- PVar(-1) fails, PTheorem succeeds - this is correct!
+      (Left _, Right _) -> return () -- PVar(-1) fails, PTheoremApp succeeds - this is correct!
       (Right _, _) -> expectationFailure "PVar with index -1 should always fail, even when theorem exists!"
-      (Left _, Left _) -> expectationFailure "PTheorem should succeed when theorem exists"
+      (Left _, Left _) -> expectationFailure "PTheoremApp should succeed when theorem exists"
 
   it "enforces that free variables never exist" $ do
     -- This test ensures that PVar with index -1 (which should never be created by parser) always fails
@@ -1483,7 +1483,7 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
         ctx = emptyTypingContext
         macroEnv = noMacros
     -- For now, theorem references ignore bindings
-    case inferProofType ctx macroEnv theoremWithBindings (PTheorem "paramTheorem" (initialPos "test")) of
+    case inferProofType ctx macroEnv theoremWithBindings (PTheoremApp "paramTheorem" [] (initialPos "test")) of
       Right result -> do
         let RelJudgment t1 r t2 = resultJudgment result
         -- The theorem's judgment is returned directly (bindings not yet instantiated)
@@ -1507,7 +1507,7 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
             "functionThm"
             [ProofBinding "f" (RelJudgment (Var "dummy" 0 (initialPos "test")) (Arr (All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")) (Var "dummy" 0 (initialPos "test")))]
             (RelJudgment (Var "dummy" 0 (initialPos "test")) (RMacro "B" [] (initialPos "test")) (Var "dummy" 0 (initialPos "test")))
-            (AppP (PVar "f" 0 (initialPos "test")) (PTheorem "universalThm" (initialPos "test")) (initialPos "test")) -- Apply function f to universal proof
+            (AppP (PVar "f" 0 (initialPos "test")) (PTheoremApp "universalThm" [] (initialPos "test")) (initialPos "test")) -- Apply function f to universal proof
             universalProof
 
         ctx =
@@ -1515,7 +1515,7 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
             extendTermContext "x" (RMacro "SomeType" [] (initialPos "test")) emptyTypingContext
         macroEnv = noMacros
 
-    case inferProofType ctx macroEnv functionTheorem (PTheorem "functionThm" (initialPos "test")) of
+    case inferProofType ctx macroEnv functionTheorem (PTheoremApp "functionThm" [] (initialPos "test")) of
       Right result -> do
         let RelJudgment _ r _ = resultJudgment result
         r `shouldBe` RMacro "B" [] (initialPos "test") -- Should produce type B
@@ -1537,13 +1537,13 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
             "appThm"
             [TermBinding "a"]
             (RelJudgment (Var "a" 0 (initialPos "test")) (RMacro "A" [] (initialPos "test")) (Var "a" 0 (initialPos "test")))
-            (AppP (TyApp (PTheorem "identityThm" (initialPos "test")) (RMacro "A" [] (initialPos "test")) (initialPos "test")) (Iota (Var "a" 0 (initialPos "test")) (Var "a" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) -- Apply identity to a
+            (AppP (TyApp (PTheoremApp "identityThm" [] (initialPos "test")) (RMacro "A" [] (initialPos "test")) (initialPos "test")) (Iota (Var "a" 0 (initialPos "test")) (Var "a" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) -- Apply identity to a
             identityProof
 
         ctx = extendTermContext "f" (RMacro "FuncType" [] (initialPos "test")) emptyTypingContext
         macroEnv = noMacros
 
-    case inferProofType ctx macroEnv applicationTheorem (PTheorem "appThm" (initialPos "test")) of
+    case inferProofType ctx macroEnv applicationTheorem (PTheoremApp "appThm" [] (initialPos "test")) of
       Right result -> do
         let RelJudgment _ r _ = resultJudgment result
         r `shouldBe` RMacro "A" [] (initialPos "test") -- Should produce type A
@@ -1564,7 +1564,7 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
         macroEnv = noMacros
 
         -- Test: λp: SomeRel. identity
-        lambdaProof = LamP "p" (RMacro "SomeRel" [] (initialPos "test")) (PTheorem "identity" (initialPos "test")) (initialPos "test")
+        lambdaProof = LamP "p" (RMacro "SomeRel" [] (initialPos "test")) (PTheoremApp "identity" [] (initialPos "test")) (initialPos "test")
 
     case inferProofType ctx macroEnv identityTheorem lambdaProof of
       Right result -> do
@@ -1598,7 +1598,7 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
         macroEnv = noMacros
 
         -- Test: (thm1, thm2) should give composition
-        compositionProof = Pair (PTheorem "thm1" (initialPos "test")) (PTheorem "thm2" (initialPos "test")) (initialPos "test")
+        compositionProof = Pair (PTheoremApp "thm1" [] (initialPos "test")) (PTheoremApp "thm2" [] (initialPos "test")) (initialPos "test")
 
     case inferProofType ctx macroEnv theorem2 compositionProof of
       Right result -> do
@@ -1622,7 +1622,7 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
         macroEnv = noMacros
 
         -- Test: x ⇃ identity ⇂ x (convert using theorem)
-        conversionProof = ConvProof (Var "x" 0 (initialPos "test")) (PTheorem "identity" (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")
+        conversionProof = ConvProof (Var "x" 0 (initialPos "test")) (PTheoremApp "identity" [] (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")
 
     case inferProofType ctx macroEnv identityTheorem conversionProof of
       Right result -> do
@@ -1647,7 +1647,7 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
             "derived"
             []
             (RelJudgment (Var "y" 0 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "y" 0 (initialPos "test")))
-            (PTheorem "base" (initialPos "test")) -- References base theorem
+            (PTheoremApp "base" [] (initialPos "test")) -- References base theorem
             baseTheorem
 
         ctx =
@@ -1655,7 +1655,7 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
             extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
         macroEnv = noMacros
 
-    case inferProofType ctx macroEnv derivedTheorem (PTheorem "derived" (initialPos "test")) of
+    case inferProofType ctx macroEnv derivedTheorem (PTheoremApp "derived" [] (initialPos "test")) of
       Right result -> do
         let RelJudgment _ r _ = resultJudgment result
         r `shouldBe` RMacro "R" [] (initialPos "test")
@@ -1676,12 +1676,12 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
         macroEnv = noMacros
 
     -- Test 1: Reference to non-existent theorem should fail
-    case inferProofType ctx macroEnv theorem1 (PTheorem "nonexistent" (initialPos "test")) of
+    case inferProofType ctx macroEnv theorem1 (PTheoremApp "nonexistent" [] (initialPos "test")) of
       Left _ -> return () -- Expected failure
       Right _ -> expectationFailure "Reference to non-existent theorem should fail"
 
     -- Test 2: Application with wrong arity should fail
-    let wrongApp = AppP (PTheorem "thm1" (initialPos "test")) (PTheorem "thm1" (initialPos "test")) (initialPos "test")
+    let wrongApp = AppP (PTheoremApp "thm1" [] (initialPos "test")) (PTheoremApp "thm1" [] (initialPos "test")) (initialPos "test")
     case inferProofType ctx macroEnv theorem1 wrongApp of
       Left _ -> return () -- Expected failure - thm1 is not a function
       Right _ -> expectationFailure "Wrong theorem application should fail"

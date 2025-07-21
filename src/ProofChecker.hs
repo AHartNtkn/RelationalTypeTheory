@@ -4,6 +4,11 @@ module ProofChecker
     ProofCheckResult (..),
     relJudgmentEqual,
     substituteTermVar,
+    checkTheoremArgs,
+    instantiateTheoremJudgment,
+    applySubstitutionsToTerm,
+    applySubstitutionsToRType,
+    applySubstToJudgment,
   )
 where
 
@@ -44,13 +49,24 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
       then return $ ProofCheckResult judgment ctx
       else Left $ InvalidDeBruijnIndex idx (ErrorContext pos "proof variable lookup")
 
-  -- Theorem reference rule: Γ ⊢ theorem_name : theorem_judgment
-  PTheorem name _ -> do
-    -- Theorem reference - look up in theorem environment
-    (_, judgment, _) <- lookupTheorem name theoremEnv
-    -- For now, return the theorem's judgment directly
-    -- TODO: Handle theorem instantiation with bindings
-    return $ ProofCheckResult judgment ctx
+  -- Theorem application rule: Γ ⊢ theorem_name args : instantiated_judgment
+  PTheoremApp name args pos -> do
+    -- Look up theorem in environment
+    (bindings, judgment, _) <- lookupTheorem name theoremEnv
+    
+    -- Check that argument count doesn't exceed binding count
+    let bindingCount = length bindings
+        argCount = length args
+    if argCount > bindingCount
+      then Left $ InternalError ("Too many arguments for theorem " ++ name ++ ": expected " ++ show bindingCount ++ ", got " ++ show argCount) (ErrorContext pos "theorem application")
+      else do
+        -- Type check each argument against its expected binding type
+        validatedArgs <- checkTheoremArgs bindings args ctx macroEnv theoremEnv pos
+        
+        -- Apply substitutions to get the instantiated judgment
+        instantiatedJudgment <- instantiateTheoremJudgment bindings validatedArgs judgment
+        
+        return $ ProofCheckResult instantiatedJudgment ctx
 
   -- Lambda introduction: Γ ⊢ λu:T.p : λx.t[R→R']λx'.t'
   LamP proofVar rtype body pos -> do
@@ -302,3 +318,101 @@ substituteTermVar var replacement term = case term of
   Lam name body pos -> Lam name (substituteTermVar var replacement body) pos
   App t1 t2 pos -> App (substituteTermVar var replacement t1) (substituteTermVar var replacement t2) pos
   TMacro name args pos -> TMacro name (map (substituteTermVar var replacement) args) pos
+
+-- | Apply a (possibly partial) substitution list to a relational judgment
+applySubstToJudgment :: [(Binding, TheoremArg)] -> RelJudgment -> Either RelTTError RelJudgment
+applySubstToJudgment subs (RelJudgment t r t') = do
+  t1 <- applySubstitutionsToTerm subs t
+  r1 <- applySubstitutionsToRType subs r
+  t2 <- applySubstitutionsToTerm subs t'
+  return (RelJudgment t1 r1 t2)
+
+-- | Sequentially check theorem arguments, carrying the substitution that has
+--   already been established by earlier (term/rel/proof) arguments.
+checkTheoremArgs :: [Binding] -> [TheoremArg] -> TypingContext -> MacroEnvironment -> TheoremEnvironment -> SourcePos -> Either RelTTError [TheoremArg]
+checkTheoremArgs bindings args ctx macroEnv theoremEnv pos =
+  go [] [] (zip bindings args)
+  where
+    -- accSubs : substitutions established so far (left‑to‑right)
+    -- accArgs : validated args in the same order as given
+    go accSubs accArgs [] = return (reverse accArgs)
+
+    go accSubs accArgs ((bind,arg):rest) = case (bind,arg) of
+      (TermBinding _ , TermArg _ ) ->
+        go (accSubs ++ [(bind,arg)]) (arg:accArgs) rest
+
+      (RelBinding _  , RelArg _  ) ->
+        go (accSubs ++ [(bind,arg)]) (arg:accArgs) rest
+
+      (ProofBinding _ templJudg , ProofArg p) -> do
+        -- instantiate the template with what we already know
+        instTempl <- applySubstToJudgment accSubs templJudg
+
+        -- infer and compare
+        ProofCheckResult{resultJudgment = actualJudg} <-
+          inferProofType ctx macroEnv theoremEnv p
+        equal <- relJudgmentEqual macroEnv instTempl actualJudg
+        if equal
+          then go (accSubs ++ [(bind,arg)]) (arg:accArgs) rest
+          else
+            Left $ ProofTypingError p instTempl actualJudg
+                   (ErrorContext pos "theorem argument proof type mismatch")
+
+      _ -> Left $ InternalError
+             "Theorem argument type mismatch"
+             (ErrorContext pos "theorem argument validation")
+
+-- | Instantiate a theorem judgment by applying argument substitutions
+instantiateTheoremJudgment :: [Binding] -> [TheoremArg] -> RelJudgment -> Either RelTTError RelJudgment
+instantiateTheoremJudgment bindings args (RelJudgment leftTerm relType rightTerm) = do
+  let substitutions = zip bindings args
+  
+  -- Apply all substitutions to each component of the judgment
+  leftTerm' <- applySubstitutionsToTerm substitutions leftTerm
+  relType' <- applySubstitutionsToRType substitutions relType
+  rightTerm' <- applySubstitutionsToTerm substitutions rightTerm
+  
+  return (RelJudgment leftTerm' relType' rightTerm')
+
+-- | Apply substitutions to a term
+applySubstitutionsToTerm :: [(Binding, TheoremArg)] -> Term -> Either RelTTError Term
+applySubstitutionsToTerm [] term = return term
+applySubstitutionsToTerm ((TermBinding name, TermArg replacement):rest) term = do
+  substituted <- applySubstitutionsToTerm rest term
+  return $ substituteTermVar name replacement substituted
+applySubstitutionsToTerm (_:rest) term = applySubstitutionsToTerm rest term
+
+-- | Apply substitutions to a relation type
+applySubstitutionsToRType :: [(Binding, TheoremArg)] -> RType -> Either RelTTError RType
+applySubstitutionsToRType [] rtype = return rtype
+applySubstitutionsToRType ((RelBinding name, RelArg replacement):rest) rtype = do
+  substituted <- applySubstitutionsToRType rest rtype
+  return $ substituteRelVar name replacement substituted
+applySubstitutionsToRType ((TermBinding name, TermArg termReplacement):rest) rtype = do
+  substituted <- applySubstitutionsToRType rest rtype
+  return $ substituteTermInRType name termReplacement substituted
+applySubstitutionsToRType (_:rest) rtype = applySubstitutionsToRType rest rtype
+
+-- | Substitute a relation variable in a relation type
+substituteRelVar :: String -> RType -> RType -> RType
+substituteRelVar var replacement rtype = case rtype of
+  RVar name _ _ | name == var -> replacement
+  RVar _ _ _ -> rtype
+  RMacro name args pos -> RMacro name (map (substituteRelVar var replacement) args) pos
+  Arr r1 r2 pos -> Arr (substituteRelVar var replacement r1) (substituteRelVar var replacement r2) pos
+  All name r pos | name == var -> rtype -- Variable is shadowed
+  All name r pos -> All name (substituteRelVar var replacement r) pos
+  Conv r pos -> Conv (substituteRelVar var replacement r) pos
+  Comp r1 r2 pos -> Comp (substituteRelVar var replacement r1) (substituteRelVar var replacement r2) pos
+  Prom term pos -> Prom (substituteTermVar var (error "Cannot substitute relation for term in promotion") term) pos
+
+-- | Substitute a term variable in a relation type (for promoted terms)
+substituteTermInRType :: String -> Term -> RType -> RType
+substituteTermInRType var replacement rtype = case rtype of
+  RVar _ _ _ -> rtype
+  RMacro name args pos -> RMacro name (map (substituteTermInRType var replacement) args) pos
+  Arr r1 r2 pos -> Arr (substituteTermInRType var replacement r1) (substituteTermInRType var replacement r2) pos
+  All name r pos -> All name (substituteTermInRType var replacement r) pos
+  Conv r pos -> Conv (substituteTermInRType var replacement r) pos
+  Comp r1 r2 pos -> Comp (substituteTermInRType var replacement r1) (substituteTermInRType var replacement r2) pos
+  Prom term pos -> Prom (substituteTermVar var replacement term) pos

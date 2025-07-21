@@ -40,7 +40,7 @@ equalRType _ _ = False
 
 equalProof :: Proof -> Proof -> Bool
 equalProof (PVar n1 i1 _) (PVar n2 i2 _) = n1 == n2 && i1 == i2
-equalProof (PTheorem n1 _) (PTheorem n2 _) = n1 == n2
+equalProof (PTheoremApp n1 args1 _) (PTheoremApp n2 args2 _) = n1 == n2 && args1 == args2
 equalProof (LamP n1 r1 p1 _) (LamP n2 r2 p2 _) = n1 == n2 && equalRType r1 r2 && equalProof p1 p2
 equalProof (AppP p1 q1 _) (AppP p2 q2 _) = equalProof p1 p2 && equalProof q1 q2
 equalProof (TyApp p1 r1 _) (TyApp p2 r2 _) = equalProof p1 p2 && equalRType r1 r2

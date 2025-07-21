@@ -12,6 +12,11 @@ import qualified ProofCheckerSpec
 import qualified REPLSpec
 import qualified TermOpsSpec
 import Test.Hspec
+import qualified TheoremApplicationSpec
+import qualified TheoremArgSpec
+import qualified TheoremArgValidationSpec
+import qualified PTheoremAppSpec
+import qualified ComprehensiveTheoremAppSpec
 import qualified TwoPhaseParsingSpec
 import qualified TypeOpsSpec
 
@@ -30,4 +35,9 @@ main = hspec $ do
   describe "Pretty Printing" PrettyPrintSpec.spec
   describe "REPL System" REPLSpec.spec
   describe "Two-Phase Parsing" TwoPhaseParsingSpec.spec
+  describe "Theorem Application" TheoremApplicationSpec.spec
+  describe "Theorem Arguments" TheoremArgSpec.spec
+  describe "Theorem Argument Validation" TheoremArgValidationSpec.spec
+  describe "PTheoremApp Proof Checking" PTheoremAppSpec.spec
+  describe "Comprehensive Theorem Applications" ComprehensiveTheoremAppSpec.spec
   describe "Integration Tests" IntegrationSpec.spec

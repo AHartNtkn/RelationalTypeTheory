@@ -253,13 +253,54 @@ parseProofVar = do
   ctx <- ask
   case Map.lookup name (proofVars ctx) of
     Just index -> return (PVar name index pos)
-    Nothing ->
+    Nothing -> do
       -- Check if it's a theorem reference
       case lookupTheorem name (theoremEnv ctx) of
-        Right (_, _, _) ->
-          -- Return proper theorem reference constructor
-          return (PTheorem name pos)
+        Right (bindings, _, _) -> do
+          -- Try to parse arguments for this theorem
+          args <- parseTheoremArgs bindings
+          return (PTheoremApp name args pos)
         Left _ -> fail $ "Unknown identifier: " ++ name
+
+-- Parse theorem arguments based on the expected binding types
+parseTheoremArgs :: [Binding] -> Parser [TheoremArg]
+parseTheoremArgs [] = return []
+parseTheoremArgs bindings = do
+  -- Try to parse arguments, but allow partial application
+  parseArgsUpTo (length bindings) bindings []
+  where
+    parseArgsUpTo :: Int -> [Binding] -> [TheoremArg] -> Parser [TheoremArg]
+    parseArgsUpTo 0 _ acc = return (reverse acc)
+    parseArgsUpTo _ [] acc = return (reverse acc)
+    parseArgsUpTo remaining (binding:restBindings) acc = do
+      maybeArg <- optional (parseTheoremArg binding)
+      case maybeArg of
+        Nothing -> return (reverse acc) -- No more arguments found
+        Just arg -> parseArgsUpTo (remaining - 1) restBindings (arg:acc)
+
+-- Parse a single theorem argument based on its expected binding type
+parseTheoremArg :: Binding -> Parser TheoremArg
+parseTheoremArg (TermBinding _) = do
+  term <- parseTerm
+  return (TermArg term)
+parseTheoremArg (RelBinding _) = do
+  rtype <- parseRType
+  return (RelArg rtype)
+parseTheoremArg (ProofBinding _ _) = do
+  proof <- parseProof
+  return (ProofArg proof)
+
+smartProofApp :: Parser (Proof -> Proof -> Proof)
+smartProofApp = do
+  return $ \p1 p2 -> AppP p1 p2 (proofPos p1)
+
+-- Helper functions to extract terms/relations from proof expressions
+extractTermFromProof :: Proof -> Maybe Term
+extractTermFromProof (PVar name idx pos) = Just (Var name idx pos)
+extractTermFromProof _ = Nothing
+
+extractRelFromProof :: Proof -> Maybe RType  
+extractRelFromProof _ = Nothing
 
 proofOps :: [[Operator Parser Proof]]
 proofOps =
@@ -272,7 +313,7 @@ proofOps =
             return (\p -> TyApp p ty pos)
         )
     ],
-    [InfixL (do pos <- getSourcePos; notFollowedBy (symbol "," <|> symbol ")" <|> symbol "{"); return (\p1 p2 -> AppP p1 p2 pos))]
+    [InfixL (do pos <- getSourcePos; notFollowedBy (symbol "," <|> symbol ")" <|> symbol "{"); smartProofApp)]
   ]
 
 parseLamP :: Parser Proof
