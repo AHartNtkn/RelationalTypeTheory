@@ -1,0 +1,5 @@
+#!/bin/bash
+# RelTT runner script - suppresses Stack warnings
+
+# Run Stack exec and filter out warning messages
+stack exec reltt-haskell-exe -- "$@" 2>&1 | grep -v "Warning: Stack has not been tested" | grep -v "found, this may fail"

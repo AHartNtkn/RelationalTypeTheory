@@ -1,0 +1,84 @@
+name:                reltt-haskell
+version:             0.1.0.0
+github:              "githubuser/reltt-haskell"
+license:             BSD-3-Clause
+author:              "Author name here"
+maintainer:          "example@example.com"
+copyright:           "2025 Author name here"
+
+extra-source-files:
+- README.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/githubuser/reltt-haskell#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+- megaparsec
+- prettyprinter
+- parser-combinators
+- mtl
+- containers
+- filepath
+- directory
+
+ghc-options:
+- -Wall
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+- -Wmissing-export-lists
+- -Wmissing-home-modules
+- -Wpartial-fields
+- -Wredundant-constraints
+
+library:
+  source-dirs: src
+  ghc-options:
+  - -Wno-unused-matches
+  exposed-modules:
+  - Lib
+  - Parser
+  - Normalize
+  - TermOps
+  - TypeOps
+  - Context
+  - Errors
+  - ProofChecker
+  - REPL
+  - PrettyPrint
+  - ModuleSystem
+
+executables:
+  reltt-haskell-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - reltt-haskell
+
+tests:
+  reltt-haskell-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -Wno-type-defaults
+    dependencies:
+    - reltt-haskell
+    - hspec
+    - megaparsec
+    - QuickCheck
+    - containers

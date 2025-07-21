@@ -1,0 +1,5 @@
+-- Test main file that imports test_lib.rtt
+import "test_lib.rtt";
+
+-- Use And from the library
+AndTrue := And True True;

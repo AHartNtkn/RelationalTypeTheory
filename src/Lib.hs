@@ -1,0 +1,169 @@
+module Lib
+  ( Term (..),
+    RType (..),
+    Proof (..),
+    Declaration (..),
+    MacroBody (..),
+    Binding (..),
+    RelJudgment (..),
+    TypingContext (..),
+    TypeEnvironment (..),
+    MacroEnvironment (..),
+    TheoremEnvironment (..),
+    ImportDeclaration (..),
+    ExportDeclaration (..),
+    Visibility (..),
+    ModuleInfo (..),
+    ModulePath,
+    termPos,
+    rtypePos,
+    proofPos,
+  )
+where
+
+import qualified Data.Map as Map
+import Text.Megaparsec (SourcePos)
+
+data Term
+  = Var String Int SourcePos
+  | Lam String Term SourcePos
+  | App Term Term SourcePos
+  | TMacro String [Term] SourcePos
+  deriving (Show, Eq)
+
+data RType
+  = RVar String Int SourcePos
+  | RMacro String [RType] SourcePos
+  | Arr RType RType SourcePos
+  | All String RType SourcePos
+  | Conv RType SourcePos
+  | Comp RType RType SourcePos
+  | Prom Term SourcePos
+  deriving (Show, Eq)
+
+data Proof
+  = PVar String Int SourcePos
+  | PTheorem String SourcePos
+  | LamP String RType Proof SourcePos
+  | AppP Proof Proof SourcePos
+  | TyApp Proof RType SourcePos
+  | TyLam String Proof SourcePos
+  | ConvProof Term Proof Term SourcePos
+  | ConvIntro Proof SourcePos
+  | ConvElim Proof SourcePos
+  | Iota Term Term SourcePos
+  | RhoElim String Term Term Proof Proof SourcePos
+  | Pair Proof Proof SourcePos
+  | Pi Proof String String String Proof SourcePos
+  deriving (Show, Eq)
+
+data RelJudgment = RelJudgment Term RType Term -- t [R] t'
+  deriving (Show, Eq)
+
+data MacroBody
+  = TermMacro Term
+  | RelMacro RType
+  deriving (Show, Eq)
+
+data Declaration
+  = MacroDef String [String] MacroBody
+  | TheoremDef String [Binding] RelJudgment Proof
+  | ImportDecl ImportDeclaration
+  | ExportDecl ExportDeclaration
+  deriving (Show, Eq)
+
+data Binding
+  = TermBinding String -- (t : Term)
+  | RelBinding String -- (R : Rel)
+  | ProofBinding String RelJudgment -- (p : t[R]u)
+  deriving (Show, Eq)
+
+-- | Context for type checking, tracking bound variables and their types
+data TypingContext = TypingContext
+  { termBindings :: Map.Map String (Int, RType), -- var name -> (de Bruijn index, type)
+    relBindings :: Map.Map String Int, -- rel var name -> de Bruijn index
+    proofBindings :: Map.Map String (Int, Int, RelJudgment) -- proof var -> (index, termDepthWhenStored, judgment)
+  }
+  deriving (Show, Eq)
+
+-- | Environment mapping type variables to relational types
+data TypeEnvironment = TypeEnvironment
+  { typeVarBindings :: Map.Map String RType
+  }
+  deriving (Show, Eq)
+
+-- | Environment for macro definitions
+data MacroEnvironment = MacroEnvironment
+  { macroDefinitions :: Map.Map String ([String], MacroBody) -- macro name -> (params, body)
+  }
+  deriving (Show, Eq)
+
+-- | Environment for theorem definitions
+data TheoremEnvironment = TheoremEnvironment
+  { theoremDefinitions :: Map.Map String ([Binding], RelJudgment, Proof) -- theorem name -> (bindings, judgment, proof)
+  }
+  deriving (Show, Eq)
+
+-- | Module system types
+
+-- | Type alias for module file paths
+type ModulePath = String
+
+-- | Visibility of declarations
+data Visibility = Public | Private
+  deriving (Show, Eq)
+
+-- | Import declaration types
+data ImportDeclaration
+  = ImportModule ModulePath -- import "path/file.rtt"
+  | ImportModuleAs ModulePath String -- import "path/file.rtt" as ModName
+  | ImportOnly ModulePath [String] -- import "path/file.rtt" (name1, name2)
+  deriving (Show, Eq)
+
+-- | Export declaration
+data ExportDeclaration = ExportSymbols [String] -- export Symbol1, Symbol2
+  deriving (Show, Eq)
+
+-- | Information about a loaded module
+data ModuleInfo = ModuleInfo
+  { modulePath :: ModulePath,
+    moduleAlias :: Maybe String,
+    loadedMacros :: MacroEnvironment,
+    loadedTheorems :: TheoremEnvironment,
+    exportedSymbols :: [String], -- empty list means export all
+    importDeclarations :: [ImportDeclaration] -- track imports for dependency graph
+  }
+  deriving (Show, Eq)
+
+-- | Extract source position from Term
+termPos :: Term -> SourcePos
+termPos (Var _ _ pos) = pos
+termPos (Lam _ _ pos) = pos
+termPos (App _ _ pos) = pos
+termPos (TMacro _ _ pos) = pos
+
+-- | Extract source position from RType
+rtypePos :: RType -> SourcePos
+rtypePos (RVar _ _ pos) = pos
+rtypePos (RMacro _ _ pos) = pos
+rtypePos (Arr _ _ pos) = pos
+rtypePos (All _ _ pos) = pos
+rtypePos (Conv _ pos) = pos
+rtypePos (Comp _ _ pos) = pos
+rtypePos (Prom _ pos) = pos
+
+-- | Extract source position from Proof
+proofPos :: Proof -> SourcePos
+proofPos (PVar _ _ pos) = pos
+proofPos (PTheorem _ pos) = pos
+proofPos (LamP _ _ _ pos) = pos
+proofPos (AppP _ _ pos) = pos
+proofPos (TyApp _ _ pos) = pos
+proofPos (TyLam _ _ pos) = pos
+proofPos (ConvProof _ _ _ pos) = pos
+proofPos (ConvIntro _ pos) = pos
+proofPos (ConvElim _ pos) = pos
+proofPos (Iota _ _ pos) = pos
+proofPos (RhoElim _ _ _ _ _ pos) = pos
+proofPos (Pair _ _ pos) = pos
+proofPos (Pi _ _ _ _ _ pos) = pos

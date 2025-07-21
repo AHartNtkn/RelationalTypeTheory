@@ -1,0 +1,2 @@
+-- Test file that imports a nonexistent file
+import "nonexistent.rtt";

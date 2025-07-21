@@ -1,0 +1,158 @@
+-- demo.rtt: Demonstrates all RelTT proof constructors in their most general form
+-- Each example shows the typing rule from the paper in action
+
+-- =============================================================================
+-- 1. ASSUMPTION RULE
+-- =============================================================================
+-- Rule: x : t [R] t' ∈ Γ  ⇒  Γ ⊢ x : t [R] t'
+⊢ assumption (a : Term) (b : Term) (R : Rel) (p : a [R] b) : a [R] b := p;
+
+-- =============================================================================
+-- 2. ARROW INTRODUCTION (Lambda Abstraction)
+-- =============================================================================
+-- Rule: Γ, p : x [R] x' ⊢ q : t [R'] t'  (*)  ⇒  Γ ⊢ λp:R.q : λx.t [R → R'] λx'.t'
+-- Side condition (*): x ∉ FV(Γ, R, R')
+⊢ arrow_intro (a : Term) (b : Term) (f : Term) : (λx.a) [f → b] (λx.(b a)) := λp:f. ι⟨a,b⟩;
+
+-- =============================================================================
+-- 3. ARROW ELIMINATION (Application)
+-- =============================================================================
+-- Rule: Γ ⊢ p₁ : t₁ [R → R'] t₁'  Γ ⊢ p₂ : t₂ [R] t₂'  ⇒  Γ ⊢ p₁ p₂ : t₁ t₂ [R'] t₁' t₂'
+⊢ arrow_elim (R : Rel) (S : Rel) (a : Term) (b : Term) (c : Term) (d : Term) (f : a [R → S] b) (g : c [R] d) : (a c) [S] (b d) := f g;
+
+-- =============================================================================
+-- 4. UNIVERSAL INSTANTIATION
+-- =============================================================================
+-- Rule: Γ ⊢ p : t [∀X.R'] t'  ⇒  Γ ⊢ p{R} : t [[R/X]R'] t'
+⊢ forall_inst (R : Rel) (a : Term) (b : Term) (p : a [∀X.X] b) : a [R] b := p{R};
+
+-- =============================================================================
+-- 5. UNIVERSAL GENERALIZATION
+-- =============================================================================
+-- Rule: Γ ⊢ p : t [R] t'  X ∉ FV(Γ)  ⇒  Γ ⊢ ΛX.p : t [∀X.R] t'
+⊢ forall_gen (a : Term) (b : Term) (p : a [((λy.a))] b) : a [∀X.((λy.a))] b := ΛX.p;
+
+-- =============================================================================
+-- 6. CONVERSION
+-- =============================================================================
+-- Rule: Γ ⊢ p : t₁ [R] t₂  t₁ =βη t₁'  t₂ =βη t₂'  ⇒  Γ ⊢ t₁' ◁ p ▷ t₂' : t₁' [R] t₂'
+⊢ conversion (R : Rel) (f : Term) (a : Term) (p : ((λx.f x) a) [R] ((λy.f y) a)) : (f a) [R] (f a) := (f a) ⇃ p ⇂ (f a);
+
+-- =============================================================================
+-- 7. CONVERSE ELIMINATION
+-- =============================================================================
+-- Rule: Γ ⊢ p : t [R˘] t'  ⇒  Γ ⊢ ∪ₑ p : t' [R] t
+⊢ conv_elim (R : Rel) (a : Term) (b : Term) (p : a [R˘] b) : b [R] a := ∪ₑ p;
+
+-- =============================================================================
+-- 8. CONVERSE INTRODUCTION
+-- =============================================================================
+-- Rule: Γ ⊢ p : t [R] t'  ⇒  Γ ⊢ ∪ᵢ p : t' [R˘] t
+⊢ conv_intro (R : Rel) (a : Term) (b : Term) (p : a [R] b) : b [R˘] a := ∪ᵢ p;
+
+-- =============================================================================
+-- 9. IOTA INTRODUCTION (Terms as Relations)
+-- =============================================================================
+-- Rule: ⊢ Γ ⇒ ι{t,t'} : t [t'] t' t
+-- This proves that t is related to t' when t' is viewed as a function (i.e., t' = t'(t))
+-- When a term f is used as a relation, it relates x to f(x)
+⊢ iota (a : Term) (f : Term) : a [f] (f a) := ι⟨a,f⟩;
+
+-- =============================================================================
+-- 10. RHO ELIMINATION
+-- =============================================================================
+-- Rule: Γ ⊢ p : t [t''] t'  Γ ⊢ p' : [t'' t/x]t₁ [R] [t'' t/x]t₂  ⇒  Γ ⊢ ρ{x.t₁,t₂} p - p' : [t'/x]t₁ [R] [t'/x]t₂
+⊢ rho_elim (R : Rel) (a : Term) (f : Term) (eq : a [f] (f a)) (p : a [R] a) : a [R] a := ρ{x.a,a} eq - p;
+
+-- ============================================================================
+-- 11. π‑ELIMINATION (COMPOSITION ELIMINATION) 
+-- Rule: Γ ⊢ p : t [R·R'] t'  Γ, u : t [R] x, v : x [R'] t' ⊢ p' : t₁ [R''] t₂  ⇒  Γ ⊢ π p - x.u.v.p' : t₁ [R''] t₂
+-- Side condition: x ∉ FV(Γ, t₁, t₂, t, t', R, R', R'')
+-- Each block shows a different idiom for using π p - x.u.v.p' …
+-- References: RelTT Fig. 7 (syntax, erasure) and Fig. 8 (typing rules)
+-- ============================================================================
+
+-- 11a.  Unpack‑and‑repack (sanity check)
+--       Just proves that π followed by (,) is the identity on composite proofs.
+⊢ pi_repack
+    (R : Rel) (S : Rel) (a : Term) (b : Term)
+    (p : a [R ∘ S] b)
+  : a [R ∘ S] b
+  := π p - x.u.v.(u,v);
+
+-- 11b.  Associativity  (a[R∘(S∘T)]d  ⇒  a[((R∘S)∘T)]d)
+⊢ pi_assoc
+    (R : Rel) (S : Rel) (T : Rel) (a : Term) (d : Term)
+    (p : a [R ∘ (S ∘ T)] d)
+  : a [(R ∘ S) ∘ T] d
+  := π p - x.u.v.          -- u : a[R]x , v : x[S∘T]d
+       π v - y.w.z.        -- w : x[S]y , z : y[T]d
+         ((u,w), z);
+
+-- 11c.  Right‑to‑left associativity  (mirror of 11b)
+⊢ pi_assoc_sym
+    (R : Rel) (S : Rel) (T : Rel) (a : Term) (d : Term)
+    (p : a [(R ∘ S) ∘ T] d)
+  : a [R ∘ (S ∘ T)] d
+  := π p - y.w.z.          -- w : a[R∘S]y , z : y[T]d
+       π w - x.u.v.        -- u : a[R]x   , v : x[S]y
+         (u,(v,z));
+
+-- 11d.  Converse flip
+--       a[R∘S]b  ⇒  b[S˘∘R˘]a    (extract, take converses, swap order)
+⊢ pi_converse
+    (R : Rel) (S : Rel) (a : Term) (b : Term)
+    (p : a [R ∘ S] b)
+  : b [S˘ ∘ R˘] a
+  := π p - x.u.v.(∪ᵢ v, ∪ᵢ u);
+
+-- 11e  :  left‑identity for composition
+-- Given  p : a [(λz.z) ∘ R] b              prove  a [R] b
+-- Uses:  π‑elim + converse‑intro + ρ‑elim + conversion.
+⊢ pi_left_id
+    (S : Rel) (a : Term) (b : Term)
+    (p : a [(λz.z)˘ ∘ S] b)
+  : a [S] b
+  := π p - x.eq.rel.                            -- eq : a[(λz.z)ˆ]x , rel : x[R]b
+       ρ{y.y,b} (∪ₑ eq) -                      -- ∪ᵢ eq : x[(λz.z)ˆ]a  (Id is self‑converse)
+         ((λz.z) x) ⇃ rel ⇂ b;                 -- convert  x  → (λz.z) x   on LHS
+
+-- 11f.  π followed by ρ  (left‑identity law)
+--       Goal:   a [R ∘ (λz.z)] b   →   a [R] b
+--       Strategy:
+--         1.  π‑eliminate the composite to expose
+--                rel : a[R]x                -- the real relation
+--                eq  : x[(λz.z)]b           -- identity proof
+--         2.  Flip orientation of eq (∪ₑ) to get
+--                q : x[(λz.z)]a
+--         3.  ρ‑rewrite the left endpoint of rel from x to a.
+⊢ pi_right_id
+    (R : Rel) (a : Term) (b : Term)
+    (p : a [R ∘ (λz.z)] b)
+  : a [R] b
+  := π p - x.rel.eq.        -- rel : a[R]x , eq : x[(λz.z)]b
+       ρ{z.a,z} eq - 
+        a ⇃ rel ⇂ ((λz.z) x);   -- eq has promoted type, use identity substitution
+
+-- 11g.  Double nesting depth three
+--       Builds a witness of length 3 from length 1 in the obvious way.
+⊢ pi_expand
+    (R : Rel) (S : Rel) (T : Rel) (a : Term) (d : Term)
+    (p : a [(R ∘ S) ∘ T] d)
+  : a [R ∘ (S ∘ T)] d
+  := π p - x.u.v.           -- u : a[R∘S]x , v : x[T]d
+       π u - y.w.z.         -- w : a[R]y   , z : y[S]x
+         (w,(z,v));
+
+-- =============================================================================
+-- 12. COMPOSITION INTRODUCTION (Pairing)
+-- =============================================================================
+-- Rule: Γ ⊢ p : t [R] t''  Γ ⊢ p' : t'' [R'] t'  ⇒  Γ ⊢ (p,p') : t [R·R'] t'
+⊢ comp_intro (R : Rel) (S : Rel) (a : Term) (b : Term) (c : Term) (p : a [R] b) (q : b [S] c) : a [R ∘ S] c := (p,q);
+
+-- =============================================================================
+-- EXAMPLES
+-- =============================================================================
+
+-- Double converse cancels out
+⊢ double_conv (R : Rel) (a : Term) (b : Term) (p : a [R] b) : a [R] b := ∪ₑ (∪ᵢ p);
