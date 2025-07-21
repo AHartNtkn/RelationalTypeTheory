@@ -1,6 +1,6 @@
 # RelTT-Haskell
 
-A complete implementation of Relational Type Theory (RelTT) in Haskell, providing a proof assistant for relational programming and verification.
+A complete implementation of Relational Type Theory (RelTT) in Haskell, providing a proof assistant for relational proving and verification.
 
 ## Overview
 
@@ -14,7 +14,7 @@ The implementation includes:
 - **Macro system** with cycle detection and validation
 - **Comprehensive error reporting** with source location information
 
-## Capabilities
+## Motivation
 
 This theory is expressive enough to act as a foundation for mathematics, despite lacking anything like a universe of types. It avoids this by not begging the question. Instead of types that can contain anything, the first-class objects are relations between untyped lambda expressions. There's nothing like a thing that could contain more of that thing in the first place.
 
