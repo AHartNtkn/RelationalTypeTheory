@@ -58,11 +58,41 @@
 -- When a term f is used as a relation, it relates x to f(x)
 ⊢ iota (a : Term) (f : Term) : a [f] (f a) := ι⟨a,f⟩;
 
--- =============================================================================
--- 10. RHO ELIMINATION
--- =============================================================================
+-- ============================================================================
+-- 10. ρ‑ELIMINATION (SUBSTITUTION ELIMINATION)
 -- Rule: Γ ⊢ p : t [t''] t'  Γ ⊢ p' : [t'' t/x]t₁ [R] [t'' t/x]t₂  ⇒  Γ ⊢ ρ{x.t₁,t₂} p - p' : [t'/x]t₁ [R] [t'/x]t₂
-⊢ rho_elim (R : Rel) (a : Term) (f : Term) (eq : a [f] (f a)) (p : a [R] a) : a [R] a := ρ{x.a,a} eq - p;
+-- Side condition: Substitution must be well-formed
+-- Each block shows a different pattern for using ρ p - p' to rewrite endpoints…
+-- References: RelTT substitution rules and endpoint rewriting
+-- ============================================================================
+
+-- 10a.  Identity endpoint rewriting
+--       Uses equality proof to rewrite both endpoints to the same term.
+--       Strategy: Given a[f]b and (f a)[R](f a), prove b[R]b by endpoint substitution.
+⊢ rho_elim_id (R : Rel) (a : Term) (b : Term) (f : Term)
+    (eq : a [f] b) (p : (f a) [R] (f a)) : b [R] b
+    := ρ{x.x,x} eq - p;
+
+-- 10b.  Left endpoint rewriting
+--       Rewrites the right endpoint of a relation from (f a) to b.
+--       Strategy: Given a[f]b and a[R](f a), use ρ to substitute b for the right endpoint.
+⊢ rho_elim_left (R : Rel) (a : Term) (b : Term) (f : Term) 
+    (eq : a [f] b) (p : a [R] (f a)) : a [R] b
+    := ρ{x.a,x} eq - p;
+
+-- 10c.  Right endpoint rewriting  
+--       Rewrites the left endpoint of a relation from (f a) to b.
+--       Strategy: Given a[f]b and (f a)[R]a, use ρ to substitute b for the left endpoint.
+⊢ rho_elim_right (R : Rel) (a : Term) (b : Term) (f : Term)
+    (eq : a [f] b) (p : (f a) [R] a) : b [R] a
+    := ρ{x.x,a} eq - p;
+
+-- 10d.  Nested substitution (context rewriting)
+--       Simultaneously rewrites nested occurrences within compound expressions.
+--       Strategy: Given a[f]b and (g (f a))[R](h (f a)), substitute b for (f a) in both contexts.
+⊢ rho_elim_inside (R : Rel) (a : Term) (b : Term) (f : Term) (g : Term) (h : Term)
+    (eq : a [f] b) (p : (g (f a)) [R] (h (f a))) : (g b) [R] (h b)
+    := ρ{x.(g x),(h x)} eq - p;
 
 -- ============================================================================
 -- 11. π‑ELIMINATION (COMPOSITION ELIMINATION) 

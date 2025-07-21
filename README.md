@@ -25,7 +25,7 @@ That this theory is expressive enough to act as a foundation of mathematics is l
 - **Inductive data types** - encoded using a simplte trick using the sub-typing relation
 - **Type-level application** - a la subtyping approaches to realizability
 - **Singleton types** - using type-level application, we can encode PERs that relate, up to beta-eta, a single lambda expression to itself
-- **Dependent types**: we can encode dependent types using well-known singleton type tricks
+- **Dependent types** - we can encode dependent types using well-known singleton type tricks
 
 It's a very different way of doing things which is extraordinarily simple and aesthetically pleasing.
 
