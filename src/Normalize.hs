@@ -4,14 +4,14 @@ module Normalize
     termEquality,
     termEqualityAlpha,
     substituteTerm,
-    shiftTerm,
-    shiftTermAbove,
-    shiftTermWithBoundsCheck,
-    shiftTermAboveWithBoundsCheck,
     freeVariables,
     expandTermMacrosOneStep,
+    expandTermMacros,
+    expandTermMacrosWHNF,
     NormalizationStrategy (..),
     NormalizationResult (..),
+    TermExpansionResult (..),
+    TermExpansionMode (..),
   )
 where
 
@@ -19,7 +19,7 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Errors
 import Lib
-import TermOps (expandTermMacros, expandTermMacrosWHNF, TermExpansionResult(..))
+import Shifting
 
 -- | Strategy for normalization
 data NormalizationStrategy
@@ -33,6 +33,21 @@ data NormalizationResult = NormalizationResult
   { normalizedTerm :: Term,
     reductionSteps :: Int,
     wasNormalized :: Bool -- True if any reduction occurred
+  }
+  deriving (Show, Eq)
+
+-- | Mode of term macro expansion
+data TermExpansionMode
+  = NoTermExpansion -- Don't expand macros
+  | WeakHeadTermExpansion -- Expand to weak head normal form
+  | FullTermExpansion -- Fully expand all macros
+  deriving (Show, Eq)
+
+-- | Result of term macro expansion
+data TermExpansionResult = TermExpansionResult
+  { expandedTerm :: Term,
+    termExpansionSteps :: Int,
+    wasTermExpanded :: Bool
   }
   deriving (Show, Eq)
 
@@ -84,6 +99,14 @@ shiftTerm shift = shiftTermAbove 0 shift
 -- | Get the set of free variable names in a term
 freeVariables :: Term -> Set.Set String
 freeVariables = freeVarsAtLevel 0
+
+-- | Fully expand all term macros in a term
+expandTermMacros :: MacroEnvironment -> Term -> Either RelTTError TermExpansionResult
+expandTermMacros env term = expandTermWithStepLimit env FullTermExpansion 1000 term
+
+-- | Expand term macros to weak head normal form only
+expandTermMacrosWHNF :: MacroEnvironment -> Term -> Either RelTTError TermExpansionResult
+expandTermMacrosWHNF env term = expandTermWithStepLimit env WeakHeadTermExpansion 1000 term
 
 -- Internal implementation functions
 
@@ -170,40 +193,6 @@ substituteAtIndex n s t = subst n (shiftTermAbove 0 n s) t
       TMacro name args pos -> do
         args' <- mapM (subst idx replacement) args
         return $ TMacro name args' pos
-
--- | Shift de Bruijn indices above a cutoff
-shiftTermAbove :: Int -> Int -> Term -> Term
-shiftTermAbove cutoff shift term = case term of
-  Var name i pos
-    | i >= cutoff -> Var name (i + shift) pos
-    | otherwise -> term
-  Lam name body pos -> Lam name (shiftTermAbove (cutoff + 1) shift body) pos
-  App t1 t2 pos -> App (shiftTermAbove cutoff shift t1) (shiftTermAbove cutoff shift t2) pos
-  TMacro name args pos -> TMacro name (map (shiftTermAbove cutoff shift) args) pos
-
--- | Shift term indices with bounds checking - returns Nothing if any index would go negative
-shiftTermWithBoundsCheck :: Int -> Term -> Maybe Term
-shiftTermWithBoundsCheck shift = shiftTermAboveWithBoundsCheck 0 shift
-
--- | Shift term indices above cutoff with bounds checking
-shiftTermAboveWithBoundsCheck :: Int -> Int -> Term -> Maybe Term
-shiftTermAboveWithBoundsCheck cutoff shift term = case term of
-  Var name i pos ->
-    if i >= cutoff
-      then
-        let newIdx = i + shift
-         in if newIdx < 0 then Nothing else Just (Var name newIdx pos)
-      else Just term
-  Lam name body pos -> do
-    shiftedBody <- shiftTermAboveWithBoundsCheck (cutoff + 1) shift body
-    return $ Lam name shiftedBody pos
-  App t1 t2 pos -> do
-    shiftedT1 <- shiftTermAboveWithBoundsCheck cutoff shift t1
-    shiftedT2 <- shiftTermAboveWithBoundsCheck cutoff shift t2
-    return $ App shiftedT1 shiftedT2 pos
-  TMacro name args pos -> do
-    shiftedArgs <- mapM (shiftTermAboveWithBoundsCheck cutoff shift) args
-    return $ TMacro name shiftedArgs pos
 
 -- | Check if a variable name is free in a term
 isFreeInTerm :: String -> Term -> Bool
@@ -303,3 +292,80 @@ substituteMacroArgs maxIdx args term =
       Right result -> result
       Left _ -> error "Macro substitution failed"
   ) term (zip [maxIdx, maxIdx-1..0] args)
+
+-- | Expand terms with a step limit to prevent infinite loops
+expandTermWithStepLimit :: MacroEnvironment -> TermExpansionMode -> Int -> Term -> Either RelTTError TermExpansionResult
+expandTermWithStepLimit env mode maxSteps term =
+  if maxSteps <= 0
+    then Left $ InternalError "Term macro expansion step limit exceeded - possible infinite cycle" (ErrorContext (termPos term) "term macro expansion")
+    else expandTermWithMode env mode maxSteps term
+
+-- | Expand terms with a specific mode
+expandTermWithMode :: MacroEnvironment -> TermExpansionMode -> Int -> Term -> Either RelTTError TermExpansionResult
+expandTermWithMode env mode maxSteps term = case term of
+  TMacro name args pos -> do
+    case Map.lookup name (macroDefinitions env) of
+      Nothing ->
+        -- Undefined macro - this is an error
+        Left $ UnboundMacro name (ErrorContext pos "term macro expansion")
+      Just (params, body) -> do
+        -- It's a macro - check if it's a term macro
+        case body of
+          TermMacro termBody -> do
+            if length params /= length args
+              then
+                Left $
+                  MacroArityMismatch
+                    name
+                    (length params)
+                    (length args)
+                    (ErrorContext pos "term macro expansion")
+              else do
+                -- Expand arguments first
+                expandedArgs <- mapM (expandTermWithMode env mode maxSteps) args
+                let resultArgs = map expandedTerm expandedArgs
+                    argSteps = sum (map termExpansionSteps expandedArgs)
+
+                -- Substitute arguments into macro body using de Bruijn indices
+                -- Parameters are bound in reverse order: first param gets highest index
+                let expandedBody = substituteMacroArgs (length params - 1) resultArgs termBody
+
+                case mode of
+                  NoTermExpansion ->
+                    return $ TermExpansionResult (TMacro name resultArgs pos) argSteps True
+                  WeakHeadTermExpansion ->
+                    -- For WHNF, just return the substituted body without further expansion
+                    return $ TermExpansionResult expandedBody (argSteps + 1) True
+                  FullTermExpansion -> do
+                    -- Recursively expand the substituted body
+                    bodyResult <- expandTermWithMode env mode (maxSteps - 1) expandedBody
+                    return $
+                      TermExpansionResult
+                        (expandedTerm bodyResult)
+                        (argSteps + 1 + termExpansionSteps bodyResult)
+                        True
+          RelMacro _ ->
+            Left $ UnboundMacro name (ErrorContext pos "expected term macro but found relational macro")
+  Var _ _ _ ->
+    -- Variables don't expand
+    return $ TermExpansionResult term 0 False
+  Lam name body pos -> do
+    -- Expand inside lambda body
+    bodyResult <- expandTermWithMode env mode maxSteps body
+    if wasTermExpanded bodyResult
+      then
+        return $
+          TermExpansionResult
+            (Lam name (expandedTerm bodyResult) pos)
+            (termExpansionSteps bodyResult)
+            True
+      else return $ TermExpansionResult term 0 False
+  App t1 t2 pos -> do
+    -- Expand both parts of application
+    exp1 <- expandTermWithMode env mode maxSteps t1
+    exp2 <- expandTermWithMode env mode maxSteps t2
+    let totalSteps = termExpansionSteps exp1 + termExpansionSteps exp2
+        anyExpanded = wasTermExpanded exp1 || wasTermExpanded exp2
+    if anyExpanded
+      then return $ TermExpansionResult (App (expandedTerm exp1) (expandedTerm exp2) pos) totalSteps True
+      else return $ TermExpansionResult term 0 False

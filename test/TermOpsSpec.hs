@@ -5,7 +5,7 @@ module TermOpsSpec (spec) where
 import Context (extendMacroEnvironment, noMacros)
 import Errors
 import Lib
-import TermOps
+import Normalize
 import Test.Hspec
 import Text.Megaparsec (initialPos)
 import TypeOps

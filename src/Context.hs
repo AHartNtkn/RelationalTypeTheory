@@ -31,9 +31,8 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Errors
 import Lib
-import Normalize (shiftTerm)
+import Shifting (shiftTerm, shiftTermsInRType)
 import Text.Megaparsec (initialPos)
-import TypeOps (shiftTermsInRType)
 
 -- | Create an empty typing context
 emptyTypingContext :: TypingContext

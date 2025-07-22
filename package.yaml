@@ -47,8 +47,8 @@ library:
   - Lib
   - Parser
   - Normalize
-  - TermOps
   - TypeOps
+  - Shifting
   - Context
   - Errors
   - ProofChecker

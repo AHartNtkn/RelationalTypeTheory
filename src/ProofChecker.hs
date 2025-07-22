@@ -16,9 +16,9 @@ import Context
 import qualified Data.Set as Set
 import Errors
 import Lib
-import Normalize (shiftTerm, shiftTermWithBoundsCheck, termEquality, termEqualityAlpha)
-import TypeOps (shiftTermsInRType, shiftTermsInRTypeWithBoundsCheck, substituteTypeVar, typeEquality, expandMacrosWHNF, ExpansionResult(..), shiftRelsInRType)
-import TermOps (expandTermMacros, TermExpansionResult(..))
+import Normalize (termEquality, termEqualityAlpha, expandTermMacros, TermExpansionResult(..))
+import TypeOps (substituteTypeVar, typeEquality, expandMacrosWHNF, ExpansionResult(..))
+import Shifting (shiftTerm, shiftTermWithBoundsCheck, shiftTermsInRType, shiftTermsInRTypeWithBoundsCheck, shiftRelsInRType)
 
 -------------------------------------------------------------------------------
 -- Utilities: "lift everything except the protected names"
