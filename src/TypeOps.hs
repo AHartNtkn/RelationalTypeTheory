@@ -123,32 +123,55 @@ typeEquality env t1 t2 = case (t1, t2) of
     termEquality env term1 term2
   _ -> return False
 
--- | Substitute a relational type for a type variable with proper de Bruijn index handling
-substituteTypeVar :: String -> RType -> RType -> RType
-substituteTypeVar var replacement ty = substituteTypeVarWithDepth var replacement 0 ty
+-- | Substitute relational variable at given index with type 's' in 'body', keeping
+--   de Bruijn indices consistent under *any* nesting of ∀-binders.
+substituteTypeVar :: Int      -- ^ index of the bound variable to substitute
+                  -> RType    -- ^ s  — replacement type
+                  -> RType    -- ^ body (under that binder)
+                  -> RType
+substituteTypeVar targetIndex s body = go 0 body
+  where
+    -- go d τ  ::  τ under d enclosing binders
+    go :: Int -> RType -> RType
+    go d ty = case ty of
+      RVar y k p
+        | k == d + targetIndex ->            -- bound occurrence at target index
+            shiftRelsInRType d s             -- put 's' under the d binders
+        | k > d + targetIndex -> RVar y (k-1) p  -- bypass the deleted binder
+        | otherwise       -> ty              -- untouched
 
--- | Internal substitution with binding depth tracking
-substituteTypeVarWithDepth :: String -> RType -> Int -> RType -> RType
-substituteTypeVarWithDepth var replacement depth ty = case ty of
-  RVar name _ _
-    | name == var -> shiftRelsInRType depth replacement -- Shift replacement for current binding depth
-    | otherwise -> ty
-  RMacro name args pos -> RMacro name (map (substituteTypeVarWithDepth var replacement depth) args) pos
-  Arr t1 t2 pos ->
-    Arr
-      (substituteTypeVarWithDepth var replacement depth t1)
-      (substituteTypeVarWithDepth var replacement depth t2)
-      pos
-  All boundVar body pos
-    | boundVar == var -> ty -- Variable is shadowed, no substitution
-    | otherwise -> All boundVar (substituteTypeVarWithDepth var replacement (depth + 1) body) pos
-  Conv t pos -> Conv (substituteTypeVarWithDepth var replacement depth t) pos
-  Comp t1 t2 pos ->
-    Comp
-      (substituteTypeVarWithDepth var replacement depth t1)
-      (substituteTypeVarWithDepth var replacement depth t2)
-      pos
-  Prom term pos -> Prom term pos -- Terms don't contain type variables
+      All y t p     -> All  y (go (d+1) t) p -- enter another binder
+      Arr  a b p    -> Arr  (go d a) (go d b) p
+      Comp a b p    -> Comp (go d a) (go d b) p
+      Conv r p      -> Conv (go d r) p
+      RMacro n as p -> RMacro n (map (go d) as) p
+      Prom t  p     -> Prom t p              -- terms unchanged
+
+-- | Simultaneously substitute multiple variables in a type
+--   This is the ONLY correct way to handle macro parameter substitution
+substituteMultipleTypeVars :: [(Int, RType)] -- ^ [(index, replacement), ...]
+                           -> RType          -- ^ body
+                           -> RType
+substituteMultipleTypeVars substitutions body = go 0 body
+  where
+    go :: Int -> RType -> RType
+    go d ty = case ty of
+      RVar y k p ->
+        case lookup (k - d) substitutions of
+          Just replacement -> shiftRelsInRType d replacement  -- substitute and shift
+          Nothing -> 
+            -- Decrement index by number of substitutions that are lower-indexed
+            let decrementAmount = length $ filter (\(idx, _) -> idx < (k - d)) substitutions
+            in if k - d >= 0 && decrementAmount > 0
+               then RVar y (k - decrementAmount) p
+               else ty
+               
+      All y t p     -> All  y (go (d+1) t) p
+      Arr  a b p    -> Arr  (go d a) (go d b) p
+      Comp a b p    -> Comp (go d a) (go d b) p
+      Conv r p      -> Conv (go d r) p
+      RMacro n as p -> RMacro n (map (go d) as) p
+      Prom t  p     -> Prom t p
 
 -- | Shift term variable indices in relational types
 shiftTermsInRType :: Int -> RType -> RType
@@ -240,9 +263,10 @@ normalizeMacroApplication env name args = do
               (length args)
               (ErrorContext (initialPos "<generated>") "macro application")
         else do
-          -- Substitute arguments for parameters in body
-          let substitutions = zip params args
-          return $ foldr (uncurry substituteTypeVar) rtypeBody substitutions
+          -- Substitute arguments for parameters in body simultaneously
+          -- Parameters are indexed in reverse order (most recent = index 0)
+          let substitutions = zip [length params - 1, length params - 2 .. 0] args
+          return $ substituteMultipleTypeVars substitutions rtypeBody
     TermMacro _ ->
       Left $ throwMacroError name (initialPos "<generated>") "expected relational macro but found term macro"
 
@@ -285,9 +309,10 @@ expandWithMode env mode maxSteps ty = case ty of
                 let resultArgs = map expandedType expandedArgs
                     argSteps = sum (map expansionSteps expandedArgs)
 
-                -- Substitute arguments into macro body
-                let substitutions = zip params resultArgs
-                    expandedBody = foldr (uncurry substituteTypeVar) rtypeBody substitutions
+                -- Substitute arguments into macro body simultaneously
+                -- Parameters are indexed in reverse order (most recent = index 0)
+                let substitutions = zip [length params - 1, length params - 2 .. 0] resultArgs
+                    expandedBody = substituteMultipleTypeVars substitutions rtypeBody
 
                 case mode of
                   NoExpansion ->

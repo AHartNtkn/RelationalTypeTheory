@@ -45,7 +45,8 @@ data RelTTError
   | ContextInconsistency String ErrorContext
   | -- Proof checking errors
     ProofTypingError Proof RelJudgment RelJudgment (Maybe (RelJudgment, RelJudgment)) ErrorContext -- proof, expected, actual, optional (normalized expected, normalized actual)
-  | TermConversionError Term Term Term Term ErrorContext -- t1, t1', t2, t2'
+  | LeftConversionError Term Term ErrorContext -- expected, actual
+  | RightConversionError Term Term ErrorContext -- expected, actual
   | ConverseError Proof RelJudgment ErrorContext -- proof, actual judgment
   | RhoEliminationNonPromotedError Proof RelJudgment ErrorContext -- proof, actual judgment
   | RhoEliminationTypeMismatchError Proof RelJudgment RelJudgment ErrorContext -- proof, expected, actual
@@ -107,16 +108,20 @@ formatError err = case err of
                  ++ show normExpected
                  ++ "\n  Actual judgment (normalized):   "
                  ++ show normActual
-  TermConversionError t1 t1' t2 t2' ctx ->
+  LeftConversionError expected actual ctx ->
     formatWithContext ctx $
-      "Term conversion error: "
-        ++ show t1
-        ++ " ≢ "
-        ++ show t1'
-        ++ " or "
-        ++ show t2
-        ++ " ≢ "
-        ++ show t2'
+      "Left conversion error: expected "
+        ++ show expected
+        ++ " but got "
+        ++ show actual
+        ++ " - these terms are not β-η equivalent"
+  RightConversionError expected actual ctx ->
+    formatWithContext ctx $
+      "Right conversion error: expected "
+        ++ show expected
+        ++ " but got "
+        ++ show actual
+        ++ " - these terms are not β-η equivalent"
   ConverseError proof (RelJudgment t1 rtype t2) ctx ->
     formatWithContext ctx $ "Converse elimination error: proof " ++ show proof ++ " must prove judgment with converse relation, but proves " ++ show t1 ++ " [" ++ show rtype ++ "] " ++ show t2
   RhoEliminationNonPromotedError proof (RelJudgment t1 rtype t2) ctx ->

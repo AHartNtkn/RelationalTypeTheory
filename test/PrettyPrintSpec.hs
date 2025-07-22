@@ -413,11 +413,16 @@ spec = do
         prettyError err `shouldContain` "Expected judgment: x [R] y"
         prettyError err `shouldContain` "Actual judgment: x [S] y"
 
-      it "pretty prints term conversion errors" $ do
-        let err = TermConversionError (Var "x" 0 (initialPos "test")) (Var "x'" 0 (initialPos "test")) (Var "y" 0 (initialPos "test")) (Var "y'" 0 (initialPos "test")) noCtx
-        prettyError err `shouldContain` "Term conversion error:"
-        prettyError err `shouldContain` "Expected: x ≡ x'"
-        prettyError err `shouldContain` "Actual: y ≡ y'"
+      it "pretty prints left conversion errors" $ do
+        let err = LeftConversionError (Var "x" 0 (initialPos "test")) (Var "x'" 0 (initialPos "test")) noCtx
+        prettyError err `shouldContain` "Left conversion error:"
+        prettyError err `shouldContain` "expected x but got x'"
+        prettyError err `shouldContain` "β-η equivalent"
+        
+      it "pretty prints right conversion errors" $ do
+        let err = RightConversionError (Var "y" 0 (initialPos "test")) (Var "y'" 0 (initialPos "test")) noCtx
+        prettyError err `shouldContain` "Right conversion error:"
+        prettyError err `shouldContain` "expected y but got y'"
         prettyError err `shouldContain` "β-η equivalent"
 
       it "pretty prints converse errors" $ do

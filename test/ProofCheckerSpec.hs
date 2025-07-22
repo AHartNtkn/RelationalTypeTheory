@@ -6,8 +6,10 @@ import Context
 import qualified Data.Map as Map
 import Errors
 import Lib
+import Parser (parseDeclaration, runParserEmpty)
 import ProofChecker
 import Test.Hspec
+import TestHelpers (buildContextFromBindings)
 import Text.Megaparsec (initialPos)
 
 spec :: Spec
@@ -28,7 +30,7 @@ spec = do
   theoremReferencingProofCheckSpec
   alphaEquivalenceVsBetaEtaSpec
   judgmentEqualityMacroExpansionSpec
-  deBruijnIndicesBugSpec
+  quantifierDeBruijnBugProofSpec
 
 -- | Test basic proof checking functionality
 basicProofCheckingSpec :: Spec
@@ -344,8 +346,9 @@ conversionProofSpec = describe "conversion proofs (ConvProof)" $ do
         macroEnv = noMacros
 
     case inferProofType ctx macroEnv noTheorems conversionProof of
-      Left (TermConversionError _ _ _ _ _) -> return () -- Expected conversion error
-      Left err -> expectationFailure $ "Expected TermConversionError, got: " ++ show err
+      Left (LeftConversionError _ _ _) -> return () -- Expected left conversion error
+      Left (RightConversionError _ _ _) -> return () -- Expected right conversion error  
+      Left err -> expectationFailure $ "Expected conversion error, got: " ++ show err
       Right _ -> expectationFailure "Expected conversion to fail with non-equivalent terms"
 
   it "rejects conversion proof with mismatched judgment types" $ do
@@ -1159,7 +1162,7 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
             extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
 
         -- Original quantified type: ∀X.(X → A)
-        innerType = Arr (RVar "X" (-1) (initialPos "test")) (RMacro "A" [] (initialPos "test")) (initialPos "test") -- X → A
+        innerType = Arr (RVar "X" 0 (initialPos "test")) (RMacro "A" [] (initialPos "test")) (initialPos "test") -- X → A
         quantifiedType = All "X" innerType (initialPos "test") -- ∀X.(X → A)
 
         -- Body proof establishes the quantified relation
@@ -1865,6 +1868,58 @@ judgmentEqualityMacroExpansionSpec = describe "judgment equality with macro expa
     case relJudgmentEqual macroEnv judgment1 judgment2 of
       Right result -> result `shouldBe` True  -- Should be equal after macro expansion
       Left err -> expectationFailure $ "Judgment equality with relation macro expansion failed: " ++ show err
+
+-- | Test for quantifier de Bruijn index bug in proof checking
+quantifierDeBruijnBugProofSpec :: Spec
+quantifierDeBruijnBugProofSpec = describe "quantifier de Bruijn bug in proof checking" $ do
+  
+  it "type application with unbound relation in quantifier should work" $ do
+    -- This test demonstrates the bug through the proof checker
+    -- p{S} where p : a [∀X.S] b should type check to a [S] b
+    let pos = initialPos "test"
+        -- Create the context with necessary bindings
+        ctx = extendRelContext "S" 
+              $ extendTermContext "a" (RMacro "A" [] pos) 
+              $ extendTermContext "b" (RMacro "B" [] pos) 
+              $ extendProofContext "p" (RelJudgment (Var "a" 1 pos) 
+                                                   (All "X" (RVar "S" 1 pos) pos) 
+                                                   (Var "b" 0 pos))
+              $ emptyTypingContext
+        
+        -- Create the proof: p{S}
+        proof = TyApp (PVar "p" 0 pos) (RVar "S" 0 pos) pos
+        
+        -- Expected judgment: a [S] b
+        expectedJudgment = RelJudgment (Var "a" 1 pos) (RVar "S" 0 pos) (Var "b" 0 pos)
+        
+    -- Check the proof
+    case checkProof ctx noMacros noTheorems proof expectedJudgment of
+      Right _ -> return ()  -- Should succeed
+      Left err -> expectationFailure $ 
+        "Type application should work but failed with: " ++ show err
+        
+  it "nested quantifier type applications work" $ do
+    -- Test nested type applications using proper RelTT syntax
+    let nestedTheorem = "⊢ nested_test (a : Term) (b : Term) (R : Rel) (S : Rel) (T : Rel) (p : a [∀X.∀Y.(X ∘ T)] b) : a [R ∘ T] b := (p{R}){S};"
+        simpleTheorem = "⊢ simple_test (a : Term) (b : Term) (R : Rel) (S : Rel) (p : a [∀X.S] b) : a [S] b := p{R};"
+    
+    case runParserEmpty parseDeclaration nestedTheorem of
+      Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr
+      Right (TheoremDef _ bindings judgment proof) -> do
+        let ctx = buildContextFromBindings bindings
+        case checkProof ctx noMacros noTheorems proof judgment of
+          Right _ -> return ()  -- Should succeed
+          Left err -> expectationFailure $ "Nested quantifier theorem should work: " ++ show err
+      _ -> expectationFailure "Expected theorem declaration"
+    
+    case runParserEmpty parseDeclaration simpleTheorem of
+      Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr  
+      Right (TheoremDef _ bindings judgment proof) -> do
+        let ctx = buildContextFromBindings bindings
+        case checkProof ctx noMacros noTheorems proof judgment of
+          Right _ -> return ()  -- Should succeed
+          Left err -> expectationFailure $ "Simple quantifier theorem should work: " ++ show err
+      _ -> expectationFailure "Expected theorem declaration"
 
   it "expands both term and relation macros together" $ do
     let macroEnv = MacroEnvironment (Map.fromList [

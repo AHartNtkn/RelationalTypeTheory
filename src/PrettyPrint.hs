@@ -307,19 +307,19 @@ prettyError err = case err of
                ++ "\n  Actual judgment (normalized): "
                ++ prettyRelJudgment normActual
       ++ prettyContext ctx
-  TermConversionError t1 t1' t2 t2' ctx ->
-    "Term conversion error:\n"
-      ++ "  Expected: "
-      ++ prettyTerm t1
-      ++ " ≡ "
-      ++ prettyTerm t1'
-      ++ "\n"
-      ++ "  Actual: "
-      ++ prettyTerm t2
-      ++ " ≡ "
-      ++ prettyTerm t2'
-      ++ "\n"
-      ++ "  These terms are not β-η equivalent"
+  LeftConversionError expected actual ctx ->
+    "Left conversion error: expected "
+      ++ prettyTerm expected
+      ++ " but got "
+      ++ prettyTerm actual
+      ++ " - these terms are not β-η equivalent"
+      ++ prettyContext ctx
+  RightConversionError expected actual ctx ->
+    "Right conversion error: expected "
+      ++ prettyTerm expected
+      ++ " but got "
+      ++ prettyTerm actual
+      ++ " - these terms are not β-η equivalent"
       ++ prettyContext ctx
   ConverseError proof judgment ctx ->
     "Converse elimination error: proof " ++ prettyProof proof ++ " must prove judgment with converse relation, but proves " ++ prettyRelJudgment judgment ++ prettyContext ctx

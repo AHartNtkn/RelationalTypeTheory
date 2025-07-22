@@ -13,12 +13,15 @@ module TestHelpers
     shouldBeEqualRType,
     shouldBeEqualProof,
     shouldBeEqualDeclaration,
+    buildContextFromBindings,
   )
 where
 
+import Context
 import Control.Monad (unless)
 import Lib
 import Test.Hspec
+import Text.Megaparsec (initialPos)
 
 -- Helper functions for position-insensitive equality
 equalTerm :: Term -> Term -> Bool
@@ -134,3 +137,21 @@ instance (PositionInsensitive a) => PositionInsensitive [a] where
     shouldBeEqual xs ys
   shouldBeEqual actual expected =
     expectationFailure $ "Lists have different lengths:\nExpected: " ++ show (length expected) ++ " elements\nActual: " ++ show (length actual) ++ " elements"
+
+-- | Build typing context from parsed theorem bindings
+buildContextFromBindings :: [Binding] -> TypingContext
+buildContextFromBindings bindings = buildContext emptyTypingContext bindings
+  where
+    ip = initialPos "test"
+    buildContext ctx [] = ctx
+    buildContext ctx (binding : rest) =
+      case binding of
+        TermBinding name ->
+          let newCtx = extendTermContext name (RMacro "A" [] ip) ctx
+           in buildContext newCtx rest
+        RelBinding name ->
+          let newCtx = extendRelContext name ctx
+           in buildContext newCtx rest
+        ProofBinding name judgment ->
+          let newCtx = extendProofContext name judgment ctx
+           in buildContext newCtx rest

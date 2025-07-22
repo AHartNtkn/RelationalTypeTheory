@@ -186,13 +186,17 @@ proofCheckingErrorsSpec = describe "proof checking errors" $ do
     formatted `shouldContain` "Expected judgment:"
     formatted `shouldContain` "Actual judgment:"
 
-  it "detects term conversion failures in proof conversion" $ do
+  it "detects left conversion failures in proof conversion" $ do
     let t1 = Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")
-        t1' = Lam "y" (Var "y" 0 (initialPos "test")) (initialPos "test") -- α-equivalent, should work
-        t2 = Var "a" (-1) (initialPos "test")
+        t1' = Var "a" (-1) (initialPos "test") -- Not equivalent
+        err = LeftConversionError t1 t1' (ErrorContext (initialPos "test") "proof conversion")
+    formatError err `shouldContain` "Left conversion error"
+    
+  it "detects right conversion failures in proof conversion" $ do
+    let t2 = Var "a" (-1) (initialPos "test")
         t2' = Var "b" (-1) (initialPos "test") -- Not equivalent
-        err = TermConversionError t1 t1' t2 t2' (ErrorContext (initialPos "test") "proof conversion")
-    formatError err `shouldContain` "Term conversion error"
+        err = RightConversionError t2 t2' (ErrorContext (initialPos "test") "proof conversion")
+    formatError err `shouldContain` "Right conversion error"
 
   it "detects converse elimination on non-converse types" $ do
     let nonConverseType = RMacro "RegularType" [] (initialPos "test")

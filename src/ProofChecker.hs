@@ -17,7 +17,7 @@ import qualified Data.Set as Set
 import Errors
 import Lib
 import Normalize (shiftTerm, shiftTermWithBoundsCheck, termEquality, termEqualityAlpha)
-import TypeOps (shiftTermsInRType, shiftTermsInRTypeWithBoundsCheck, substituteTypeVar, typeEquality, expandMacrosWHNF, ExpansionResult(..))
+import TypeOps (shiftTermsInRType, shiftTermsInRTypeWithBoundsCheck, substituteTypeVar, typeEquality, expandMacrosWHNF, ExpansionResult(..), shiftRelsInRType)
 import TermOps (expandTermMacros, TermExpansionResult(..))
 
 -------------------------------------------------------------------------------
@@ -51,6 +51,23 @@ shiftRTypeExcept prot d = go
       Prom t  p   -> Prom (shiftTermExcept prot d t) p
       RMacro n as p -> RMacro n (map go as) p
       other       -> other
+
+-- | shiftFreeRelVars x d τ bumps indices ≥0 by d, but
+-- leaves occurrences of the bound variable x at index 0 unchanged.
+shiftFreeRelVars :: String -> Int -> RType -> RType
+shiftFreeRelVars x d = go 0
+  where
+    go lvl ty = case ty of
+      RVar y k p
+        | k == lvl && y == x -> ty                     -- bound occurrence
+        | k >= lvl           -> RVar y (k+d) p         -- free variable
+        | otherwise          -> ty
+      All y b p   -> All  y (go (lvl+1) b) p
+      Arr a b p   -> Arr  (go lvl a) (go lvl b) p
+      Comp a b p  -> Comp (go lvl a) (go lvl b) p
+      Conv r p    -> Conv (go lvl r) p
+      RMacro n as p -> RMacro n (map (go lvl) as) p
+      Prom t p    -> Prom t p
 
 -- | Result of proof checking
 data ProofCheckResult = ProofCheckResult
@@ -175,7 +192,7 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
 
     case expandedRType of
       All varName bodyType _ -> do
-        let substitutedType = substituteTypeVar varName rtype bodyType
+        let substitutedType = substituteTypeVar 0 rtype bodyType
             finalJudgment = RelJudgment term1 substitutedType term1'
         return $ ProofCheckResult finalJudgment ctx
       _ -> Left $ InvalidTypeApplication rtype1 (ErrorContext pos "type application")
@@ -189,7 +206,9 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
         let extendedCtx = extendRelContext varName ctx
         result <- inferProofType extendedCtx macroEnv theoremEnv body
         let RelJudgment term1 rtype term2 = resultJudgment result
-            quantifiedType = All varName rtype pos
+            -- Shift free relation variables by +1, except the bound variable
+            shiftedRType = shiftFreeRelVars varName 1 rtype
+            quantifiedType = All varName shiftedRType pos
             finalJudgment = RelJudgment term1 quantifiedType term2
         return $ ProofCheckResult finalJudgment ctx
       else Left $ DuplicateBinding varName (ErrorContext pos "type lambda")
@@ -203,11 +222,12 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
     equiv1 <- termEquality macroEnv term1 term1'
     equiv2 <- termEquality macroEnv term2 term2'
 
-    if equiv1 && equiv2
-      then do
+    case (equiv1, equiv2) of
+      (True, True) -> do
         let finalJudgment = RelJudgment term1' rtype term2'
         return $ ProofCheckResult finalJudgment ctx
-      else Left $ TermConversionError term1 term1' term2 term2' (ErrorContext pos "conversion")
+      (False, _) -> Left $ LeftConversionError term1 term1' (ErrorContext pos "left conversion")
+      (_, False) -> Left $ RightConversionError term2 term2' (ErrorContext pos "right conversion")
 
   -- Converse introduction: Γ ⊢ ∪ᵢ p : t'[R^∪]t
   ConvIntro proof1 pos -> do

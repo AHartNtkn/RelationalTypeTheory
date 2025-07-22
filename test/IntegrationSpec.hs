@@ -13,7 +13,7 @@ import ProofChecker
 import Test.Hspec
 import Test.QuickCheck
 import TestHelpers
-import Text.Megaparsec (initialPos)
+import Text.Megaparsec (initialPos, runParser)
 import TypeOps
 
 ip :: SourcePos
@@ -33,6 +33,7 @@ spec = do
   realExamplesSpec
   paperExamplesSpec
   parserProofCheckerPipelineSpec
+  quantifierDeBruijnBugSpec
 
 -- | Test end-to-end workflows combining multiple modules
 endToEndWorkflowSpec :: Spec
@@ -73,11 +74,11 @@ endToEndWorkflowSpec = describe "end-to-end workflows" $ do
 
   it "handles complex type substitution with normalization" $ do
     -- Create a complex type with variables and terms
-    let complexType = Arr (RVar "X" (-1) ip) (Prom (App (Lam "f" (Var "f" 0 ip) ip) (Var "identity" (-1) ip) ip) ip) ip
+    let complexType = Arr (RVar "X" 0 ip) (Prom (App (Lam "f" (Var "f" 0 ip) ip) (Var "identity" 0 ip) ip) ip) ip
         substitution = RMacro "Int" [] ip
 
     -- Perform substitution
-    let substituted = substituteTypeVar "X" substitution complexType
+    let substituted = substituteTypeVar 0 substitution complexType
 
     -- The result should have Int substituted for X
     case substituted of
@@ -182,7 +183,7 @@ realExamplesSpec = describe "realistic RelTT examples" $ do
     Set.null freeVars `shouldBe` True -- No free variables
 
     -- Test substitution (should not affect bound X)
-    let substituted = substituteTypeVar "X" (RMacro "Int" [] ip) universalType
+    let substituted = substituteTypeVar 0 (RMacro "Int" [] ip) universalType
     substituted `shouldBe` universalType
 
   it "handles complex proof judgments" $ do
@@ -393,8 +394,8 @@ compositionExamplesSpec = describe "composition examples" $ do
 
   it "demonstrates complex composition DoubleComp R S := R ∘ R ∘ S" $ do
     -- Corrected: Use RVar with proper de Bruijn indices for macro parameters
-    -- RVar "R" 0 represents the first parameter, RVar "S" 1 represents the second parameter
-    let doubleComp = Comp (RVar "R" 0 ip) (Comp (RVar "R" 0 ip) (RVar "S" 1 ip) ip) ip
+    -- RVar "R" 1 represents the first parameter, RVar "S" 0 represents the second parameter
+    let doubleComp = Comp (RVar "R" 1 ip) (Comp (RVar "R" 1 ip) (RVar "S" 0 ip) ip) ip
         env = extendMacroEnvironment "DoubleComp" ["R", "S"] (RelMacro doubleComp) noMacros
 
     case expandMacros env (RMacro "DoubleComp" [RMacro "Eq" [] ip, RMacro "Lt" [] ip] ip) of
@@ -733,24 +734,6 @@ buildMacroEnvironmentFromDeclarations decls = do
       extendMacroEnvironment name params body env
     addMacro _ env = env
 
--- | Build typing context from parsed theorem bindings
-buildContextFromBindings :: [Binding] -> TypingContext
-buildContextFromBindings bindings = buildContext emptyTypingContext bindings
-  where
-    buildContext ctx [] = ctx
-    buildContext ctx (binding : rest) =
-      case binding of
-        TermBinding name ->
-          let newCtx = extendTermContext name (RMacro "A" [] ip) ctx
-           in buildContext newCtx rest
-        RelBinding name ->
-          let newCtx = extendRelContext name ctx
-           in buildContext newCtx rest
-        ProofBinding name judgment ->
-          -- ProofBinding now contains the full RelJudgment
-          let newCtx = extendProofContext name judgment ctx
-           in buildContext newCtx rest
-
 -- | Parse file content and check a specific theorem
 parseAndCheckTheorem :: String -> String -> Either String ProofCheckResult
 parseAndCheckTheorem fileContent theoremName =
@@ -996,3 +979,95 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
         case checkProof ctx noMacros noTheorems proof judgment of
           _ -> return () -- We mainly want to see the AST structure
       _ -> expectationFailure "Parse failed"
+
+-- | Test for quantifier de Bruijn index bug through integration
+quantifierDeBruijnBugSpec :: Spec
+quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integration)" $ do
+  
+  it "parse and check theorem with unbound relation in quantifier" $ do
+    -- Test Method 2: Parse theorem declaration and check it
+    let theoremText = "⊢ bug_test (S : Rel) (a : Term) (b : Term) (p : a [∀X.S] b) : a [S] b := p{S};"
+    case runParserEmpty parseDeclaration theoremText of
+      Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr
+      Right (TheoremDef _ bindings judgment proof) -> do
+        let ctx = buildContextFromBindings bindings
+        case checkProof ctx noMacros noTheorems proof judgment of
+          Right _ -> return ()  -- Should succeed
+          Left err -> expectationFailure $ 
+            "Theorem should type check but failed due to de Bruijn bug: " ++ show err
+      _ -> expectationFailure "Expected theorem declaration"
+      
+  it "parse and check file content with quantifier bug patterns" $ do
+    -- Test Method 3: Parse full file content
+    let fileContent = unlines
+          [ "-- Multiple theorems demonstrating the bug"
+          , "⊢ constant_bug (S : Rel) (a : Term) (b : Term)"
+          , "    (p : a [∀X.S] b) : a [S] b := p{S};"
+          , ""
+          , "⊢ composition_bug (R : Rel) (S : Rel) (a : Term) (b : Term)"
+          , "    (p : a [∀X.X ∘ S] b) : a [R ∘ S] b := p{R};"
+          , ""
+          , "⊢ control_works (R : Rel) (a : Term) (b : Term)"
+          , "    (p : a [∀X.X] b) : a [R] b := p{R};"
+          ]
+          
+    case runParserEmpty parseFile fileContent of
+      Left parseErr -> expectationFailure $ "File should parse: " ++ show parseErr
+      Right decls -> do
+        -- Build environments
+        let macroEnv = buildMacroEnv decls
+            theoremEnv = buildTheoremEnv decls
+        
+        -- Check each theorem
+        mapM_ (checkDeclForBugTest macroEnv theoremEnv) decls
+        
+  it "nested quantifier substitution shows index corruption clearly" $ do
+    -- Test the case that clearly demonstrates the index shifting bug
+    let theoremText = "⊢ nested_bug (R : Rel) (S : Rel) (T : Rel) (a : Term) (b : Term) (p : a [∀X.∀Y.X ∘ T] b) : a [R ∘ T] b := (p{R}){S};"
+    case runParserEmpty parseDeclaration theoremText of
+      Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr
+      Right (TheoremDef _ bindings judgment proof) -> do
+        let ctx = buildContextFromBindings bindings
+        case checkProof ctx noMacros noTheorems proof judgment of
+          Right _ -> return ()  -- Should work when bug is fixed
+          Left err -> expectationFailure $
+            "Nested quantifier theorem should work but failed: " ++ show err
+      _ -> expectationFailure "Expected theorem declaration"
+      
+  it "quantifier commutativity with type lambdas should work" $ do
+    -- Test the failing forall_commute case from demo.rtt
+    -- This involves both type lambdas (ΛY. ΛX.) and type applications (p{X}{Y})
+    let theoremText = "⊢ forall_commute_test (a : Term) (b : Term) (R : Rel) (p : a [∀X.∀Y.R] b) : a [∀Y.∀X.R] b := ΛY. ΛX. (p{X}){Y};"
+    case runParserEmpty parseDeclaration theoremText of
+      Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr
+      Right (TheoremDef _ bindings judgment proof) -> do
+        let ctx = buildContextFromBindings bindings
+        case checkProof ctx noMacros noTheorems proof judgment of
+          Right _ -> return ()  -- Should work when bug is fixed
+          Left err -> expectationFailure $
+            "Quantifier commutativity theorem should work but failed: " ++ show err
+      _ -> expectationFailure "Expected theorem declaration"
+
+-- Helper functions for quantifier bug tests
+
+checkDeclForBugTest :: MacroEnvironment -> TheoremEnvironment -> Declaration -> Expectation
+checkDeclForBugTest _ _ (MacroDef _ _ _) = return ()  -- Skip macro definitions
+checkDeclForBugTest macroEnv theoremEnv (TheoremDef _ bindings judgment proof) = do
+  let ctx = buildContextFromBindings bindings
+  case checkProof ctx macroEnv theoremEnv proof judgment of
+    Right _ -> return ()
+    Left err -> expectationFailure $ "Theorem should work: " ++ show err
+checkDeclForBugTest _ _ _ = return ()  -- Skip other declarations
+
+buildMacroEnv :: [Declaration] -> MacroEnvironment  
+buildMacroEnv = foldr addMacro noMacros
+  where
+    addMacro (MacroDef name params body) env = extendMacroEnvironment name params body env
+    addMacro _ env = env
+
+buildTheoremEnv :: [Declaration] -> TheoremEnvironment
+buildTheoremEnv = foldr addTheorem noTheorems
+  where
+    addTheorem (TheoremDef name bindings judgment proof) env = 
+      extendTheoremEnvironment name bindings judgment proof env
+    addTheorem _ env = env

@@ -47,11 +47,20 @@
 -- Rule: Γ ⊢ p : t [∀X.R'] t'  ⇒  Γ ⊢ p{R} : t [[R/X]R'] t'
 ⊢ forall_inst (R : Rel) (a : Term) (b : Term) (p : a [∀X.X] b) : a [R] b := p{R};
 
+-- 4b. COMPLEX INSTANTIATION
+⊢ forall_inst_comp (R : Rel) (S : Rel) (a : Term) (b : Term) 
+                   (p : a [∀X.X ∘ S] b) : a [R ∘ S] b := p{R};
+
 -- =============================================================================
 -- 5. UNIVERSAL GENERALIZATION
 -- =============================================================================
 -- Rule: Γ ⊢ p : t [R] t'  X ∉ FV(Γ)  ⇒  Γ ⊢ ΛX.p : t [∀X.R] t'
-⊢ forall_gen (a : Term) (b : Term) (p : a [((λy.a))] b) : a [∀X.((λy.a))] b := ΛX.p;
+⊢ forall_gen (a : Term) (b : Term) (R : Term) (p : a [R] b) : a [∀X.R] b := ΛX.p;
+
+-- 5b. QUANTIFIER COMMUTATIVITY
+-- Rule: Nested quantifiers can be reordered: ∀X.∀Y.R ≡ ∀Y.∀X.R
+⊢ forall_commute (a : Term) (b : Term) (R : Rel) (p : a [∀X.∀Y.R] b) : a [∀Y.∀X.R] b := 
+  ΛY. ΛX. (p{X}){Y};
 
 -- =============================================================================
 -- 6. CONVERSION
@@ -161,16 +170,25 @@
   : b [S˘ ∘ R˘] a
   := π p - x.u.v.(∪ᵢ v, ∪ᵢ u);
 
+-- 11d'. Converse flip inverse
+--        b[S˘∘R˘]a  ⇒  a[R∘S]b    (extract, take converses, swap order back)
+⊢ pi_converse_inv
+    (R : Rel) (S : Rel) (a : Term) (b : Term)
+    (p : b [S˘ ∘ R˘] a)
+  : a [R ∘ S] b
+  := π p - x.u.v.(∪ₑ v, ∪ₑ u);
+
 -- 11e  :  left‑identity for composition
--- Given  p : a [(λz.z) ∘ R] b              prove  a [R] b
--- Uses:  π‑elim + converse‑intro + ρ‑elim + conversion.
+-- Given  p : a [(λz.z) ∘ S] b              prove  a [S] b
+-- Uses:  π‑elim + ρ‑elim + simple identity conversion.
 ⊢ pi_left_id
     (S : Rel) (a : Term) (b : Term)
-    (p : a [(λz.z)˘ ∘ S] b)
+    (p : a [(λz.z) ∘ S] b)
   : a [S] b
-  := π p - x.eq.rel.                            -- eq : a[(λz.z)ˆ]x , rel : x[R]b
-       ρ{y.y,b} (∪ₑ eq) -                      -- ∪ᵢ eq : x[(λz.z)ˆ]a  (Id is self‑converse)
-         ((λz.z) x) ⇃ rel ⇂ b;                 -- convert  x  → (λz.z) x   on LHS
+  := π p - x.eq.rel.                -- eq : a[(λz.z)]x , rel : x[S]b
+       ρ{z.z,b}                     -- rewrite the left endpoint of rel
+         (ρ{z.z,a} eq - ((λz.z) a) ⇃ ι⟨a,λz.z⟩ ⇂ a)        -- gives x[(λz.z)]a  (promoted, no ˘)
+       - ((λz.z) x) ⇃ rel ⇂ b;
 
 -- 11f.  π followed by ρ  (left‑identity law)
 --       Goal:   a [R ∘ (λz.z)] b   →   a [R] b
