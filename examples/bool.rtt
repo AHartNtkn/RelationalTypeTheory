@@ -19,9 +19,6 @@ False := (λx. λy. y);
 -- Logical negation
 Not b := (λt. λf. b f t);
 
--- Eta-expanded negation function
-NotFun := λx. Not x;
-
 -- Logical conjunction (and)
 And b1 b2 := (λt. λf. b1 (b2 t f) f);
 
@@ -176,11 +173,23 @@ Nor b1 b2 := Not (Or b1 b2);
 -- NEGATION FUNCTION TYPING
 -- =============================================================================
 
--- Theorem 1: For any boolean b, Not b is also a boolean
-⊢ not_preserves_bool (b : Term) (p : b [Bool] b) : (Not b) [Bool] (Not b) := 
-  ΛX. λx:X. λy:X. (p{X} x y);
+-- For any boolean b, Not b is also a boolean
+⊢ not_type : (λx. Not x) [Bool → Bool] (λx. Not x) := 
+  λb:Bool. ΛX. λx:X. λy:X. (b{X} y x);
 
--- Theorem 2: NotFun has the function type Bool → Bool  
--- ⊢ notfun_has_type : NotFun [Bool → Bool] NotFun := 
---  λb:Bool. (not_preserves_bool b);
+-- =============================================================================
+-- CONJUNCTION (AND) FUNCTION TYPING  
+-- =============================================================================
+
+-- Binary and function has type Bool → Bool → Bool
+⊢ and_type : (λx. λy. And x y) [Bool → Bool → Bool] (λx. λy. And x y) := 
+  λb1:Bool. λb2:Bool. ΛX. λx:X. λy:X. (b1{X} (b2{X} x y) y);
+
+-- =============================================================================
+-- DISJUNCTION (OR) FUNCTION TYPING
+-- =============================================================================
+
+-- Binary or function has type Bool → Bool → Bool  
+⊢ or_type : (λx. λy. Or x y) [Bool → Bool → Bool] (λx. λy. Or x y) := 
+  λb1:Bool. λb2:Bool. ΛX. λx:X. λy:X. (b1{X} x (b2{X} x y));
 
