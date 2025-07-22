@@ -151,6 +151,7 @@ validationSpec = describe "context validation" $ do
             (Map.fromList [("x", (5, RMacro "A" [] (initialPos "test")))]) -- Invalid index 5 in size-1 context
             Map.empty
             Map.empty
+            0
     case validateContext invalidCtx of
       Left (InvalidDeBruijnIndex 5 _) -> return ()
       Left otherErr -> expectationFailure $ "Expected InvalidDeBruijnIndex, got: " ++ show otherErr

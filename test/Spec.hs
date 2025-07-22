@@ -19,6 +19,7 @@ import qualified PTheoremAppSpec
 import qualified ComprehensiveTheoremAppSpec
 import qualified TwoPhaseParsingSpec
 import qualified TypeOpsSpec
+import qualified NotPreservesBoolBugSpec
 
 main :: IO ()
 main = hspec $ do
@@ -40,4 +41,5 @@ main = hspec $ do
   describe "Theorem Argument Validation" TheoremArgValidationSpec.spec
   describe "PTheoremApp Proof Checking" PTheoremAppSpec.spec
   describe "Comprehensive Theorem Applications" ComprehensiveTheoremAppSpec.spec
+  describe "Not Preserves Bool Bug" NotPreservesBoolBugSpec.spec
   describe "Integration Tests" IntegrationSpec.spec

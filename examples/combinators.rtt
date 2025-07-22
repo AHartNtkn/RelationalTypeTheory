@@ -38,6 +38,17 @@ i := λx.x;
     (p : x [i] y) (q : y [i] z) : x [i] z := 
     π (p,q) - w.rel.eq. ρ{u.x,u} eq - (x ⇃ rel ⇂ (i w));
 
+-- Congruence: ∀x,y,f,g. x [i] y → f [i] g → (f x) [i] (g y)
+-- If two terms are equal and two functions are equal, then applying them yields equal results.
+-- The proof uses nested ρ-eliminations to substitute y for x, and then g for f.
+⊢ i_congruence (x : Term) (y : Term) (f : Term) (g : Term)
+    (p : x [i] y) (q : f [i] g) : (f x) [i] (g y) :=
+    ρ{h.(f x), (h y)} q - (
+      (f x) ⇃
+        (ρ{z.(f x), (f z)} p - (f x ⇃ ι⟨f x,i⟩ ⇂ f (i x)))
+      ⇂ ((i f) y)
+    );
+
 -- =============================================================================
 -- K COMBINATOR (CONSTANT FUNCTION)
 -- =============================================================================

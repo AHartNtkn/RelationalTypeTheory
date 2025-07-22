@@ -90,7 +90,8 @@ data TheoremArg
 data TypingContext = TypingContext
   { termBindings :: Map.Map String (Int, RType), -- var name -> (de Bruijn index, type)
     relBindings :: Map.Map String Int, -- rel var name -> de Bruijn index
-    proofBindings :: Map.Map String (Int, Int, RelJudgment) -- proof var -> (index, termDepthWhenStored, judgment)
+    proofBindings :: Map.Map String (Int, Int, RelJudgment), -- proof var -> (index, termDepthWhenStored, judgment)
+    gensymCounter :: Int -- counter for generating fresh variable names
   }
   deriving (Show, Eq)
 

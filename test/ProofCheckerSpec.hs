@@ -27,6 +27,8 @@ spec = do
   wellFormednessViolationSpec
   theoremReferencingProofCheckSpec
   alphaEquivalenceVsBetaEtaSpec
+  judgmentEqualityMacroExpansionSpec
+  deBruijnIndicesBugSpec
 
 -- | Test basic proof checking functionality
 basicProofCheckingSpec :: Spec
@@ -89,7 +91,7 @@ proofLambdaSpec = describe "proof lambda abstractions (LamP)" $ do
             -- term1 should be Lam "u" <term derived from body>
             -- term2 should be Lam "u'" <term derived from body>
             case (term1, term2) of
-              (Lam "x" _ _, Lam "x'" _ _) -> do
+              (Lam "x0" _ _, Lam "x'0" _ _) -> do
                 -- The body terms should correspond to the terms in the body proof judgment
                 -- Since the body proof is just PVar "u" 0, these should be fresh variables
                 return ()
@@ -126,10 +128,10 @@ proofLambdaSpec = describe "proof lambda abstractions (LamP)" $ do
 
             -- Verify the structure of derived terms
             case (term1, term2) of
-              (Lam "x" innerTerm1 _, Lam "x'" innerTerm2 _) -> do
+              (Lam "x0" innerTerm1 _, Lam "x'0" innerTerm2 _) -> do
                 -- The inner terms should also be lambdas
                 case (innerTerm1, innerTerm2) of
-                  (Lam "x" _ _, Lam "x'" _ _) -> return ()
+                  (Lam "x1" _ _, Lam "x'1" _ _) -> return ()
                   _ -> expectationFailure $ "Expected inner lambda terms"
               _ -> expectationFailure $ "Expected outer lambda terms"
           _ -> expectationFailure $ "Expected nested arrow type, got: " ++ show resultType
@@ -221,6 +223,33 @@ typeApplicationSpec = describe "type applications (TyApp)" $ do
     case inferProofType ctx macroEnv noTheorems typeAppProof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful type application: " ++ show err
+
+  it "tests universal instantiation over macro expanding to quantified type" $ do
+    -- Test: if we have C := ∀X. X → X → X, can we do p{A} where p : b [C] b?
+    let termCtx = extendTermContext "b" (RMacro "Term" [] (initialPos "test")) emptyTypingContext
+        
+        -- Define macro C := ∀X. X → X → X (like Bool)
+        pos = initialPos "test"
+        quantifiedMacro = RelMacro $ All "X" (Arr (RVar "X" 0 pos) (Arr (RVar "X" 0 pos) (RVar "X" 0 pos) pos) pos) pos
+        macroEnv = extendMacroEnvironment "C" [] quantifiedMacro noMacros
+        
+        -- Proof variable p : b [C] b  
+        macroJudgment = RelJudgment (Var "b" 0 (initialPos "test")) (RMacro "C" [] (initialPos "test")) (Var "b" 0 (initialPos "test"))
+        ctx = extendProofContext "p" macroJudgment termCtx
+        
+        -- Type application: p{A}
+        instantiationType = RMacro "A" [] (initialPos "test")
+        typeAppProof = TyApp (PVar "p" 0 (initialPos "test")) instantiationType (initialPos "test")
+        
+    case inferProofType ctx macroEnv noTheorems typeAppProof of
+      Right result -> do
+        -- Expected: b [A → A → A] b
+        let RelJudgment leftTerm relType rightTerm = resultJudgment result
+        case relType of
+          Arr (RMacro "A" [] _) (Arr (RMacro "A" [] _) (RMacro "A" [] _) _) _ -> 
+            return () -- This is what we expect
+          _ -> expectationFailure $ "Expected A → A → A type, got: " ++ show relType
+      Left err -> expectationFailure $ "Expected successful type application over macro: " ++ show err
 
   it "rejects type application on non-universal proof" $ do
     -- Try to apply type to non-universal proof
@@ -340,7 +369,7 @@ conversionProofSpec = describe "conversion proofs (ConvProof)" $ do
         macroEnv = noMacros
 
     case checkProof ctx macroEnv noTheorems conversionProof expectedJudgment of
-      Left (ProofTypingError _ expected actual _) -> do
+      Left (ProofTypingError _ expected actual _ _) -> do
         -- Verify the expected and actual judgments are different
         expected `shouldBe` RelJudgment (Var "x" 1 (initialPos "test")) relType (Var "b" 0 (initialPos "test"))
         actual `shouldBe` RelJudgment lamTerm relType (Var "b" 0 (initialPos "test"))
@@ -1810,3 +1839,94 @@ conversionBetaEtaSpec = describe "conversion proofs use β-η equivalence" $ do
       Right result ->
         resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected conversion to succeed with β-η equivalent terms, got: " ++ show err
+
+-- | Test judgment equality with macro expansion
+judgmentEqualityMacroExpansionSpec :: Spec
+judgmentEqualityMacroExpansionSpec = describe "judgment equality with macro expansion" $ do
+  it "expands term macros in both judgments before comparing" $ do
+    let macroEnv = MacroEnvironment (Map.fromList [
+          ("True", ([], TermMacro (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")))),
+          ("Identity", ([], RelMacro (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test"))))
+          ])
+        judgment1 = RelJudgment (TMacro "True" [] (initialPos "test")) (RMacro "Identity" [] (initialPos "test")) (TMacro "True" [] (initialPos "test"))
+        judgment2 = RelJudgment (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (RMacro "Identity" [] (initialPos "test")) (Lam "a" (Lam "b" (Var "a" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    
+    case relJudgmentEqual macroEnv judgment1 judgment2 of
+      Right result -> result `shouldBe` True  -- Should be alpha equivalent after macro expansion
+      Left err -> expectationFailure $ "Judgment equality with macro expansion failed: " ++ show err
+
+  it "expands relation macros before comparing" $ do
+    let macroEnv = MacroEnvironment (Map.fromList [
+          ("Bool", ([], RelMacro (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))))
+          ])
+        judgment1 = RelJudgment (Var "x" 0 (initialPos "test")) (RMacro "Bool" [] (initialPos "test")) (Var "x" 0 (initialPos "test"))
+        judgment2 = RelJudgment (Var "x" 0 (initialPos "test")) (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "x" 0 (initialPos "test"))
+    
+    case relJudgmentEqual macroEnv judgment1 judgment2 of
+      Right result -> result `shouldBe` True  -- Should be equal after macro expansion
+      Left err -> expectationFailure $ "Judgment equality with relation macro expansion failed: " ++ show err
+
+  it "expands both term and relation macros together" $ do
+    let macroEnv = MacroEnvironment (Map.fromList [
+          ("True", ([], TermMacro (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")))),
+          ("Bool", ([], RelMacro (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))))
+          ])
+        judgment1 = RelJudgment (TMacro "True" [] (initialPos "test")) (RMacro "Bool" [] (initialPos "test")) (TMacro "True" [] (initialPos "test"))
+        judgment2 = RelJudgment (Lam "a" (Lam "b" (Var "a" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (All "Y" (Arr (RVar "Y" 0 (initialPos "test")) (Arr (RVar "Y" 0 (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Lam "c" (Lam "d" (Var "c" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    
+    case relJudgmentEqual macroEnv judgment1 judgment2 of
+      Right result -> result `shouldBe` True  -- Should be alpha equivalent after expanding all macros
+      Left err -> expectationFailure $ "Judgment equality with mixed macro expansion failed: " ++ show err
+
+  it "debug: check de Bruijn indices in proof inference" $ do
+    -- Simple proof: λp:R. p should give λx.x [R → R] λx'.x'
+    let proof = LamP "p" (RVar "R" 0 (initialPos "test")) (PVar "p" 0 (initialPos "test")) (initialPos "test")
+        ctx = emptyTypingContext
+        macroEnv = MacroEnvironment Map.empty
+        
+    case inferProofType ctx macroEnv noTheorems proof of
+      Right result -> do
+        let actualJudgment = resultJudgment result
+        putStrLn $ "Simple proof result: " ++ show actualJudgment
+        
+        -- Should be something like: λx.x [R → R] λx'.x'
+        case actualJudgment of
+          RelJudgment (Lam _ (Var _ idx1 _) _) _ (Lam _ (Var _ idx2 _) _) -> do
+            putStrLn $ "Left index: " ++ show idx1 ++ ", Right index: " ++ show idx2
+            idx1 `shouldBe` 0
+            idx2 `shouldBe` 0
+          other -> expectationFailure $ "Unexpected judgment structure: " ++ show other
+      Left err -> expectationFailure $ "Simple proof inference failed: " ++ show err
+
+-- | Test de Bruijn indices bug in lambda proof inference
+deBruijnIndicesBugSpec :: Spec
+deBruijnIndicesBugSpec = describe "de Bruijn indices bug diagnosis" $ do
+  it "observes the incorrect de Bruijn indices in Church encodings" $ do
+    -- Test the exact case from bool.rtt: ΛX. λp:X. λq:X. p
+    -- This should generate True = λx. λy. x where x has index 1 (outer lambda)
+    let pos = initialPos "test"
+        -- Proof: ΛX. λp:X. λq:X. p  
+        innerProof = PVar "p" 1 pos  -- p should refer to outer lambda parameter (index 1, since q is at index 0)
+        lambdaProof2 = LamP "q" (RVar "X" 0 pos) innerProof pos  -- λq:X. p
+        lambdaProof1 = LamP "p" (RVar "X" 0 pos) lambdaProof2 pos  -- λp:X. λq:X. p
+        tyLamProof = TyLam "X" lambdaProof1 pos  -- ΛX. λp:X. λq:X. p
+        
+        ctx = emptyTypingContext
+        macroEnv = noMacros
+        
+    case inferProofType ctx macroEnv noTheorems tyLamProof of
+      Right result -> do
+        let RelJudgment leftTerm _ rightTerm = resultJudgment result
+        case (leftTerm, rightTerm) of
+          (Lam _ (Lam _ (Var outerVar leftIdx _) _) _, Lam _ (Lam _ (Var outerVar' rightIdx _) _) _) -> do
+            -- BUG: These should have index 1 (refer to outer lambda) but currently have index 0
+            putStrLn $ "Left outer var '" ++ outerVar ++ "' has de Bruijn index: " ++ show leftIdx
+            putStrLn $ "Right outer var '" ++ outerVar' ++ "' has de Bruijn index: " ++ show rightIdx
+            putStrLn $ "EXPECTED: Index should be 1 for True (λx.λy.x)"
+            putStrLn $ "ACTUAL: Index is " ++ show leftIdx ++ " which represents False (λx.λy.y)"
+            
+            -- The bug: currently generates False instead of True
+            leftIdx `shouldBe` 1  -- SHOULD BE index 1 for True (λx.λy.x)
+            rightIdx `shouldBe` 1  -- SHOULD BE index 1 for True (λx.λy.x)
+          other -> expectationFailure $ "Expected lambda structure but got: " ++ show other
+      Left err -> expectationFailure $ "Type lambda inference failed: " ++ show err

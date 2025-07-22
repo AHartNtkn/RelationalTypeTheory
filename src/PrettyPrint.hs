@@ -290,7 +290,7 @@ prettyError err = case err of
     "Invalid context: " ++ msg ++ prettyContext ctx
   ContextInconsistency msg ctx ->
     "Context inconsistency: " ++ msg ++ prettyContext ctx
-  ProofTypingError proof expected actual ctx ->
+  ProofTypingError proof expected actual normalizedForms ctx ->
     "Proof error: proof "
       ++ prettyProof proof
       ++ " has wrong judgment\n"
@@ -299,6 +299,13 @@ prettyError err = case err of
       ++ "\n"
       ++ "  Actual judgment: "
       ++ prettyRelJudgment actual
+      ++ case normalizedForms of
+           Nothing -> ""
+           Just (normExpected, normActual) ->
+             "\n  Expected judgment (normalized): "
+               ++ prettyRelJudgment normExpected
+               ++ "\n  Actual judgment (normalized): "
+               ++ prettyRelJudgment normActual
       ++ prettyContext ctx
   TermConversionError t1 t1' t2 t2' ctx ->
     "Term conversion error:\n"

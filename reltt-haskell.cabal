@@ -83,6 +83,7 @@ test-suite reltt-haskell-test
       ErrorsSpec
       IntegrationSpec
       NormalizeSpec
+      NotPreservesBoolBugSpec
       ParserSpec
       PrettyPrintSpec
       ProofCheckerSpec

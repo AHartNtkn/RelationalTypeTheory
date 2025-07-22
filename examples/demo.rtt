@@ -14,6 +14,27 @@
 -- Side condition (*): x ∉ FV(Γ, R, R')
 ⊢ arrow_intro (a : Term) (b : Term) (f : Term) : (λx.a) [f → b] (λx.(b a)) := λp:f. ι⟨a,b⟩;
 
+-- Eta-expansion examples for arrow types
+-- These demonstrate eta-expansion: given f, we can construct the eta-expanded form
+
+-- Single arrow eta-expansion
+-- Given f : s [R → S] t, prove (λx. s x) [R → S] (λx. t x) by λp:R. f p
+⊢ eta_arrow_1 (R : Rel) (S : Rel) (s : Term) (t : Term)
+    (f : s [R → S] t) : (λx. s x) [R → S] (λx. t x)
+    := λp:R. f p;
+
+-- Double arrow eta-expansion  
+-- Given f : s [R → S → T] t, prove (λx. λy. s x y) [R → S → T] (λx. λy. t x y) by λp:R. λq:S. f p q
+⊢ eta_arrow_2 (R : Rel) (S : Rel) (T : Rel) (s : Term) (t : Term)
+    (f : s [R → S → T] t) : (λx. λy. s x y) [R → S → T] (λx. λy. t x y)
+    := λp:R. λq:S. f p q;
+
+-- Triple arrow eta-expansion
+-- Given f : s [R → S → T → U] t, prove (λx. λy. λz. s x y z) [R → S → T → U] (λx. λy. λz. t x y z) by λp:R. λq:S. λr:T. f p q r
+⊢ eta_arrow_3 (R : Rel) (S : Rel) (T : Rel) (U : Rel) (s : Term) (t : Term)
+    (f : s [R → S → T → U] t) : (λx. λy. λz. s x y z) [R → S → T → U] (λx. λy. λz. t x y z)
+    := λp:R. λq:S. λr:T. f p q r;
+
 -- =============================================================================
 -- 3. ARROW ELIMINATION (Application)
 -- =============================================================================
@@ -39,16 +60,20 @@
 ⊢ conversion (R : Rel) (f : Term) (a : Term) (p : ((λx.f x) a) [R] ((λy.f y) a)) : (f a) [R] (f a) := (f a) ⇃ p ⇂ (f a);
 
 -- =============================================================================
--- 7. CONVERSE ELIMINATION
+-- 7. CONVERSE
 -- =============================================================================
+
+-- 7a. INTRODUCTION
 -- Rule: Γ ⊢ p : t [R˘] t'  ⇒  Γ ⊢ ∪ₑ p : t' [R] t
 ⊢ conv_elim (R : Rel) (a : Term) (b : Term) (p : a [R˘] b) : b [R] a := ∪ₑ p;
 
--- =============================================================================
--- 8. CONVERSE INTRODUCTION
--- =============================================================================
+-- 7b. ELIMINATION
 -- Rule: Γ ⊢ p : t [R] t'  ⇒  Γ ⊢ ∪ᵢ p : t' [R˘] t
 ⊢ conv_intro (R : Rel) (a : Term) (b : Term) (p : a [R] b) : b [R˘] a := ∪ᵢ p;
+
+-- 7c. Cancelation
+-- Double converse cancels out
+⊢ double_conv (R : Rel) (a : Term) (b : Term) (p : a [R] b) : a [R] b := ∪ₑ (∪ᵢ p);
 
 -- =============================================================================
 -- 9. IOTA INTRODUCTION (Terms as Relations)
@@ -179,10 +204,3 @@
 -- =============================================================================
 -- Rule: Γ ⊢ p : t [R] t''  Γ ⊢ p' : t'' [R'] t'  ⇒  Γ ⊢ (p,p') : t [R·R'] t'
 ⊢ comp_intro (R : Rel) (S : Rel) (a : Term) (b : Term) (c : Term) (p : a [R] b) (q : b [S] c) : a [R ∘ S] c := (p,q);
-
--- =============================================================================
--- EXAMPLES
--- =============================================================================
-
--- Double converse cancels out
-⊢ double_conv (R : Rel) (a : Term) (b : Term) (p : a [R] b) : a [R] b := ∪ₑ (∪ᵢ p);

@@ -44,7 +44,7 @@ data RelTTError
     InvalidContext String ErrorContext
   | ContextInconsistency String ErrorContext
   | -- Proof checking errors
-    ProofTypingError Proof RelJudgment RelJudgment ErrorContext -- proof, expected, actual
+    ProofTypingError Proof RelJudgment RelJudgment (Maybe (RelJudgment, RelJudgment)) ErrorContext -- proof, expected, actual, optional (normalized expected, normalized actual)
   | TermConversionError Term Term Term Term ErrorContext -- t1, t1', t2, t2'
   | ConverseError Proof RelJudgment ErrorContext -- proof, actual judgment
   | RhoEliminationNonPromotedError Proof RelJudgment ErrorContext -- proof, actual judgment
@@ -92,7 +92,7 @@ formatError err = case err of
     formatWithContext ctx $ "Invalid context: " ++ msg
   ContextInconsistency msg ctx ->
     formatWithContext ctx $ "Context inconsistency: " ++ msg
-  ProofTypingError proof expected actual ctx ->
+  ProofTypingError proof expected actual normalizedForms ctx ->
     formatWithContext ctx $
       "Proof error: proof "
         ++ show proof
@@ -100,6 +100,13 @@ formatError err = case err of
         ++ show expected
         ++ "\n  Actual judgment:   "
         ++ show actual
+        ++ case normalizedForms of
+             Nothing -> ""
+             Just (normExpected, normActual) ->
+               "\n  Expected judgment (normalized): "
+                 ++ show normExpected
+                 ++ "\n  Actual judgment (normalized):   "
+                 ++ show normActual
   TermConversionError t1 t1' t2 t2' ctx ->
     formatWithContext ctx $
       "Term conversion error: "

@@ -1,0 +1,27 @@
+-- Church-encoded trits (ternary values)
+-- A trit has three possible values: Zero, One, Two  
+-- Church encoding: Trit := ∀X. X → X → X → X
+-- This tests triple-nested lambda abstractions
+
+-- Define the Trit type
+Trit := ∀X. X → X → X → X;
+
+-- Define the three trit constructors as term macros
+-- These are the key tests: triple-nested LamP should produce correct de Bruijn indices
+
+-- Zero: λz. λo. λt. z (selects first argument)
+-- Should generate λx.λy.λw.x where x has de Bruijn index 2
+Zero := λz. λo. λt. z;
+
+-- One: λz. λo. λt. o (selects second argument)
+-- Should generate λx.λy.λw.y where y has de Bruijn index 1  
+One := λz. λo. λt. o;
+
+-- Two: λz. λo. λt. t (selects third argument)
+-- Should generate λx.λy.λw.w where w has de Bruijn index 0
+Two := λz. λo. λt. t;
+
+-- Now prove they have the Trit type using type lambda + proof lambda nesting
+⊢ zero_is_trit : Zero [Trit] Zero := ΛX. λz:X. λo:X. λt:X. z;
+⊢ one_is_trit : One [Trit] One := ΛX. λz:X. λo:X. λt:X. o;
+⊢ two_is_trit : Two [Trit] Two := ΛX. λz:X. λo:X. λt:X. t;

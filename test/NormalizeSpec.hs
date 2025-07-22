@@ -3,6 +3,7 @@
 module NormalizeSpec (spec) where
 
 import Context (noMacros)
+import qualified Data.Map as Map
 import Errors
 import Lib
 import Normalize
@@ -22,6 +23,7 @@ spec = do
   etaReductionSpec
   substitutionSpec
   equalitySpec
+  macroExpansionAlphaEqualitySpec
   normalizationStrategySpec
   normalizationEdgeCasesSpec
 
@@ -140,6 +142,40 @@ equalitySpec = describe "equality checking" $ do
     case termEqualityBetaEta term1 term2 of
       Right result -> result `shouldBe` True
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
+
+-- | Test macro expansion in alpha equality
+macroExpansionAlphaEqualitySpec :: Spec
+macroExpansionAlphaEqualitySpec = describe "macro expansion in alpha equality" $ do
+  it "expands term macros before alpha comparison" $ do
+    let macroEnv = MacroEnvironment (Map.fromList [
+          ("Identity", ([], TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")))),
+          ("True", ([], TermMacro (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))))
+          ])
+    case termEqualityAlpha macroEnv (TMacro "Identity" [] (initialPos "test")) (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) of
+      Right result -> result `shouldBe` True
+      Left err -> expectationFailure $ "Alpha equality with macro expansion failed: " ++ show err
+
+  it "expands both terms before comparing" $ do
+    let macroEnv = MacroEnvironment (Map.fromList [
+          ("Identity", ([], TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")))),
+          ("Id", ([], TermMacro (Lam "y" (Var "y" 0 (initialPos "test")) (initialPos "test"))))
+          ])
+    case termEqualityAlpha macroEnv (TMacro "Identity" [] (initialPos "test")) (TMacro "Id" [] (initialPos "test")) of
+      Right result -> result `shouldBe` True  -- Alpha equivalent after expansion
+      Left err -> expectationFailure $ "Alpha equality with both macros failed: " ++ show err
+
+  it "recognizes parameterized macro and its expanded form as alpha-equivalent" $ do
+    let macroEnv = MacroEnvironment (Map.fromList [
+          ("Const", (["x"], TermMacro (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")))),
+          ("a", ([], TermMacro (Var "a_const" (-1) (initialPos "test"))))
+          ])
+        macroCall = TMacro "Const" [TMacro "a" [] (initialPos "test")] (initialPos "test")
+        expectedExpansion = Lam "y" (TMacro "a" [] (initialPos "test")) (initialPos "test")
+    case termEqualityAlpha macroEnv macroCall expectedExpansion of
+      Right True -> return () -- Success: macro expands to expected form
+      Right False -> expectationFailure $ 
+        "Macro " ++ show macroCall ++ " should expand to " ++ show expectedExpansion ++ " but they were not considered equal"
+      Left err -> expectationFailure $ "Comparison failed: " ++ show err
 
 -- | Test normalization strategies
 normalizationStrategySpec :: Spec

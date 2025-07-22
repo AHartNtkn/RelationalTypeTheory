@@ -9,15 +9,17 @@ module Normalize
     shiftTermWithBoundsCheck,
     shiftTermAboveWithBoundsCheck,
     freeVariables,
+    expandTermMacrosOneStep,
     NormalizationStrategy (..),
     NormalizationResult (..),
   )
 where
 
+import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Errors
 import Lib
-import TermOps
+import TermOps (expandTermMacros, expandTermMacrosWHNF, TermExpansionResult(..))
 
 -- | Strategy for normalization
 data NormalizationStrategy
@@ -55,7 +57,7 @@ termEquality :: MacroEnvironment -> Term -> Term -> Either RelTTError Bool
 termEquality env t1 t2 = do
   norm1 <- normalizeTerm env t1
   norm2 <- normalizeTerm env t2
-  return $ termEqualityAlpha (normalizedTerm norm1) (normalizedTerm norm2)
+  termEqualityAlpha env (normalizedTerm norm1) (normalizedTerm norm2)
 
 -- Internal functions (not exported)
 
@@ -67,9 +69,9 @@ normalizeTermBetaEtaInternal = normalizeWithStrategy FullNormalization 1000
 normalizeTermWHNFInternal :: Term -> Either RelTTError NormalizationResult
 normalizeTermWHNFInternal = normalizeWithStrategy WeakHeadNormal 1000
 
--- | Check α-equality of two terms (assuming they're in normal form)
-termEqualityAlpha :: Term -> Term -> Bool
-termEqualityAlpha t1 t2 = alphaEquivalent t1 t2 0 0
+-- | Check α-equality of two terms with lazy macro expansion
+termEqualityAlpha :: MacroEnvironment -> Term -> Term -> Either RelTTError Bool
+termEqualityAlpha env t1 t2 = alphaEquivalentLazy env t1 t2 0 0
 
 -- | Substitute term s for variable at de Bruijn index 0 in term t
 substituteTerm :: Term -> Term -> Either RelTTError Term
@@ -217,26 +219,87 @@ freeVarsAtLevel level term = case term of
   App t1 t2 _ -> Set.union (freeVarsAtLevel level t1) (freeVarsAtLevel level t2)
   TMacro name args _ -> Set.insert name $ Set.unions (map (freeVarsAtLevel level) args)
 
--- | Check α-equivalence of two terms with binding depth tracking
-alphaEquivalent :: Term -> Term -> Int -> Int -> Bool
-alphaEquivalent t1 t2 depth1 depth2 = case (t1, t2) of
+
+-- | Check α-equivalence with lazy macro expansion
+alphaEquivalentLazy :: MacroEnvironment -> Term -> Term -> Int -> Int -> Either RelTTError Bool
+alphaEquivalentLazy env t1 t2 depth1 depth2 = case (t1, t2) of
+  -- Case 1: Neither has a macro at head - compare heads and recurse on sub-parts
   (Var name1 i1 _, Var name2 i2 _) ->
-    -- For bound variables, check de Bruijn indices
-    -- For free variables, check names
-    if i1 < depth1 && i2 < depth2
+    Right $ if i1 < depth1 && i2 < depth2
       then i1 == i2 -- Both bound, compare indices
       else
         if i1 >= depth1 && i2 >= depth2
           then name1 == name2 -- Both free, compare names
           else False -- One bound, one free
+  
   (Lam _ body1 _, Lam _ body2 _) ->
-    -- Names don't matter for α-equivalence, just structure
-    alphaEquivalent body1 body2 (depth1 + 1) (depth2 + 1)
-  (App f1 a1 _, App f2 a2 _) ->
-    alphaEquivalent f1 f2 depth1 depth2
-      && alphaEquivalent a1 a2 depth1 depth2
+    -- Heads match (both lambdas), recurse on bodies
+    alphaEquivalentLazy env body1 body2 (depth1 + 1) (depth2 + 1)
+  
+  (App f1 a1 _, App f2 a2 _) -> do
+    -- Heads match (both apps), recurse on function and argument
+    fEq <- alphaEquivalentLazy env f1 f2 depth1 depth2
+    aEq <- alphaEquivalentLazy env a1 a2 depth1 depth2
+    return $ fEq && aEq
+  
+  -- Case 2: Both are macros
   (TMacro name1 args1 _, TMacro name2 args2 _) ->
-    name1 == name2
-      && length args1 == length args2
-      && all (\(a1, a2) -> alphaEquivalent a1 a2 depth1 depth2) (zip args1 args2)
-  _ -> False
+    if name1 == name2 && length args1 == length args2
+      then do
+        -- Same macro - compare arguments
+        results <- sequence $ zipWith (\a1 a2 -> alphaEquivalentLazy env a1 a2 depth1 depth2) args1 args2
+        return $ and results
+      else do
+        -- Different macros - expand left one only
+        expanded1 <- expandTermMacrosOneStep env t1
+        alphaEquivalentLazy env expanded1 t2 depth1 depth2
+  
+  -- Case 3: Only left is a macro - expand it
+  (TMacro _ _ _, _) -> do
+    expanded1 <- expandTermMacrosOneStep env t1
+    alphaEquivalentLazy env expanded1 t2 depth1 depth2
+  
+  -- Case 3: Only right is a macro - expand it
+  (_, TMacro _ _ _) -> do
+    expanded2 <- expandTermMacrosOneStep env t2
+    alphaEquivalentLazy env t1 expanded2 depth1 depth2
+  
+  -- Different constructors
+  _ -> Right False
+
+-- | Expand a term macro one step only - just substitute arguments into macro body
+expandTermMacrosOneStep :: MacroEnvironment -> Term -> Either RelTTError Term
+expandTermMacrosOneStep env term = case term of
+  TMacro name args pos -> do
+    case Map.lookup name (macroDefinitions env) of
+      Nothing ->
+        Left $ UnboundMacro name (ErrorContext pos "term macro expansion")
+      Just (params, body) -> do
+        case body of
+          TermMacro termBody -> do
+            if length params /= length args
+              then
+                Left $
+                  MacroArityMismatch
+                    name
+                    (length params)
+                    (length args)
+                    (ErrorContext pos "term macro expansion")
+              else do
+                -- Substitute arguments into macro body using de Bruijn indices
+                -- Parameters are bound in reverse order: first param gets highest index
+                let expandedBody = substituteMacroArgs (length params - 1) args termBody
+                return expandedBody
+          RelMacro _ ->
+            Left $ UnboundMacro name (ErrorContext pos "expected term macro but found relational macro")
+  _ -> Right term -- Not a macro, return as-is
+
+-- | Substitute macro arguments using de Bruijn indices
+-- The first parameter has the highest index, last parameter has index 0
+substituteMacroArgs :: Int -> [Term] -> Term -> Term
+substituteMacroArgs maxIdx args term = 
+  foldl (\t (idx, arg) -> 
+    case substituteAtIndex idx arg t of
+      Right result -> result
+      Left _ -> error "Macro substitution failed"
+  ) term (zip [maxIdx, maxIdx-1..0] args)

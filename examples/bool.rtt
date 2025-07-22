@@ -19,6 +19,9 @@ False := (λx. λy. y);
 -- Logical negation
 Not b := (λt. λf. b f t);
 
+-- Eta-expanded negation function
+NotFun := λx. Not x;
+
 -- Logical conjunction (and)
 And b1 b2 := (λt. λf. b1 (b2 t f) f);
 
@@ -52,10 +55,10 @@ Nor b1 b2 := Not (Or b1 b2);
 -- =============================================================================
 
 -- True is a Boolean
-⊢ true_is_bool : True [Bool] True := ???;
+⊢ true_is_bool : True [Bool] True := ΛX. λp:X. λq:X. p;
 
 -- False is a Boolean  
-⊢ false_is_bool : False [Bool] False := ???;
+⊢ false_is_bool : False [Bool] False := ΛX. λp:X. λq:X. q;
 
 -- =============================================================================
 -- PROVEN THEOREMS - NEGATION PROPERTIES
@@ -168,3 +171,16 @@ Nor b1 b2 := Not (Or b1 b2);
 -- Law of non-contradiction: A and Not A is always False
 ⊢ non_contradiction_true : (And True (Not True)) [False] (False (And True (Not True))) := ι⟨And True (Not True), False⟩;
 ⊢ non_contradiction_false : (And False (Not False)) [False] (False (And False (Not False))) := ι⟨And False (Not False), False⟩;
+
+-- =============================================================================
+-- NEGATION FUNCTION TYPING
+-- =============================================================================
+
+-- Theorem 1: For any boolean b, Not b is also a boolean
+⊢ not_preserves_bool (b : Term) (p : b [Bool] b) : (Not b) [Bool] (Not b) := 
+  ΛX. λx:X. λy:X. (p{X} x y);
+
+-- Theorem 2: NotFun has the function type Bool → Bool  
+-- ⊢ notfun_has_type : NotFun [Bool → Bool] NotFun := 
+--  λb:Bool. (not_preserves_bool b);
+

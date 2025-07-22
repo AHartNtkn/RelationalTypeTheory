@@ -408,7 +408,7 @@ spec = do
       it "pretty prints proof typing errors" $ do
         let judgment1 = RelJudgment (Var "x" 0 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (Var "y" 0 (initialPos "test"))
         let judgment2 = RelJudgment (Var "x" 0 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (Var "y" 0 (initialPos "test"))
-        let err = ProofTypingError (PVar "dummy" 0 (initialPos "test")) judgment1 judgment2 noCtx
+        let err = ProofTypingError (PVar "dummy" 0 (initialPos "test")) judgment1 judgment2 Nothing noCtx
         prettyError err `shouldContain` "Proof error:"
         prettyError err `shouldContain` "Expected judgment: x [R] y"
         prettyError err `shouldContain` "Actual judgment: x [S] y"

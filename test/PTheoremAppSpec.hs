@@ -14,7 +14,7 @@ dummyPos = initialPos "test"
 
 -- Helper to create empty contexts
 emptyCtx :: TypingContext
-emptyCtx = TypingContext Map.empty Map.empty Map.empty
+emptyCtx = TypingContext Map.empty Map.empty Map.empty 0
 
 emptyMacroEnv :: MacroEnvironment
 emptyMacroEnv = MacroEnvironment Map.empty

@@ -22,6 +22,8 @@ module Context
     freeVarsInContext,
     freeVarsInRType,
     freeVarsInTerm,
+    freshVar,
+    freshVarPair,
   )
 where
 
@@ -35,7 +37,7 @@ import TypeOps (shiftTermsInRType)
 
 -- | Create an empty typing context
 emptyTypingContext :: TypingContext
-emptyTypingContext = TypingContext Map.empty Map.empty Map.empty
+emptyTypingContext = TypingContext Map.empty Map.empty Map.empty 0
 
 -- | Create an empty type environment
 emptyTypeEnvironment :: TypeEnvironment
@@ -147,7 +149,7 @@ shiftContext shift ctx =
   let shiftedTerms = Map.map (\(idx, ty) -> (idx + shift, ty)) (termBindings ctx)
       shiftedRels = Map.map (+ shift) (relBindings ctx)
       shiftedProofs = Map.map (\(idx, d, j) -> (idx + shift, d, j)) (proofBindings ctx)
-   in TypingContext shiftedTerms shiftedRels shiftedProofs
+   in TypingContext shiftedTerms shiftedRels shiftedProofs (gensymCounter ctx)
 
 -- | Check if a variable name is fresh (not bound) in the context
 isFreshInContext :: String -> TypingContext -> Bool
@@ -215,3 +217,20 @@ freeVarsInContext ctx =
             | (_, (_, _, RelJudgment _ rt _)) <- Map.toList (proofBindings ctx)
           ]
    in Set.unions [termTypeVars, proofTermVars, proofTypeVars]
+
+-- | Generate a fresh variable name and return updated context
+freshVar :: String -> TypingContext -> (String, TypingContext)
+freshVar prefix ctx =
+  let counter = gensymCounter ctx
+      newName = prefix ++ show counter
+      newCtx = ctx { gensymCounter = counter + 1 }
+  in (newName, newCtx)
+
+-- | Generate a pair of fresh variable names with the same counter and return updated context
+freshVarPair :: String -> String -> TypingContext -> (String, String, TypingContext)
+freshVarPair prefix1 prefix2 ctx =
+  let counter = gensymCounter ctx
+      name1 = prefix1 ++ show counter
+      name2 = prefix2 ++ show counter
+      newCtx = ctx { gensymCounter = counter + 1 }
+  in (name1, name2, newCtx)
