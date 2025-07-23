@@ -6,6 +6,7 @@
 -- =============================================================================
 
 -- The Boolean type as a Church encoding
+-- Ass a relation, it's a PER identifying equality between booleans
 Bool := ∀X. X → X → X;
 
 -- Boolean values as lambda terms (promoted to relation types)
@@ -61,113 +62,113 @@ Nor b1 b2 := Not (b1 || b2);
 -- PROVEN THEOREMS - NEGATION PROPERTIES
 -- =============================================================================
 
--- Not True related to False
-⊢ not_true_is_false : (Not True) [False] (False (Not True)) := ι⟨Not True, False⟩;
+-- Not True is False
+⊢ not_true_is_false : (Not True) [Bool] False := (Not True) ⇃ false_is_bool ⇂ False;
 
--- Not False related to True
-⊢ not_false_is_true : (Not False) [True] (True (Not False)) := ι⟨Not False, True⟩;
+-- Not False is True
+⊢ not_false_is_true : (Not False) [Bool] True := (Not False) ⇃ true_is_bool ⇂ True;
 
--- Double negation of True
-⊢ double_neg_true : (Not (Not True)) [True] (True (Not (Not True))) := ι⟨Not (Not True), True⟩;
+-- Double negation of True is True
+⊢ double_neg_true : (Not (Not True)) [Bool] True := (Not (Not True)) ⇃ true_is_bool ⇂ True;
 
--- Double negation of False
-⊢ double_neg_false : (Not (Not False)) [False] (False (Not (Not False))) := ι⟨Not (Not False), False⟩;
+-- Double negation of False is False
+⊢ double_neg_false : (Not (Not False)) [Bool] False := (Not (Not False)) ⇃ false_is_bool ⇂ False;
 
 -- =============================================================================
 -- PROVEN THEOREMS - CONJUNCTION PROPERTIES
 -- =============================================================================
 
--- True AND True related to True
-⊢ true_and_true : (True && True) [True] (True (True && True)) := ι⟨True && True, True⟩;
+-- True AND True is True
+⊢ true_and_true : (True && True) [Bool] True := (True && True) ⇃ true_is_bool ⇂ True;
 
--- True AND False related to False
-⊢ true_and_false : (True && False) [False] (False (True && False)) := ι⟨True && False, False⟩;
+-- True AND False is False
+⊢ true_and_false : (True && False) [Bool] False := (True && False) ⇃ false_is_bool ⇂ False;
 
--- False AND True related to False
-⊢ false_and_true : (False && True) [False] (False (False && True)) := ι⟨False && True, False⟩;
+-- False AND True is False
+⊢ false_and_true : (False && True) [Bool] False := (False && True) ⇃ false_is_bool ⇂ False;
 
--- False AND False related to False
-⊢ false_and_false : (False && False) [False] (False (False && False)) := ι⟨False && False, False⟩;
+-- False AND False is False
+⊢ false_and_false : (False && False) [Bool] False := (False && False) ⇃ false_is_bool ⇂ False;
 
 -- =============================================================================
 -- PROVEN THEOREMS - DISJUNCTION PROPERTIES
 -- =============================================================================
 
--- True OR True related to True
-⊢ true_or_true : (True || True) [True] (True (True || True)) := ι⟨True || True, True⟩;
+-- True OR True is True
+⊢ true_or_true : (True || True) [Bool] True := (True || True) ⇃ true_is_bool ⇂ True;
 
--- True OR False related to True
-⊢ true_or_false : (True || False) [True] (True (True || False)) := ι⟨True || False, True⟩;
+-- True OR False is True
+⊢ true_or_false : (True || False) [Bool] True := (True || False) ⇃ true_is_bool ⇂ True;
 
--- False OR True related to True
-⊢ false_or_true : (False || True) [True] (True (False || True)) := ι⟨False || True, True⟩;
+-- False OR True is True
+⊢ false_or_true : (False || True) [Bool] True := (False || True) ⇃ true_is_bool ⇂ True;
 
--- False OR False related to False
-⊢ false_or_false : (False || False) [False] (False (False || False)) := ι⟨False || False, False⟩;
+-- False OR False is False
+⊢ false_or_false : (False || False) [Bool] False := (False || False) ⇃ false_is_bool ⇂ False;
 
 -- =============================================================================
 -- PROVEN THEOREMS - IMPLICATION PROPERTIES
 -- =============================================================================
 
--- True implies True related to True
-⊢ true_implies_true : (Implies True True) [True] (True (Implies True True)) := ι⟨Implies True True, True⟩;
+-- True implies True is True
+⊢ true_implies_true : (Implies True True) [Bool] True := (Implies True True) ⇃ true_is_bool ⇂ True;
 
--- True implies False related to False
-⊢ true_implies_false : (Implies True False) [False] (False (Implies True False)) := ι⟨Implies True False, False⟩;
+-- True implies False is False
+⊢ true_implies_false : (Implies True False) [Bool] False := (Implies True False) ⇃ false_is_bool ⇂ False;
 
--- False implies True related to True
-⊢ false_implies_true : (Implies False True) [True] (True (Implies False True)) := ι⟨Implies False True, True⟩;
+-- False implies True is True
+⊢ false_implies_true : (Implies False True) [Bool] True := (Implies False True) ⇃ true_is_bool ⇂ True;
 
--- False implies False related to True
-⊢ false_implies_false : (Implies False False) [True] (True (Implies False False)) := ι⟨Implies False False, True⟩;
+-- False implies False is True
+⊢ false_implies_false : (Implies False False) [Bool] True := (Implies False False) ⇃ true_is_bool ⇂ True;
 
 -- =============================================================================
 -- PROVEN THEOREMS - XOR PROPERTIES
 -- =============================================================================
 
--- True XOR True related to False
-⊢ true_xor_true : (Xor True True) [False] (False (Xor True True)) := ι⟨Xor True True, False⟩;
+-- True XOR True is False
+⊢ true_xor_true : (Xor True True) [Bool] False := (Xor True True) ⇃ false_is_bool ⇂ False;
 
--- True XOR False related to True
-⊢ true_xor_false : (Xor True False) [True] (True (Xor True False)) := ι⟨Xor True False, True⟩;
+-- True XOR False is True
+⊢ true_xor_false : (Xor True False) [Bool] True := (Xor True False) ⇃ true_is_bool ⇂ True;
 
--- False XOR True related to True
-⊢ false_xor_true : (Xor False True) [True] (True (Xor False True)) := ι⟨Xor False True, True⟩;
+-- False XOR True is True
+⊢ false_xor_true : (Xor False True) [Bool] True := (Xor False True) ⇃ true_is_bool ⇂ True;
 
--- False XOR False related to False
-⊢ false_xor_false : (Xor False False) [False] (False (Xor False False)) := ι⟨Xor False False, False⟩;
+-- False XOR False is False
+⊢ false_xor_false : (Xor False False) [Bool] False := (Xor False False) ⇃ false_is_bool ⇂ False;
 
 -- =============================================================================
 -- PROVEN THEOREMS - CONDITIONAL PROPERTIES
 -- =============================================================================
 
--- If True then True else False related to True
-⊢ if_true_then_true_else_false : (IfThenElse True True False) [True] (True (IfThenElse True True False)) := ι⟨IfThenElse True True False, True⟩;
+-- If True then True else False is True
+⊢ if_true_then_true_else_false : (IfThenElse True True False) [Bool] True := (IfThenElse True True False) ⇃ true_is_bool ⇂ True;
 
--- If False then True else False related to False
-⊢ if_false_then_true_else_false : (IfThenElse False True False) [False] (False (IfThenElse False True False)) := ι⟨IfThenElse False True False, False⟩;
+-- If False then True else False is False
+⊢ if_false_then_true_else_false : (IfThenElse False True False) [Bool] False := (IfThenElse False True False) ⇃ false_is_bool ⇂ False;
 
 -- =============================================================================
 -- PROVEN THEOREMS - DERIVED FUNCTION PROPERTIES
 -- =============================================================================
 
--- NAND of True and True related to False
-⊢ nand_true_true : (Nand True True) [False] (False (Nand True True)) := ι⟨Nand True True, False⟩;
+-- NAND of True and True is False
+⊢ nand_true_true : (Nand True True) [Bool] False := (Nand True True) ⇃ false_is_bool ⇂ False;
 
--- NOR of False and False related to True
-⊢ nor_false_false : (Nor False False) [True] (True (Nor False False)) := ι⟨Nor False False, True⟩;
+-- NOR of False and False is True
+⊢ nor_false_false : (Nor False False) [Bool] True := (Nor False False) ⇃ true_is_bool ⇂ True;
 
 -- =============================================================================
 -- PROVEN THEOREMS - LOGICAL LAWS
 -- =============================================================================
 
 -- Law of excluded middle: A or Not A is always True
-⊢ excluded_middle_true : (True || (Not True)) [True] (True (True || (Not True))) := ι⟨True || (Not True), True⟩;
-⊢ excluded_middle_false : (False || (Not False)) [True] (True (False || (Not False))) := ι⟨False || (Not False), True⟩;
+⊢ excluded_middle_true : (True || (Not True)) [Bool] True := (True || (Not True)) ⇃ true_is_bool ⇂ True;
+⊢ excluded_middle_false : (False || (Not False)) [Bool] True := (False || (Not False)) ⇃ true_is_bool ⇂ True;
 
 -- Law of non-contradiction: A and Not A is always False
-⊢ non_contradiction_true : (True && (Not True)) [False] (False (True && (Not True))) := ι⟨True && (Not True), False⟩;
-⊢ non_contradiction_false : (False && (Not False)) [False] (False (False && (Not False))) := ι⟨False && (Not False), False⟩;
+⊢ non_contradiction_true : (True && (Not True)) [Bool] False := (True && (Not True)) ⇃ false_is_bool ⇂ False;
+⊢ non_contradiction_false : (False && (Not False)) [Bool] False := (False && (Not False)) ⇃ false_is_bool ⇂ False;
 
 -- =============================================================================
 -- NEGATION FUNCTION TYPING
