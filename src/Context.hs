@@ -44,7 +44,7 @@ emptyTypeEnvironment = TypeEnvironment Map.empty
 
 -- | Create an empty macro environment
 noMacros :: MacroEnvironment
-noMacros = MacroEnvironment Map.empty
+noMacros = MacroEnvironment Map.empty Map.empty
 
 -- | Create an empty theorem environment
 noTheorems :: TheoremEnvironment
@@ -82,9 +82,10 @@ extendTypeEnvironment name ty env =
   env {typeVarBindings = Map.insert name ty (typeVarBindings env)}
 
 -- | Extend macro environment with a macro definition
-extendMacroEnvironment :: String -> [String] -> MacroBody -> MacroEnvironment -> MacroEnvironment
-extendMacroEnvironment name params body env =
-  env {macroDefinitions = Map.insert name (params, body) (macroDefinitions env)}
+extendMacroEnvironment :: String -> [String] -> MacroBody -> Fixity -> MacroEnvironment -> MacroEnvironment
+extendMacroEnvironment name params body fixity env =
+  env { macroDefinitions = Map.insert name (params, body) (macroDefinitions env)
+      , macroFixities = Map.insert name fixity (macroFixities env) }
 
 -- | Extend theorem environment with a theorem definition
 extendTheoremEnvironment :: String -> [Binding] -> RelJudgment -> Proof -> TheoremEnvironment -> TheoremEnvironment

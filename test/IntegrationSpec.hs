@@ -58,7 +58,7 @@ endToEndWorkflowSpec = describe "end-to-end workflows" $ do
 
   it "expands macros and normalizes promoted terms" $ do
     -- Set up macro environment
-    let env = extendMacroEnvironment "Id" [] (RelMacro (Prom (Lam "x" (Var "x" 0 ip) ip) ip)) noMacros
+    let env = extendMacroEnvironment "Id" [] (RelMacro (Prom (Lam "x" (Var "x" 0 ip) ip) ip)) defaultFixity noMacros
 
     -- Create a type with macro and promoted term
     let macroType = RMacro "Id" [] ip
@@ -91,9 +91,9 @@ macroIntegrationSpec = describe "macro system integration" $ do
   it "handles nested macro definitions and usage" $ do
     -- Build a macro environment with dependencies
     let env0 = noMacros
-        env1 = extendMacroEnvironment "Id" [] (RelMacro (Prom (Lam "x" (Var "x" 0 ip) ip) ip)) env0
-        env2 = extendMacroEnvironment "Const" ["A"] (RelMacro (Arr (RVar "A" 0 ip) (Arr (RMacro "Any" [] ip) (RVar "A" 0 ip) ip) ip)) env1
-        env3 = extendMacroEnvironment "Apply" ["F", "A"] (RelMacro (Comp (RVar "F" 1 ip) (RVar "A" 0 ip) ip)) env2
+        env1 = extendMacroEnvironment "Id" [] (RelMacro (Prom (Lam "x" (Var "x" 0 ip) ip) ip)) defaultFixity env0
+        env2 = extendMacroEnvironment "Const" ["A"] (RelMacro (Arr (RVar "A" 0 ip) (Arr (RMacro "Any" [] ip) (RVar "A" 0 ip) ip) ip)) defaultFixity env1
+        env3 = extendMacroEnvironment "Apply" ["F", "A"] (RelMacro (Comp (RVar "F" 1 ip) (RVar "A" 0 ip) ip)) defaultFixity env2
 
     -- Test macro expansion chain
     let complexMacro = RMacro "Apply" [RMacro "Id" [] ip, RMacro "Const" [RMacro "Int" [] ip] ip] ip
@@ -107,8 +107,8 @@ macroIntegrationSpec = describe "macro system integration" $ do
   it "optimizes macro equality checking" $ do
     -- Create macro environment with two macros that expand to the same thing but have different names
     let env =
-          extendMacroEnvironment "List" ["T"] (RelMacro (Arr (RVar "T" 0 ip) (RMacro "Container" [] ip) ip)) $
-            extendMacroEnvironment "Array" ["T"] (RelMacro (Arr (RVar "T" 0 ip) (RMacro "Container" [] ip) ip)) noMacros
+          extendMacroEnvironment "List" ["T"] (RelMacro (Arr (RVar "T" 0 ip) (RMacro "Container" [] ip) ip)) defaultFixity $
+            extendMacroEnvironment "Array" ["T"] (RelMacro (Arr (RVar "T" 0 ip) (RMacro "Container" [] ip) ip)) defaultFixity noMacros
 
         -- Identical macros (should not require expansion - optimization applies)
         identicalMacro1 = RMacro "List" [RMacro "Int" [] ip] ip
@@ -139,7 +139,7 @@ realExamplesSpec :: Spec
 realExamplesSpec = describe "realistic RelTT examples" $ do
   it "handles identity relation macro" $ do
     -- Identity relation: Id ≔ (λx. x)^
-    let env = extendMacroEnvironment "Id" [] (RelMacro (Prom (Lam "x" (Var "x" 0 ip) ip) ip)) noMacros
+    let env = extendMacroEnvironment "Id" [] (RelMacro (Prom (Lam "x" (Var "x" 0 ip) ip) ip)) defaultFixity noMacros
         idType = RMacro "Id" [] ip
 
     -- Expand and verify
@@ -152,7 +152,7 @@ realExamplesSpec = describe "realistic RelTT examples" $ do
 
   it "handles composition macro" $ do
     -- Composition: Comp R S ≔ R ∘ S
-    let env = extendMacroEnvironment "Comp" ["R", "S"] (RelMacro (Comp (RVar "R" 1 ip) (RVar "S" 0 ip) ip)) noMacros
+    let env = extendMacroEnvironment "Comp" ["R", "S"] (RelMacro (Comp (RVar "R" 1 ip) (RVar "S" 0 ip) ip)) defaultFixity noMacros
         compType = RMacro "Comp" [RMacro "F" [] ip, RMacro "G" [] ip] ip
 
     case expandMacros env compType of
@@ -164,7 +164,7 @@ realExamplesSpec = describe "realistic RelTT examples" $ do
 
   it "handles converse operations" $ do
     -- Symmetric relation: Sym R ≔ R˘
-    let env = extendMacroEnvironment "Sym" ["R"] (RelMacro (Conv (RVar "R" 0 ip) ip)) noMacros
+    let env = extendMacroEnvironment "Sym" ["R"] (RelMacro (Conv (RVar "R" 0 ip) ip)) defaultFixity noMacros
         symType = RMacro "Sym" [RMacro "Related" [] ip] ip
 
     case expandMacros env symType of
@@ -340,7 +340,7 @@ termPromotionExamplesSpec = describe "term promotion examples" $ do
     -- Id := (λx. x)^
     let idTerm = Lam "x" (Var "x" 0 ip) ip
         idMacro = Prom idTerm ip
-        env = extendMacroEnvironment "Id" [] (RelMacro idMacro) noMacros
+        env = extendMacroEnvironment "Id" [] (RelMacro idMacro) defaultFixity noMacros
 
     -- Test macro expansion
     case expandMacros env (RMacro "Id" [] ip) of
@@ -351,7 +351,7 @@ termPromotionExamplesSpec = describe "term promotion examples" $ do
     -- LambdaMacro A B := (λx. λy. x y)^
     let lambdaTerm = Lam "x" (Lam "y" (App (Var "x" 1 ip) (Var "y" 0 ip) ip) ip) ip
         lambdaMacro = Prom lambdaTerm ip
-        env = extendMacroEnvironment "LambdaMacro" ["A", "B"] (RelMacro lambdaMacro) noMacros
+        env = extendMacroEnvironment "LambdaMacro" ["A", "B"] (RelMacro lambdaMacro) defaultFixity noMacros
 
     -- Test parameterized macro expansion
     case expandMacros env (RMacro "LambdaMacro" [RMacro "Int" [] ip, RMacro "Bool" [] ip] ip) of
@@ -396,7 +396,7 @@ compositionExamplesSpec = describe "composition examples" $ do
     -- Corrected: Use RVar with proper de Bruijn indices for macro parameters
     -- RVar "R" 1 represents the first parameter, RVar "S" 0 represents the second parameter
     let doubleComp = Comp (RVar "R" 1 ip) (Comp (RVar "R" 1 ip) (RVar "S" 0 ip) ip) ip
-        env = extendMacroEnvironment "DoubleComp" ["R", "S"] (RelMacro doubleComp) noMacros
+        env = extendMacroEnvironment "DoubleComp" ["R", "S"] (RelMacro doubleComp) defaultFixity noMacros
 
     case expandMacros env (RMacro "DoubleComp" [RMacro "Eq" [] ip, RMacro "Lt" [] ip] ip) of
       Right result ->
@@ -434,7 +434,7 @@ converseExamplesSpec = describe "converse examples" $ do
 
   it "demonstrates symmetry macro Sym R := R˘" $ do
     let symMacro = Conv (RVar "R" 0 ip) ip
-        env = extendMacroEnvironment "Sym" ["R"] (RelMacro symMacro) noMacros
+        env = extendMacroEnvironment "Sym" ["R"] (RelMacro symMacro) defaultFixity noMacros
 
     case expandMacros env (RMacro "Sym" [RMacro "Equal" [] ip] ip) of
       Right result -> expandedType result `shouldBe` Conv (RMacro "Equal" [] ip) ip
@@ -731,7 +731,7 @@ buildMacroEnvironmentFromDeclarations decls = do
   return env
   where
     addMacro (MacroDef name params body) env =
-      extendMacroEnvironment name params body env
+      extendMacroEnvironment name params body defaultFixity env
     addMacro _ env = env
 
 -- | Parse file content and check a specific theorem
@@ -783,7 +783,7 @@ tmacroProofIntegrationSpec :: Spec
 tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
   it "handles TMacro expansion in iota proofs" $ do
     -- Test: ι⟨t, f x⟩ where f is a term macro
-    let env = extendMacroEnvironment "id" [] (TermMacro (Lam "x" (Var "x" 0 ip) ip)) noMacros
+    let env = extendMacroEnvironment "id" [] (TermMacro (Lam "x" (Var "x" 0 ip) ip)) defaultFixity noMacros
         termCtx =
           extendTermContext "t" (RMacro "A" [] ip) $
             extendTermContext "x" (RMacro "A" [] ip) emptyTypingContext
@@ -804,7 +804,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
 
   it "handles TMacro in proof term applications" $ do
     -- Test proof application where terms contain TMacros
-    let env = extendMacroEnvironment "const" ["a"] (TermMacro (Lam "x" (Var "a" 0 ip) ip)) noMacros
+    let env = extendMacroEnvironment "const" ["a"] (TermMacro (Lam "x" (Var "a" 0 ip) ip)) defaultFixity noMacros
         termCtx =
           extendTermContext "y" (RMacro "B" [] ip) $
             extendTermContext "x" (RMacro "A" [] ip) emptyTypingContext
@@ -834,8 +834,8 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
 
   it "handles nested TMacro applications in proofs" $ do
     -- Test deeply nested TMacro applications
-    let macroEnv1 = extendMacroEnvironment "id" [] (TermMacro (Lam "x" (Var "x" 0 ip) ip)) noMacros
-        macroEnv2 = extendMacroEnvironment "app" ["f", "x"] (TermMacro (App (Var "f" 1 ip) (Var "x" 0 ip) ip)) macroEnv1
+    let macroEnv1 = extendMacroEnvironment "id" [] (TermMacro (Lam "x" (Var "x" 0 ip) ip)) defaultFixity noMacros
+        macroEnv2 = extendMacroEnvironment "app" ["f", "x"] (TermMacro (App (Var "f" 1 ip) (Var "x" 0 ip) ip)) defaultFixity macroEnv1
 
         termCtx =
           extendTermContext "f" (RMacro "A→B" [] ip) $
@@ -871,7 +871,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
 
   it "handles TMacro in conversion proofs" $ do
     -- Test term conversion with TMacros
-    let env = extendMacroEnvironment "id" ["x"] (TermMacro (Var "x" 0 ip)) noMacros
+    let env = extendMacroEnvironment "id" ["x"] (TermMacro (Var "x" 0 ip)) defaultFixity noMacros
         termCtx = extendTermContext "t" (RMacro "A" [] ip) emptyTypingContext
 
         -- Create a proof that t ≡ t via identity
@@ -896,7 +896,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
 
   it "handles TMacro arity validation in proof context" $ do
     -- Test that TMacro arity is validated during proof checking
-    let env = extendMacroEnvironment "binary" ["x", "y"] (TermMacro (App (Var "x" 1 ip) (Var "y" 0 ip) ip)) noMacros
+    let env = extendMacroEnvironment "binary" ["x", "y"] (TermMacro (App (Var "x" 1 ip) (Var "y" 0 ip) ip)) defaultFixity noMacros
         termCtx = extendTermContext "a" (RMacro "A" [] ip) emptyTypingContext
 
         -- TMacro with wrong arity (expects 2 args, gets 1)
@@ -1062,7 +1062,7 @@ checkDeclForBugTest _ _ _ = return ()  -- Skip other declarations
 buildMacroEnv :: [Declaration] -> MacroEnvironment  
 buildMacroEnv = foldr addMacro noMacros
   where
-    addMacro (MacroDef name params body) env = extendMacroEnvironment name params body env
+    addMacro (MacroDef name params body) env = extendMacroEnvironment name params body defaultFixity env
     addMacro _ env = env
 
 buildTheoremEnv :: [Declaration] -> TheoremEnvironment

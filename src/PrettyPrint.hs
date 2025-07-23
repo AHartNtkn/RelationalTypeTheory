@@ -22,7 +22,8 @@ where
 
 import Data.List (intercalate)
 import Errors
-import Lib
+import Lib (MixfixPart(..), parseMixfixPattern, splitMixfix)
+import Lib hiding (splitMixfix, MixfixPart, parseMixfixPattern)
 import Text.Megaparsec (sourceColumn, sourceLine, sourceName, unPos)
 
 -- Configuration for pretty printing
@@ -66,10 +67,25 @@ prettyTermWithConfig config term = case term of
           _ -> prettyTermWithConfig config t1
         t2' = prettyTermWithParens config t2 -- Parens needed on right for complex terms
      in t1' ++ " " ++ t2'
-  TMacro name args _ ->
-    if null args
-      then name
-      else name ++ " " ++ intercalate " " (map (prettyTermWithParens config) args)
+  TMacro name args _
+    | '_' `elem` name ->
+        let pattern = parseMixfixPattern name
+            argStrs = map (prettyTermWithParens config) args
+        in renderMixfixPattern pattern argStrs
+    | null args -> name
+    | otherwise -> name ++ " " ++ intercalate " " (map (prettyTermWithParens config) args)
+
+-- | Render a mixfix pattern with arguments in a principled way
+renderMixfixPattern :: [MixfixPart] -> [String] -> String
+renderMixfixPattern pattern args = trimSpaces $ concat (go pattern args)
+  where
+    go [] [] = []
+    go [] _ = error "renderMixfixPattern: more arguments than holes"
+    go (Literal s : rest) argList = s : go rest argList
+    go (Hole : rest) [] = error "renderMixfixPattern: more holes than arguments"
+    go (Hole : rest) (arg : restArgs) = (" " ++ arg ++ " ") : go rest restArgs
+    
+    trimSpaces = unwords . words
 
 -- Add parentheses when needed for terms
 prettyTermWithParens :: PrettyConfig -> Term -> String
@@ -236,6 +252,16 @@ prettyDeclarationWithConfig config decl = case decl of
      in turnstile ++ " " ++ name ++ " : " ++ bindingStr ++ judgmentStr ++ " := " ++ proofStr ++ ";"
   ImportDecl importDecl -> prettyImportDeclaration importDecl
   ExportDecl exportDecl -> prettyExportDeclaration exportDecl
+  FixityDecl fixity name -> prettyFixity fixity ++ " " ++ name ++ ";"
+
+-- | Pretty print fixity declarations
+prettyFixity :: Fixity -> String
+prettyFixity fixity = case fixity of
+  Infixl level -> "infixl " ++ show level
+  Infixr level -> "infixr " ++ show level
+  InfixN level -> "infix " ++ show level
+  Prefix level -> "prefix " ++ show level
+  Postfix level -> "postfix " ++ show level
 
 -- Pretty print import declarations
 prettyImportDeclaration :: ImportDeclaration -> String

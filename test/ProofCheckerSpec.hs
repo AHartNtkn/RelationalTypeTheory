@@ -233,7 +233,7 @@ typeApplicationSpec = describe "type applications (TyApp)" $ do
         -- Define macro C := ∀X. X → X → X (like Bool)
         pos = initialPos "test"
         quantifiedMacro = RelMacro $ All "X" (Arr (RVar "X" 0 pos) (Arr (RVar "X" 0 pos) (RVar "X" 0 pos) pos) pos) pos
-        macroEnv = extendMacroEnvironment "C" [] quantifiedMacro noMacros
+        macroEnv = extendMacroEnvironment "C" [] quantifiedMacro defaultFixity noMacros
         
         -- Proof variable p : b [C] b  
         macroJudgment = RelJudgment (Var "b" 0 (initialPos "test")) (RMacro "C" [] (initialPos "test")) (Var "b" 0 (initialPos "test"))
@@ -1298,7 +1298,7 @@ wellFormednessViolationSpec = describe "well-formedness violations" $ do
 
   it "validates macro environment parameter arity checking" $ do
     -- Test that macro environment validates parameter arity during expansion
-    let macroEnv = MacroEnvironment $ Map.fromList [("TestMacro", (["X", "Y"], RelMacro (Arr (RVar "X" 0 (initialPos "test")) (RVar "Y" 1 (initialPos "test")) (initialPos "test"))))]
+    let macroEnv = MacroEnvironment (Map.fromList [("TestMacro", (["X", "Y"], RelMacro (Arr (RVar "X" 0 (initialPos "test")) (RVar "Y" 1 (initialPos "test")) (initialPos "test"))))]) Map.empty
         termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
 
         -- Create proof that would trigger macro expansion with wrong arity
@@ -1850,7 +1850,7 @@ judgmentEqualityMacroExpansionSpec = describe "judgment equality with macro expa
     let macroEnv = MacroEnvironment (Map.fromList [
           ("True", ([], TermMacro (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")))),
           ("Identity", ([], RelMacro (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test"))))
-          ])
+          ]) Map.empty
         judgment1 = RelJudgment (TMacro "True" [] (initialPos "test")) (RMacro "Identity" [] (initialPos "test")) (TMacro "True" [] (initialPos "test"))
         judgment2 = RelJudgment (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (RMacro "Identity" [] (initialPos "test")) (Lam "a" (Lam "b" (Var "a" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))
     
@@ -1861,7 +1861,7 @@ judgmentEqualityMacroExpansionSpec = describe "judgment equality with macro expa
   it "expands relation macros before comparing" $ do
     let macroEnv = MacroEnvironment (Map.fromList [
           ("Bool", ([], RelMacro (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))))
-          ])
+          ]) Map.empty
         judgment1 = RelJudgment (Var "x" 0 (initialPos "test")) (RMacro "Bool" [] (initialPos "test")) (Var "x" 0 (initialPos "test"))
         judgment2 = RelJudgment (Var "x" 0 (initialPos "test")) (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "x" 0 (initialPos "test"))
     
@@ -1925,7 +1925,7 @@ quantifierDeBruijnBugProofSpec = describe "quantifier de Bruijn bug in proof che
     let macroEnv = MacroEnvironment (Map.fromList [
           ("True", ([], TermMacro (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")))),
           ("Bool", ([], RelMacro (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))))
-          ])
+          ]) Map.empty
         judgment1 = RelJudgment (TMacro "True" [] (initialPos "test")) (RMacro "Bool" [] (initialPos "test")) (TMacro "True" [] (initialPos "test"))
         judgment2 = RelJudgment (Lam "a" (Lam "b" (Var "a" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (All "Y" (Arr (RVar "Y" 0 (initialPos "test")) (Arr (RVar "Y" 0 (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Lam "c" (Lam "d" (Var "c" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))
     
@@ -1937,7 +1937,7 @@ quantifierDeBruijnBugProofSpec = describe "quantifier de Bruijn bug in proof che
     -- Simple proof: λp:R. p should give λx.x [R → R] λx'.x'
     let proof = LamP "p" (RVar "R" 0 (initialPos "test")) (PVar "p" 0 (initialPos "test")) (initialPos "test")
         ctx = emptyTypingContext
-        macroEnv = MacroEnvironment Map.empty
+        macroEnv = MacroEnvironment Map.empty Map.empty
         
     case inferProofType ctx macroEnv noTheorems proof of
       Right result -> do

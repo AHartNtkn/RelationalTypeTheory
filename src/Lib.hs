@@ -16,6 +16,13 @@ module Lib
     Visibility (..),
     ModuleInfo (..),
     ModulePath,
+    Fixity (..),
+    MixfixPart (..),
+    parseMixfixPattern,
+    splitMixfix,
+    holes,
+    defaultFixity,
+    mixfixKeywords,
     termPos,
     rtypePos,
     proofPos,
@@ -23,6 +30,7 @@ module Lib
 where
 
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Text.Megaparsec (SourcePos)
 
 data Term
@@ -71,6 +79,7 @@ data Declaration
   | TheoremDef String [Binding] RelJudgment Proof
   | ImportDecl ImportDeclaration
   | ExportDecl ExportDeclaration
+  | FixityDecl Fixity String  -- NEW: fixity declaration for a macro
   deriving (Show, Eq)
 
 data Binding
@@ -101,9 +110,19 @@ data TypeEnvironment = TypeEnvironment
   }
   deriving (Show, Eq)
 
+-- | Fixity declarations for mixfix operators
+data Fixity
+  = Infixl Int    -- left associative, level 0-9
+  | Infixr Int    -- right associative, level 0-9
+  | InfixN Int    -- non-associative, level 0-9
+  | Prefix Int    -- prefix operator, level 0-9
+  | Postfix Int   -- postfix operator, level 0-9
+  deriving (Show, Eq)
+
 -- | Environment for macro definitions
 data MacroEnvironment = MacroEnvironment
   { macroDefinitions :: Map.Map String ([String], MacroBody) -- macro name -> (params, body)
+  , macroFixities :: Map.Map String Fixity                   -- macro name -> fixity declaration
   }
   deriving (Show, Eq)
 
@@ -176,3 +195,54 @@ proofPos (Iota _ _ pos) = pos
 proofPos (RhoElim _ _ _ _ _ pos) = pos
 proofPos (Pair _ _ pos) = pos
 proofPos (Pi _ _ _ _ _ pos) = pos
+
+-- | Principled representation of mixfix pattern parts
+data MixfixPart = Hole | Literal String
+  deriving (Show, Eq)
+
+-- | Parse a mixfix identifier into its constituent parts
+-- "_+_" -> [Hole, Literal "+", Hole]
+-- "if_then_else_" -> [Literal "if", Hole, Literal "then", Hole, Literal "else", Hole]
+-- "not_" -> [Literal "not", Hole]
+-- "_!" -> [Hole, Literal "!"]
+-- "regular" -> [Literal "regular"]
+parseMixfixPattern :: String -> [MixfixPart]
+parseMixfixPattern = go
+  where
+    go [] = []
+    go ('_':rest) = Hole : go rest
+    go str = 
+      let (literal, rest) = span (/= '_') str
+      in if null literal 
+         then go rest
+         else Literal literal : go rest
+
+-- | Count the number of holes in a mixfix pattern
+holes :: String -> Int
+holes = length . filter isHole . parseMixfixPattern
+  where
+    isHole Hole = True
+    isHole _ = False
+
+-- | Extract just the literal parts from a mixfix pattern (for backward compatibility)
+splitMixfix :: String -> [String]
+splitMixfix = map extractLiteral . filter isLiteral . parseMixfixPattern
+  where
+    isLiteral (Literal _) = True
+    isLiteral _ = False
+    extractLiteral (Literal s) = s
+    extractLiteral _ = error "extractLiteral called on non-literal"
+
+-- | Default fixity for macros (preserves old behavior)
+defaultFixity :: Fixity
+defaultFixity = Prefix 9
+
+-- | Extract all mixfix keywords (literal segments) from macro definitions
+mixfixKeywords :: MacroEnvironment -> Set.Set String
+mixfixKeywords env =
+  Set.fromList
+    . filter (not . null)
+    . concatMap splitMixfix
+    . filter ('_' `elem`)  -- Only process mixfix patterns (containing underscores)
+    . Map.keys
+    $ macroDefinitions env

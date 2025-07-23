@@ -82,6 +82,7 @@ test-suite reltt-haskell-test
       ContextSpec
       ErrorsSpec
       IntegrationSpec
+      MixfixSpec
       NormalizeSpec
       NotPreservesBoolBugSpec
       ParserSpec

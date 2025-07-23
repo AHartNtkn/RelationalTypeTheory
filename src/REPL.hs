@@ -10,6 +10,7 @@ where
 
 import Context (emptyTypingContext, extendMacroEnvironment, extendProofContext, extendRelContext, extendTermContext, lookupMacro, lookupTerm, noMacros, noTheorems)
 import Control.Monad.State
+import qualified Data.Map as Map
 import Errors
 import Lib
 import ModuleSystem (ModuleLoadError (..), ModuleRegistry, emptyModuleRegistry, loadModuleWithDependenciesIntegrated)
@@ -165,7 +166,10 @@ executeREPLCommand cmd = case cmd of
                 bodyStr = case body of
                   TermMacro term -> prettyTerm term
                   RelMacro rtype -> prettyRType rtype
-             in "Macro " ++ name ++ paramStr ++ " := " ++ bodyStr
+                fixityStr = case Map.lookup name (macroFixities (replMacroEnv currentState)) of
+                  Nothing -> ""
+                  Just fixity -> "\nFixity: " ++ show fixity
+             in "Macro " ++ name ++ paramStr ++ " := " ++ bodyStr ++ fixityStr
           Left _ -> "No macro named " ++ name
     let contextInfo = case lookupTerm name (replContext currentState) of
           Right (_, rtype) -> "Term " ++ name ++ " : " ++ prettyRType rtype
@@ -212,6 +216,9 @@ executeREPLCommand cmd = case cmd of
               ExportDecl exportDecl -> do
                 put $ currentState {replDeclarations = newDecls}
                 return $ "Export declaration processed: " ++ prettyExportDeclaration exportDecl
+              FixityDecl fixity name -> do
+                put $ currentState {replMacroEnv = newMacroEnv, replDeclarations = newDecls}
+                return $ "Added fixity declaration: " ++ show fixity ++ " " ++ name
 
 -- Build macro environment from declarations (helper function)
 buildMacroEnvironmentFromDeclarations :: [Declaration] -> Either RelTTError MacroEnvironment
@@ -220,7 +227,7 @@ buildMacroEnvironmentFromDeclarations decls = do
   return env
   where
     addMacro (MacroDef name params body) env =
-      extendMacroEnvironment name params body env
+      extendMacroEnvironment name params body defaultFixity env
     addMacro _ env = env
 
 -- Build context from bindings (helper function)

@@ -15,19 +15,26 @@ module Parser
     emptyParseContext,
     runParserT,
     ParseContext (..),
+    mixfixIdentifier,
   )
 where
 
 import Context (extendMacroEnvironment, extendTheoremEnvironment, lookupTheorem, noMacros, noTheorems)
+import Control.Monad (when, void)
 import Control.Monad.Combinators.Expr
 import Control.Monad.Reader
+import Data.List (sortBy)
+import Data.Maybe (maybe)
+import Data.Ord (comparing)
 import Data.Map (Map)
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Data.Void
 import Lib
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
+import Data.Char (isAlphaNum, isSymbol, isPunctuation)
 
 -- Context for tracking variable bindings with de Bruijn indices during parsing
 data ParseContext = ParseContext
@@ -35,12 +42,13 @@ data ParseContext = ParseContext
     relVars :: Map String Int, -- relation variable name -> de Bruijn index
     proofVars :: Map String Int, -- proof variable name -> de Bruijn index
     macroEnv :: MacroEnvironment, -- full macro environment
-    theoremEnv :: TheoremEnvironment -- full theorem environment
+    theoremEnv :: TheoremEnvironment, -- full theorem environment
+    kwdSet :: Set.Set String -- mixfix keywords (literal segments)
   }
   deriving (Show, Eq)
 
 emptyParseContext :: ParseContext
-emptyParseContext = ParseContext Map.empty Map.empty Map.empty noMacros noTheorems
+emptyParseContext = ParseContext Map.empty Map.empty Map.empty noMacros noTheorems (mixfixKeywords noMacros)
 
 type Parser = ParsecT Void String (Reader ParseContext)
 
@@ -53,8 +61,34 @@ lexeme = L.lexeme sc
 symbol :: String -> Parser String
 symbol = L.symbol sc
 
+-- | Like 'symbol', but lets the token be the last thing in the input.
+sym :: String -> Parser String
+sym = L.symbol scOpt
+  where
+    -- space consumer that allows *zero* spaces
+    scOpt = L.space (void $ Text.Megaparsec.many (char ' ' <|> char '\t' <|> char '\n'))
+                    (L.skipLineComment "--")
+                    (L.skipBlockComment "{-" "-}")
+
 identifier :: Parser String
-identifier = lexeme ((:) <$> letterChar <*> many (alphaNumChar <|> char '_' <|> char '\''))
+identifier = lexeme . try $ do
+  s <- (:) <$> letterChar <*> many (alphaNumChar <|> char '_' <|> char '\'')
+  ctx <- ask
+  let kws = kwdSet ctx
+  when (s `Set.member` kws) $
+    fail $ "'" ++ s ++ "' is a reserved mixfix keyword"
+  pure s
+
+-- | Mixfix / operator identifier.
+--   First character may be '_' or any symbol.  We stop on whitespace,
+--   ';' or one of the reserved delimiters to keep the grammar unambiguous.
+mixfixIdentifier :: Parser String
+mixfixIdentifier = lexeme (some opChar <?> "operator identifier")
+  where
+    opChar = satisfy isOpChar
+    -- Liberal set including unicode symbols, but excluding reserved syntax characters
+    isOpChar c = (isAlphaNum c || isSymbol c || isPunctuation c || c `elem` ("_+-*/=<>:&|!~^?%$#@." :: String))
+                 && c `notElem` (";(){}[]," :: String)
 
 stringLiteral :: Parser String
 stringLiteral = lexeme (char '"' >> manyTill L.charLiteral (char '"'))
@@ -65,13 +99,18 @@ parens = between (symbol "(") (symbol ")")
 -- Term parsing
 parseTerm :: Parser Term
 parseTerm = do
-  term <- makeExprParser parseTerm' termOps
+  ctx <- ask
+  let ops = buildTermOps (macroEnv ctx)
+  term <- makeExprParser parseTerm' ops
   validateMacroInstantiation term
   return term
 
 -- Term parsing without macro validation (for use in macro definitions)
 parseTermNoValidation :: Parser Term
-parseTermNoValidation = makeExprParser parseTerm' termOps
+parseTermNoValidation = do
+  ctx <- ask
+  let ops = buildTermOps (macroEnv ctx)
+  makeExprParser parseTerm' ops
 
 -- Validate that all macros are properly instantiated
 validateMacroInstantiation :: Term -> Parser ()
@@ -92,8 +131,36 @@ validateMacroInstantiation term = do
 parseTerm' :: Parser Term
 parseTerm' =
   parens parseTerm
+    <|> parseMixfixGeneral  -- NEW: general mixfix parsing
     <|> parseLam
     <|> parseTermVar
+
+-- | Parse general mixfix operators (≥3 holes, prefix, postfix)
+parseMixfixGeneral :: Parser Term
+parseMixfixGeneral = do
+  ctx <- ask
+  let candidates = filter (\name -> '_' `elem` name && holes name /= 2) 
+                           (Map.keys (macroDefinitions (macroEnv ctx)))
+  -- Sort by segment count descending for longest-match
+  let sortedCandidates = sortBy (comparing (negate . length . splitMixfix)) candidates
+  choice (map (try . parseMixfixName) sortedCandidates)
+  where
+    parseMixfixName name = do
+      let segments = splitMixfix name
+      pos <- getSourcePos
+      args <- parseSegments segments []
+      return (TMacro name (reverse args) pos)
+    
+    -- Left-to-right "maximal munch" parsing
+    parseSegments [] acc = return acc
+    parseSegments [s] acc = do
+      -- Last segment must be literal (no trailing hole)
+      _ <- symbol s
+      return acc
+    parseSegments (s:ss) acc = do
+      _ <- symbol s                 -- Parse literal part
+      arg <- parseTerm              -- Parse hole (full term)
+      parseSegments ss (arg:acc)
 
 parseTermVar :: Parser Term
 parseTermVar = do
@@ -123,9 +190,34 @@ parseLam = do
           shiftedVars = Map.map (+ 1) (termVars ctx)
        in ctx {termVars = Map.insert name newIndex shiftedVars}
 
-termOps :: [[Operator Parser Term]]
-termOps = [[InfixL smartApp]]
+-- Build operator table dynamically based on macro fixity declarations
+buildTermOps :: MacroEnvironment -> [[Operator Parser Term]]
+buildTermOps env =
+  let table = Map.toList (macroFixities env)
+      -- Group operators by precedence level (0-9)
+      bucket level = [ op | (name, fixity) <- table, getLevel fixity == level, op <- fixityToOp name fixity ]
+      getLevel f = case f of
+        Lib.Infixl n -> n
+        Lib.Infixr n -> n
+        Lib.InfixN n -> n
+        _ -> -1  -- prefix/postfix handled separately
+      fixityToOp name fixity =
+        case fixity of
+          Lib.Infixl _ -> [Control.Monad.Combinators.Expr.InfixL (mixfixInfix name)]
+          Lib.Infixr _ -> [Control.Monad.Combinators.Expr.InfixR (mixfixInfix name)]
+          Lib.InfixN _ -> [Control.Monad.Combinators.Expr.InfixN (mixfixInfix name)]
+          _ -> []  -- prefix/postfix handled in parseMixfixGeneral
+  in map bucket [9,8..0] ++ [[Control.Monad.Combinators.Expr.InfixL smartApp]]  -- preserve old application behavior
   where
+    mixfixInfix name = do
+      pos <- getSourcePos
+      let pattern = parseMixfixPattern name
+      case pattern of
+        [Hole, Literal s, Hole] -> do
+          _ <- symbol s
+          return $ \t1 t2 -> TMacro name [t1, t2] pos
+        _ -> fail $ "Invalid infix macro pattern: " ++ name ++ " (must be _literal_)"
+    
     smartApp = do
       ctx <- ask
       return $ \t1 t2 ->
@@ -143,17 +235,122 @@ termOps = [[InfixL smartApp]]
                   Nothing -> App t1 t2 pos -- Shouldn't happen, but fallback to App
               _ -> App t1 t2 pos
 
+-- Build operator table for relational types with mixfix support
+buildRTypeOps :: MacroEnvironment -> [[Operator Parser RType]]
+buildRTypeOps env =
+  let table = Map.toList (macroFixities env)
+      -- Group operators by precedence level (0-9), only include relational macros
+      bucket level = [ op | (name, fixity) <- table, getLevel fixity == level, 
+                           isRelationalMacro name env, op <- fixityToOp name fixity ]
+      getLevel f = case f of
+        Lib.Infixl n -> n
+        Lib.Infixr n -> n
+        Lib.InfixN n -> n
+        Lib.Postfix n -> n
+        _ -> -1  -- prefix handled separately
+      fixityToOp name fixity =
+        case fixity of
+          Lib.Infixl _ -> [Control.Monad.Combinators.Expr.InfixL (relMixfixInfix name)]
+          Lib.Infixr _ -> [Control.Monad.Combinators.Expr.InfixR (relMixfixInfix name)]
+          Lib.InfixN _ -> [Control.Monad.Combinators.Expr.InfixN (relMixfixInfix name)]
+          Lib.Postfix _ -> [Control.Monad.Combinators.Expr.Postfix (relMixfixPostfix name)]
+          _ -> []  -- prefix handled in parseRelMixfixGeneral
+      isRelationalMacro name env = 
+        case Map.lookup name (macroDefinitions env) of
+          Just (_, RelMacro _) -> True
+          _ -> False
+  -- Static operators first, then dynamic mixfix operators, then arrows
+  in map bucket [9,8..0] ++ 
+     [ [ Control.Monad.Combinators.Expr.Postfix
+           ( do
+               pos <- getSourcePos
+               _ <- symbol "˘"
+               return (\r -> Conv r pos)
+           )
+       ],
+       [InfixL (do pos <- getSourcePos; _ <- symbol "∘"; return (\r1 r2 -> Comp r1 r2 pos))],
+       [InfixR (do pos <- getSourcePos; _ <- symbol "->" <|> symbol "→"; return (\r1 r2 -> Arr r1 r2 pos))]
+     ]
+  where
+    relMixfixInfix name = do
+      pos <- getSourcePos
+      let segments = splitMixfix name
+      if length segments == 1
+        then do
+          _ <- symbol (head segments)
+          return $ \r1 r2 -> RMacro name [r1, r2] pos
+        else fail "Invalid infix relational macro: must have exactly one literal segment"
+    
+    relMixfixPostfix name = do
+      pos <- getSourcePos
+      case splitMixfix name of
+        [lit] ->                          --  _converse
+          symbol lit                      --  accept "converse" [space required]
+          >> return (\r -> RMacro name [r] pos)
+        _ -> fail "Invalid postfix relational macro: must start with underscore"
+
 -- RType parsing
 parseRType :: Parser RType
-parseRType = makeExprParser parseRType' rtypeOps
+parseRType = do
+  ctx <- ask
+  let ops = buildRTypeOps (macroEnv ctx)
+  makeExprParser parseRType' ops
 
 parseRType' :: Parser RType
 parseRType' =
   parseAll
     <|> try parseProm
     <|> try parseRMacro
+    <|> parseRelMixfixGeneral  -- NEW: general mixfix parsing for relational types
     <|> parseRVarOrApp
     <|> parens parseRType
+
+-- | Parse general mixfix operators for relational types (≥3 holes, prefix, postfix)
+parseRelMixfixGeneral :: Parser RType
+parseRelMixfixGeneral = do
+  ctx <- ask
+  let isRelMacro name =
+        case Map.lookup name (macroDefinitions (macroEnv ctx)) of
+          Just (_, RelMacro _) -> True
+          _                    -> False
+
+      --  Post‑fix  ⇔  pattern == [Hole , Literal _]
+      isPostfix name =
+        case parseMixfixPattern name of
+          [Hole, Literal _] -> True
+          _                 -> False
+
+      --  General mixfix =
+      --    has '_'      / not binary infix / not postfix / is relational
+      isGeneralMixfix name =
+           '_' `elem` name
+        && holes name /= 2
+        && not (isPostfix name)
+        && isRelMacro name
+
+      candidates  = filter isGeneralMixfix
+                  $ Map.keys (macroDefinitions (macroEnv ctx))
+
+  -- longest‑match first
+  let sorted = sortBy (comparing (negate . length . splitMixfix)) candidates
+  choice (map (try . parseRelMixfixName) sorted)
+  where
+    parseRelMixfixName name = do
+      let segments = splitMixfix name
+      pos <- getSourcePos
+      args <- parseRelSegments segments []
+      return (RMacro name (reverse args) pos)
+    
+    -- Left-to-right "maximal munch" parsing for relational types
+    parseRelSegments [] acc = return acc
+    parseRelSegments [s] acc = do
+      -- Last segment must be literal (no trailing hole)
+      _ <- symbol s
+      return acc
+    parseRelSegments (s:ss) acc = do
+      _ <- symbol s                 -- Parse literal part
+      arg <- parseRType             -- Parse hole (full relational type)
+      parseRelSegments ss (arg:acc)
 
 parseRVarOrApp :: Parser RType
 parseRVarOrApp = do
@@ -210,23 +407,16 @@ parseRMacro :: Parser RType
 parseRMacro = do
   pos <- getSourcePos
   f <- identifier
-  args <- some parseRAtom
-  return (RMacro f args pos)
+  ctx <- ask
+  -- Validate that f is actually a known relational macro
+  case Map.lookup f (macroDefinitions (macroEnv ctx)) of
+    Just (_, RelMacro _) -> do
+      args <- some parseRAtom
+      return (RMacro f args pos)
+    _ -> fail $ "Unknown relational macro: " ++ f
   where
     parseRAtom = parens parseRType <|> parseRVarOrApp
 
-rtypeOps :: [[Operator Parser RType]]
-rtypeOps =
-  [ [ Postfix
-        ( do
-            pos <- getSourcePos
-            _ <- symbol "˘"
-            return (\r -> Conv r pos)
-        )
-    ],
-    [InfixL (do pos <- getSourcePos; _ <- symbol "∘"; return (\r1 r2 -> Comp r1 r2 pos))],
-    [InfixR (do pos <- getSourcePos; _ <- symbol "->" <|> symbol "→"; return (\r1 r2 -> Arr r1 r2 pos))]
-  ]
 
 -- Proof parsing
 parseProof :: Parser Proof
@@ -304,7 +494,7 @@ extractRelFromProof _ = Nothing
 
 proofOps :: [[Operator Parser Proof]]
 proofOps =
-  [ [ Postfix
+  [ [ Control.Monad.Combinators.Expr.Postfix
         ( do
             pos <- getSourcePos
             _ <- symbol "{"
@@ -477,7 +667,41 @@ parseRelJudgment = try $ do
 
 -- Declaration parsing
 parseDeclaration :: Parser Declaration
-parseDeclaration = parseImportDef <|> parseExportDef <|> parseTheoremDef <|> parseMacroDef
+parseDeclaration = parseImportDef <|> parseExportDef <|> parseFixityDecl <|> parseTheoremDef <|> parseMacroDef
+
+-- | Parse fixity declarations like "infixl 6 _+_;"
+parseFixityDecl :: Parser Declaration
+parseFixityDecl = do
+  fixityConstructor <- 
+        (symbol "infixl" >> return Lib.Infixl)
+    <|> (symbol "infixr" >> return Lib.Infixr)
+    <|> (symbol "infix" >> return Lib.InfixN)
+    <|> (symbol "prefix" >> return Lib.Prefix)
+    <|> (symbol "postfix" >> return Lib.Postfix)
+  level <- L.decimal
+  when (level > 9) $ fail "Precedence level must be 0-9"
+  sc
+  name <- mixfixIdentifier
+  -- Validate that fixity matches the pattern
+  let pattern = parseMixfixPattern name
+  case fixityConstructor (fromIntegral level) of
+    Lib.Infixl _ -> case pattern of
+      [Hole, Literal _, Hole] -> return ()
+      _ -> fail $ "infixl requires pattern _literal_ but got: " ++ name
+    Lib.Infixr _ -> case pattern of
+      [Hole, Literal _, Hole] -> return ()
+      _ -> fail $ "infixr requires pattern _literal_ but got: " ++ name
+    Lib.InfixN _ -> case pattern of
+      [Hole, Literal _, Hole] -> return ()
+      _ -> fail $ "infix requires pattern _literal_ but got: " ++ name
+    Lib.Prefix _ -> case pattern of
+      Literal _ : Hole : _ -> return ()
+      _ -> fail $ "prefix requires pattern starting with literal followed by hole(s), but got: " ++ name
+    Lib.Postfix _ -> case reverse pattern of
+      Literal _ : Hole : _ -> return ()
+      _ -> fail $ "postfix requires pattern ending with hole followed by literal, but got: " ++ name
+  symbol ";"
+  return (FixityDecl (fixityConstructor (fromIntegral level)) name)
 
 -- | Macro body = term ▷ ';'  ∨  relational‑type
 parseMacroBody :: Parser MacroBody
@@ -488,18 +712,36 @@ parseMacroBody = termBranch <|> relBranch
 
 parseMacroDef :: Parser Declaration
 parseMacroDef = do
-  name <- identifier
-  args <- many identifier
+  name <- mixfixIdentifier
+  -- Generate auto-parameters if none provided (for mixfix macros)
+  let autoParams = ["p" ++ show i | i <- [1..holes name]]
+  explicitParams <- many identifier
+  let params = if null explicitParams then autoParams else explicitParams
   _ <- symbol "≔" <|> symbol ":="
   let bindArgs ctx =
-        let argIndexMap = Map.fromList (zip args (reverse [0 .. length args - 1]))
-            newTermVars = Map.union argIndexMap (Map.map (+ length args) (termVars ctx))
-            newRelVars = Map.union argIndexMap (Map.map (+ length args) (relVars ctx))
+        let argIndexMap = Map.fromList (zip params (reverse [0 .. length params - 1]))
+            newTermVars = Map.union argIndexMap (Map.map (+ length params) (termVars ctx))
+            newRelVars = Map.union argIndexMap (Map.map (+ length params) (relVars ctx))
          in ctx {termVars = newTermVars, relVars = newRelVars}
   -- Try parsing as term first, then fall back to relational type
   body <- local bindArgs $ parseMacroBody
   _ <- symbol ";"
-  return (MacroDef name args body)
+  -- For now, just use defaultFixity - inline fixity will be added later
+  return (MacroDef name params body)
+  
+-- | Parse inline fixity declarations like "with infixl 4"
+parseInlineFixity :: Parser Fixity
+parseInlineFixity = do
+  _ <- symbol "with"
+  fixityConstructor <- 
+        (symbol "infixl" >> return Lib.Infixl)
+    <|> (symbol "infixr" >> return Lib.Infixr)
+    <|> (symbol "infix" >> return Lib.InfixN)
+    <|> (symbol "prefix" >> return Lib.Prefix)
+    <|> (symbol "postfix" >> return Lib.Postfix)
+  level <- L.decimal
+  when (level > 9) $ fail "Precedence level must be 0-9"
+  return (fixityConstructor (fromIntegral level))
 
 parseTheoremDef :: Parser Declaration
 parseTheoremDef = do
@@ -603,11 +845,24 @@ parseDeclarationsWithContext acc = do
     Nothing -> return (reverse acc)
     Just decl -> case decl of
       MacroDef name args body -> do
-        let addMacro ctx = ctx {macroEnv = extendMacroEnvironment name args body (macroEnv ctx)}
+        -- Detect fixity based on the name pattern
+        let fixity = if '_' `elem` name
+                     then case holes name of
+                       2 -> Lib.Infixl 6  -- default infix for binary operators
+                       _ -> Lib.Prefix 9  -- default prefix for other mixfix
+                     else defaultFixity
+        let addMacro ctx = 
+              let newEnv = extendMacroEnvironment name args body fixity (macroEnv ctx)
+              in ctx {macroEnv = newEnv, kwdSet = mixfixKeywords newEnv}
         local addMacro $ parseDeclarationsWithContext (decl : acc)
       TheoremDef name bindings judgment proof -> do
         let addTheorem ctx = ctx {theoremEnv = extendTheoremEnvironment name bindings judgment proof (theoremEnv ctx)}
         local addTheorem $ parseDeclarationsWithContext (decl : acc)
+      FixityDecl fixity name -> do
+        let addFixity ctx = 
+              let newEnv = (macroEnv ctx) { macroFixities = Map.insert name fixity (macroFixities (macroEnv ctx)) }
+              in ctx { macroEnv = newEnv, kwdSet = mixfixKeywords newEnv }
+        local addFixity $ parseDeclarationsWithContext (decl : acc)
       ImportDecl _ -> parseDeclarationsWithContext (decl : acc) -- Import declarations don't affect parsing context
       ExportDecl _ -> parseDeclarationsWithContext (decl : acc) -- Export declarations don't affect parsing context
 
@@ -617,7 +872,7 @@ runParserEmpty p input = runReader (runParserT p "" input) emptyParseContext
 
 runParserWithMacroEnv :: MacroEnvironment -> Parser a -> String -> Either (ParseErrorBundle String Void) a
 runParserWithMacroEnv env p input =
-  let ctx = emptyParseContext {macroEnv = env}
+  let ctx = emptyParseContext {macroEnv = env, kwdSet = mixfixKeywords env}
    in runReader (runParserT p "" input) ctx
 
 runParserWithFilename :: String -> Parser a -> String -> Either (ParseErrorBundle String Void) a

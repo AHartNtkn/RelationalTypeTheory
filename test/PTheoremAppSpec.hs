@@ -17,7 +17,7 @@ emptyCtx :: TypingContext
 emptyCtx = TypingContext Map.empty Map.empty Map.empty 0
 
 emptyMacroEnv :: MacroEnvironment
-emptyMacroEnv = MacroEnvironment Map.empty
+emptyMacroEnv = MacroEnvironment Map.empty Map.empty
 
 spec :: Spec
 spec = describe "PTheoremApp Proof Checking" $ do

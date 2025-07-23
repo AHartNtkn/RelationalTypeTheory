@@ -32,7 +32,7 @@ testParse tVars rVars pVars env parser input expected =
   let termVarMap = Map.fromList (zip tVars (reverse [0 .. length tVars - 1]))
       relVarMap = Map.fromList (zip rVars (reverse [0 .. length rVars - 1]))
       proofVarMap = Map.fromList (zip pVars (reverse [0 .. length pVars - 1]))
-      ctx = ParseContext termVarMap relVarMap proofVarMap env noTheorems
+      ctx = ParseContext termVarMap relVarMap proofVarMap env noTheorems (mixfixKeywords env)
    in case runReader (runParserT (parser <* eof) "test" input) ctx of
         Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
         Right result -> result `shouldBeEqual` expected
@@ -82,7 +82,7 @@ createTermMacroEnv macroDefs =
   foldr
     ( \(name, params) env ->
         let dummyBody = TermMacro (Var "dummy" 0 (initialPos "test")) -- Dummy body for parsing tests
-         in extendMacroEnvironment name params dummyBody env
+         in extendMacroEnvironment name params dummyBody defaultFixity env
     )
     noMacros
     macroDefs
@@ -691,8 +691,14 @@ rtypeParserSpec = describe "RType parser" $ do
     testParse [] ["SomeType"] [] noMacros parseRType "SomeType" (RVar "SomeType" 0 (initialPos "test"))
 
   it "parses type application" $ do
-    testParse [] ["A"] [] noMacros parseRType "List A" (RMacro "List" [RVar "A" 0 (initialPos "test")] (initialPos "test"))
-    testParse [] ["A", "B"] [] noMacros parseRType "Pair A B" (RMacro "Pair" [RVar "A" 1 (initialPos "test"), RVar "B" 0 (initialPos "test")] (initialPos "test"))
+    let listEnv = extendMacroEnvironment "List" ["A"] (RelMacro (RVar "A" 0 (initialPos "test"))) defaultFixity noMacros
+    testParse [] ["A"] [] listEnv parseRType "List A" (RMacro "List" [RVar "A" 0 (initialPos "test")] (initialPos "test"))
+    let pairEnv = extendMacroEnvironment "Pair" ["A", "B"] (RelMacro (RVar "A" 1 (initialPos "test"))) defaultFixity noMacros
+    testParse [] ["A", "B"] [] pairEnv parseRType "Pair A B" (RMacro "Pair" [RVar "A" 1 (initialPos "test"), RVar "B" 0 (initialPos "test")] (initialPos "test"))
+
+  it "rejects unknown macros in type applications" $ do
+    testParseFailure parseRType "List A"
+    testParseFailure parseRType "Pair A B"
 
   it "respects operator precedence" $ do
     testParse [] ["A", "B", "C"] [] noMacros parseRType "A -> B ∘ C" (Arr (RVar "A" 2 (initialPos "test")) (Comp (RVar "B" 1 (initialPos "test")) (RVar "C" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
@@ -997,11 +1003,11 @@ declarationParserSpec = describe "Declaration parser" $ do
       []
       noMacros
       parseDeclaration
-      "Bool_Eq := ∀X. X → X → X ;"
-      (MacroDef "Bool_Eq" [] (RelMacro (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))))
+      "BoolEq := ∀X. X → X → X ;"
+      (MacroDef "BoolEq" [] (RelMacro (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))))
 
   it "parses theorem definitions" $ do
-    let idMacroEnv = extendMacroEnvironment "Id" [] (RelMacro (RVar "dummy" 0 (initialPos "test"))) noMacros
+    let idMacroEnv = extendMacroEnvironment "Id" [] (RelMacro (RVar "dummy" 0 (initialPos "test"))) defaultFixity noMacros
     testParse
       []
       []
@@ -1016,7 +1022,7 @@ declarationParserSpec = describe "Declaration parser" $ do
           (Iota (Var "t" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")) (initialPos "test"))
       )
 
-    let symMacroEnv = extendMacroEnvironment "Sym" ["R"] (RelMacro (RVar "dummy" 0 (initialPos "test"))) noMacros
+    let symMacroEnv = extendMacroEnvironment "Sym" ["R"] (RelMacro (RVar "dummy" 0 (initialPos "test"))) defaultFixity noMacros
     testParse
       []
       []
@@ -1048,7 +1054,7 @@ declarationParserSpec = describe "Declaration parser" $ do
 
   it "parses relational judgments with complex terms" $ do
     -- Lambda terms in judgments
-    let idMacroEnv2 = extendMacroEnvironment "Id" [] (RelMacro (RVar "dummy" 0 (initialPos "test"))) noMacros
+    let idMacroEnv2 = extendMacroEnvironment "Id" [] (RelMacro (RVar "dummy" 0 (initialPos "test"))) defaultFixity noMacros
     testParse
       []
       []
@@ -1094,11 +1100,12 @@ declarationParserSpec = describe "Declaration parser" $ do
       )
 
     -- Nested lambda terms
+    let compMacroEnv = extendMacroEnvironment "Comp" ["A", "B"] (RelMacro (Comp (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))) defaultFixity noMacros
     testParse
       []
       []
       []
-      noMacros
+      compMacroEnv
       parseDeclaration
       "⊢ nested (A : Rel) (B : Rel) (p : (λx. λy. x y) [Comp A B] (λz. z)) : (λx. λy. x y) [Comp A B] (λz. z) ≔ p ;"
       ( TheoremDef

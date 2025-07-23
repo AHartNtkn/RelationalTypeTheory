@@ -58,7 +58,7 @@ buildMacroEnvironmentFromDeclarations decls = do
   return env
   where
     addMacro (MacroDef name params body) env =
-      extendMacroEnvironment name params body env
+      extendMacroEnvironment name params body defaultFixity env
     addMacro _ env = env
 
 -- Build theorem environment from declarations

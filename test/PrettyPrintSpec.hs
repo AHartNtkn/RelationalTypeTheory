@@ -1,5 +1,6 @@
 module PrettyPrintSpec (spec) where
 
+import Context (extendMacroEnvironment, noMacros)
 import Control.Monad.Reader (runReader)
 import qualified Data.Map as Map
 import Errors
@@ -137,7 +138,8 @@ spec = do
       it "pretty prints relational macros with promoted terms" $ do
         let original = RMacro "Lift" [Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")] (initialPos "test")
             prettyResult = prettyRType original
-            ctx = emptyParseContext -- No bindings needed for this test
+            liftEnv = extendMacroEnvironment "Lift" ["A"] (RelMacro (RVar "A" 0 (initialPos "test"))) defaultFixity noMacros
+            ctx = emptyParseContext { macroEnv = liftEnv, kwdSet = mixfixKeywords liftEnv }
             -- Test that the pretty-printed result parses back to exactly the same AST
         case runReader (runParserT parseRType "" prettyResult) ctx of
           Left err -> expectationFailure $ "Pretty-printed result failed to parse: " ++ errorBundlePretty err

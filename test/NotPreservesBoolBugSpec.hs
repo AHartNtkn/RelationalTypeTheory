@@ -49,7 +49,7 @@ parseAndRunBoolRttContentSpec = describe "Parse and run bool.rtt content" $ do
       buildMacroEnvironmentFromDecls [] = Right noMacros
       buildMacroEnvironmentFromDecls ((MacroDef name params body):rest) = do
         env <- buildMacroEnvironmentFromDecls rest
-        return $ extendMacroEnvironment name params body env
+        return $ extendMacroEnvironment name params body defaultFixity env
       buildMacroEnvironmentFromDecls (_:rest) = buildMacroEnvironmentFromDecls rest
       
       buildContextFromBindings = foldl addBinding emptyTypingContext
@@ -64,9 +64,9 @@ extractAndTestJudgmentComparisonSpec = describe "Judgment comparison focus" $ do
   it "verifies that macro and expanded forms are considered equal" $ do
     let pos = initialPos "test"
         macroEnv = extendMacroEnvironment "Not" ["b"] 
-                    (TermMacro $ Lam "t" (Lam "f" (App (App (Var "b" 0 pos) (Var "f" 0 pos) pos) (Var "t" 1 pos) pos) pos) pos) $
+                    (TermMacro $ Lam "t" (Lam "f" (App (App (Var "b" 0 pos) (Var "f" 0 pos) pos) (Var "t" 1 pos) pos) pos) pos) defaultFixity $
                   extendMacroEnvironment "Bool" [] 
-                    (RelMacro $ All "X" (Arr (RVar "X" 0 pos) (Arr (RVar "X" 0 pos) (RVar "X" 0 pos) pos) pos) pos) noMacros
+                    (RelMacro $ All "X" (Arr (RVar "X" 0 pos) (Arr (RVar "X" 0 pos) (RVar "X" 0 pos) pos) pos) pos) defaultFixity noMacros
         
         -- Expected judgment (with macro)
         expectedJudgment = RelJudgment 

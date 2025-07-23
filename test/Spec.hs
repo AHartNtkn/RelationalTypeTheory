@@ -5,6 +5,7 @@
 import qualified ContextSpec
 import qualified ErrorsSpec
 import qualified IntegrationSpec
+import qualified MixfixSpec
 import qualified NormalizeSpec
 import qualified ParserSpec
 import qualified PrettyPrintSpec
@@ -25,6 +26,7 @@ main :: IO ()
 main = hspec $ do
   -- Parser tests
   describe "Parser Tests" ParserSpec.spec
+  describe "Mixfix Operators" MixfixSpec.spec
 
   -- Core infrastructure tests
   describe "Normalization" NormalizeSpec.spec

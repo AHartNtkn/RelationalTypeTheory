@@ -38,7 +38,7 @@ RelTT extends lambda calculus with relational types that capture relationships b
 - **Arrow types**: `A → B` for functional relations
 - **Composition**: `R ∘ S` for sequential composition of relations
 - **Converse**: `R˘` for inverse relations
-- **Promotion**: `f̂` for treating functions as relations
+- **Lambda Relations**: `f` for treating lambda expresions as functional relations
 - **Universal quantification**: `∀X.R` over relation variables
 
 ### Proof System

@@ -66,6 +66,7 @@ equalDeclaration (TheoremDef n1 bs1 rj1 p1) (TheoremDef n2 bs2 rj2 p2) =
   n1 == n2 && length bs1 == length bs2 && all (uncurry equalBinding) (zip bs1 bs2) && equalRelJudgment rj1 rj2 && equalProof p1 p2
 equalDeclaration (ImportDecl i1) (ImportDecl i2) = i1 == i2
 equalDeclaration (ExportDecl e1) (ExportDecl e2) = e1 == e2
+equalDeclaration (FixityDecl f1 n1) (FixityDecl f2 n2) = f1 == f2 && n1 == n2
 equalDeclaration _ _ = False
 
 equalMacroBody :: MacroBody -> MacroBody -> Bool

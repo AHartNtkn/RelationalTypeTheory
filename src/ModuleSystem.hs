@@ -118,12 +118,13 @@ partitionDeclarations = foldr classify ([], [], [], [])
     classify (ExportDecl exportDecl) (imps, exps, macros, theorems) = (imps, exportDecl : exps, macros, theorems)
     classify decl@(MacroDef _ _ _) (imps, exps, macros, theorems) = (imps, exps, decl : macros, theorems)
     classify decl@(TheoremDef _ _ _ _) (imps, exps, macros, theorems) = (imps, exps, macros, decl : theorems)
+    classify (FixityDecl _ _) (imps, exps, macros, theorems) = (imps, exps, macros, theorems) -- Fixity declarations don't go into any specific category
 
 -- | Build macro environment from macro declarations
 buildMacroEnvironment :: [Declaration] -> MacroEnvironment
 buildMacroEnvironment decls = foldr addMacro noMacros decls
   where
-    addMacro (MacroDef name params body) env = extendMacroEnvironment name params body env
+    addMacro (MacroDef name params body) env = extendMacroEnvironment name params body defaultFixity env
     addMacro _ env = env
 
 -- | Build theorem environment from theorem declarations
