@@ -139,8 +139,8 @@ spec = do
         let original = RMacro "Lift" [Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")] (initialPos "test")
             prettyResult = prettyRType original
             liftEnv = extendMacroEnvironment "Lift" ["A"] (RelMacro (RVar "A" 0 (initialPos "test"))) defaultFixity noMacros
-            ctx = emptyParseContext { macroEnv = liftEnv, kwdSet = mixfixKeywords liftEnv }
-            -- Test that the pretty-printed result parses back to exactly the same AST
+            ctx = emptyParseContext {macroEnv = liftEnv, kwdSet = mixfixKeywords liftEnv}
+        -- Test that the pretty-printed result parses back to exactly the same AST
         case runReader (runParserT parseRType "" prettyResult) ctx of
           Left err -> expectationFailure $ "Pretty-printed result failed to parse: " ++ errorBundlePretty err
           Right parsed -> parsed `shouldBeEqual` original
@@ -420,7 +420,7 @@ spec = do
         prettyError err `shouldContain` "Left conversion error:"
         prettyError err `shouldContain` "expected x but got x'"
         prettyError err `shouldContain` "β-η equivalent"
-        
+
       it "pretty prints right conversion errors" $ do
         let err = RightConversionError (Var "y" 0 (initialPos "test")) (Var "y'" 0 (initialPos "test")) noCtx
         prettyError err `shouldContain` "Right conversion error:"

@@ -16,9 +16,9 @@ import Context
 import qualified Data.Set as Set
 import Errors
 import Lib
-import Normalize (termEquality, termEqualityAlpha, expandTermMacros, TermExpansionResult(..))
-import TypeOps (substituteTypeVar, typeEquality, expandMacrosWHNF, ExpansionResult(..))
-import Shifting (shiftTerm, shiftTermWithBoundsCheck, shiftTermsInRType, shiftTermsInRTypeWithBoundsCheck, shiftRelsInRType)
+import Normalize (TermExpansionResult (..), expandTermMacros, termEquality, termEqualityAlpha)
+import Shifting (shiftTerm, shiftTermWithBoundsCheck, shiftTermsInRType, shiftTermsInRTypeWithBoundsCheck)
+import TypeOps (ExpansionResult (..), expandMacrosWHNF, substituteTypeVar, typeEquality)
 
 -------------------------------------------------------------------------------
 -- Utilities: "lift everything except the protected names"
@@ -33,10 +33,10 @@ shiftTermExcept prot d = go 0
     go cut tm = case tm of
       Var v k p
         | Set.member v prot -> Var v k p
-        | k >= cut          -> Var v (k + d) p
-        | otherwise         -> tm
-      Lam v b  p -> Lam   v (go (cut + 1) b) p
-      App f a  p -> App  (go cut f) (go cut a) p
+        | k >= cut -> Var v (k + d) p
+        | otherwise -> tm
+      Lam v b p -> Lam v (go (cut + 1) b) p
+      App f a p -> App (go cut f) (go cut a) p
       TMacro n as p -> TMacro n (map (go cut) as) p
 
 -- | The same idea for relational types (terms appear under 'Prom').
@@ -44,13 +44,13 @@ shiftRTypeExcept :: Set.Set String -> Int -> RType -> RType
 shiftRTypeExcept prot d = go
   where
     go rt = case rt of
-      Arr a b p   -> Arr  (go a) (go b) p
-      All n b p   -> All  n (go b) p
-      Conv r  p   -> Conv (go r) p
-      Comp a b p  -> Comp (go a) (go b) p
-      Prom t  p   -> Prom (shiftTermExcept prot d t) p
+      Arr a b p -> Arr (go a) (go b) p
+      All n b p -> All n (go b) p
+      Conv r p -> Conv (go r) p
+      Comp a b p -> Comp (go a) (go b) p
+      Prom t p -> Prom (shiftTermExcept prot d t) p
       RMacro n as p -> RMacro n (map go as) p
-      other       -> other
+      other -> other
 
 -- | shiftFreeRelVars x d τ bumps indices ≥0 by d, but
 -- leaves occurrences of the bound variable x at index 0 unchanged.
@@ -59,15 +59,15 @@ shiftFreeRelVars x d = go 0
   where
     go lvl ty = case ty of
       RVar y k p
-        | k == lvl && y == x -> ty                     -- bound occurrence
-        | k >= lvl           -> RVar y (k+d) p         -- free variable
-        | otherwise          -> ty
-      All y b p   -> All  y (go (lvl+1) b) p
-      Arr a b p   -> Arr  (go lvl a) (go lvl b) p
-      Comp a b p  -> Comp (go lvl a) (go lvl b) p
-      Conv r p    -> Conv (go lvl r) p
+        | k == lvl && y == x -> ty -- bound occurrence
+        | k >= lvl -> RVar y (k + d) p -- free variable
+        | otherwise -> ty
+      All y b p -> All y (go (lvl + 1) b) p
+      Arr a b p -> Arr (go lvl a) (go lvl b) p
+      Comp a b p -> Comp (go lvl a) (go lvl b) p
+      Conv r p -> Conv (go lvl r) p
       RMacro n as p -> RMacro n (map (go lvl) as) p
-      Prom t p    -> Prom t p
+      Prom t p -> Prom t p
 
 -- | Result of proof checking
 data ProofCheckResult = ProofCheckResult
@@ -89,11 +89,11 @@ checkProof ctx macroEnv theoremEnv proof expectedJudgment = do
     else do
       -- Try to normalize both judgments for better error reporting
       normalizedForms <- case (normalizeJudgment macroEnv expectedJudgment, normalizeJudgment macroEnv actualJudgment) of
-        (Right normExpected, Right normActual) -> 
+        (Right normExpected, Right normActual) ->
           if normExpected == expectedJudgment && normActual == actualJudgment
-            then return Nothing  -- No difference from original forms
+            then return Nothing -- No difference from original forms
             else return $ Just (normExpected, normActual)
-        _ -> return Nothing  -- Normalization failed, don't show normalized forms
+        _ -> return Nothing -- Normalization failed, don't show normalized forms
       Left $ ProofTypingError proof expectedJudgment actualJudgment normalizedForms (ErrorContext (proofPos proof) "proof checking")
 
 -- | Infer the relational judgment that a proof establishes
@@ -111,7 +111,7 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
   PTheoremApp name args pos -> do
     -- Look up theorem in environment
     (bindings, judgment, _) <- lookupTheorem name theoremEnv
-    
+
     -- Check that argument count doesn't exceed binding count
     let bindingCount = length bindings
         argCount = length args
@@ -120,42 +120,42 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
       else do
         -- Type check each argument against its expected binding type
         validatedArgs <- checkTheoremArgs bindings args ctx macroEnv theoremEnv pos
-        
+
         -- Apply substitutions to get the instantiated judgment
         instantiatedJudgment <- instantiateTheoremJudgment bindings validatedArgs judgment
-        
+
         return $ ProofCheckResult instantiatedJudgment ctx
 
-  -- | Λ-introduction for proofs
+  -- \| Λ-introduction for proofs
   LamP proofVar rtype body pos -> do
     ---------------------------------------------------------
     -- 1. generate two fresh witness names
     let (x, x', ctx1) = freshVarPair "x" "x'" ctx
 
-        witnessLeft  = Var x  0 pos   -- index 0 now, becomes 1 after λ-wrap
-        witnessRight = Var x' 0 pos   -- index 0 on right side
+        witnessLeft = Var x 0 pos -- index 0 now, becomes 1 after λ-wrap
+        witnessRight = Var x' 0 pos -- index 0 on right side
 
         -- proof binding q : x [R] x'
-        proofJudg    = RelJudgment witnessLeft rtype witnessRight
+        proofJudg = RelJudgment witnessLeft rtype witnessRight
 
         -- 2. extend context with that single proof entry
-        ctx2         = extendProofContext proofVar proofJudg ctx1
+        ctx2 = extendProofContext proofVar proofJudg ctx1
     ---------------------------------------------------------
     -- 3. infer body under Γ, q
-    ProofCheckResult{resultJudgment = RelJudgment t1 r' t2} <-
-          inferProofType ctx2 macroEnv theoremEnv body
+    ProofCheckResult {resultJudgment = RelJudgment t1 r' t2} <-
+      inferProofType ctx2 macroEnv theoremEnv body
 
     -- 4. lift every *other* free variable by 1; the two freshly created
     --    witnesses (x, x') themselves must stay where they are.
-    let prot       = Set.fromList [x, x']
-        t1Shift    = shiftTermExcept   prot 1 t1
-        t2Shift    = shiftTermExcept   prot 1 t2
-        r'Shift    = shiftRTypeExcept  prot 1 r'
+    let prot = Set.fromList [x, x']
+        t1Shift = shiftTermExcept prot 1 t1
+        t2Shift = shiftTermExcept prot 1 t2
+        r'Shift = shiftRTypeExcept prot 1 r'
 
-    -- 5. wrap each side with its witness-λ
-        termLeft  = Lam x  t1Shift pos
+        -- 5. wrap each side with its witness-λ
+        termLeft = Lam x t1Shift pos
         termRight = Lam x' t2Shift pos
-        resultTy  = Arr rtype r'Shift pos
+        resultTy = Arr rtype r'Shift pos
         finalJudg = RelJudgment termLeft resultTy termRight
 
     return $ ProofCheckResult finalJudg ctx1
@@ -416,62 +416,65 @@ checkTheoremArgs bindings args ctx macroEnv theoremEnv pos =
     -- accSubs : substitutions established so far (left‑to‑right)
     -- accArgs : validated args in the same order as given
     go accSubs accArgs [] = return (reverse accArgs)
-
-    go accSubs accArgs ((bind,arg):rest) = case (bind,arg) of
-      (TermBinding _ , TermArg _ ) ->
-        go (accSubs ++ [(bind,arg)]) (arg:accArgs) rest
-
-      (RelBinding _  , RelArg _  ) ->
-        go (accSubs ++ [(bind,arg)]) (arg:accArgs) rest
-
-      (ProofBinding _ templJudg , ProofArg p) -> do
+    go accSubs accArgs ((bind, arg) : rest) = case (bind, arg) of
+      (TermBinding _, TermArg _) ->
+        go (accSubs ++ [(bind, arg)]) (arg : accArgs) rest
+      (RelBinding _, RelArg _) ->
+        go (accSubs ++ [(bind, arg)]) (arg : accArgs) rest
+      (ProofBinding _ templJudg, ProofArg p) -> do
         -- instantiate the template with what we already know
         instTempl <- applySubstToJudgment accSubs templJudg
 
         -- infer and compare
-        ProofCheckResult{resultJudgment = actualJudg} <-
+        ProofCheckResult {resultJudgment = actualJudg} <-
           inferProofType ctx macroEnv theoremEnv p
         equal <- relJudgmentEqual macroEnv instTempl actualJudg
         if equal
-          then go (accSubs ++ [(bind,arg)]) (arg:accArgs) rest
+          then go (accSubs ++ [(bind, arg)]) (arg : accArgs) rest
           else
-            Left $ ProofTypingError p instTempl actualJudg Nothing
-                   (ErrorContext pos "theorem argument proof type mismatch")
-
-      _ -> Left $ InternalError
-             "Theorem argument type mismatch"
-             (ErrorContext pos "theorem argument validation")
+            Left $
+              ProofTypingError
+                p
+                instTempl
+                actualJudg
+                Nothing
+                (ErrorContext pos "theorem argument proof type mismatch")
+      _ ->
+        Left $
+          InternalError
+            "Theorem argument type mismatch"
+            (ErrorContext pos "theorem argument validation")
 
 -- | Instantiate a theorem judgment by applying argument substitutions
 instantiateTheoremJudgment :: [Binding] -> [TheoremArg] -> RelJudgment -> Either RelTTError RelJudgment
 instantiateTheoremJudgment bindings args (RelJudgment leftTerm relType rightTerm) = do
   let substitutions = zip bindings args
-  
+
   -- Apply all substitutions to each component of the judgment
   leftTerm' <- applySubstitutionsToTerm substitutions leftTerm
   relType' <- applySubstitutionsToRType substitutions relType
   rightTerm' <- applySubstitutionsToTerm substitutions rightTerm
-  
+
   return (RelJudgment leftTerm' relType' rightTerm')
 
 -- | Apply substitutions to a term
 applySubstitutionsToTerm :: [(Binding, TheoremArg)] -> Term -> Either RelTTError Term
 applySubstitutionsToTerm [] term = return term
-applySubstitutionsToTerm ((TermBinding name, TermArg replacement):rest) term = do
+applySubstitutionsToTerm ((TermBinding name, TermArg replacement) : rest) term = do
   substituted <- applySubstitutionsToTerm rest term
   return $ substituteTermVar name replacement substituted
-applySubstitutionsToTerm (_:rest) term = applySubstitutionsToTerm rest term
+applySubstitutionsToTerm (_ : rest) term = applySubstitutionsToTerm rest term
 
 -- | Apply substitutions to a relation type
 applySubstitutionsToRType :: [(Binding, TheoremArg)] -> RType -> Either RelTTError RType
 applySubstitutionsToRType [] rtype = return rtype
-applySubstitutionsToRType ((RelBinding name, RelArg replacement):rest) rtype = do
+applySubstitutionsToRType ((RelBinding name, RelArg replacement) : rest) rtype = do
   substituted <- applySubstitutionsToRType rest rtype
   return $ substituteRelVar name replacement substituted
-applySubstitutionsToRType ((TermBinding name, TermArg termReplacement):rest) rtype = do
+applySubstitutionsToRType ((TermBinding name, TermArg termReplacement) : rest) rtype = do
   substituted <- applySubstitutionsToRType rest rtype
   return $ substituteTermInRType name termReplacement substituted
-applySubstitutionsToRType (_:rest) rtype = applySubstitutionsToRType rest rtype
+applySubstitutionsToRType (_ : rest) rtype = applySubstitutionsToRType rest rtype
 
 -- | Substitute a relation variable in a relation type
 substituteRelVar :: String -> RType -> RType -> RType

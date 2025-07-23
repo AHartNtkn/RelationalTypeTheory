@@ -92,10 +92,6 @@ termEqualityAlpha env t1 t2 = alphaEquivalentLazy env t1 t2 0 0
 substituteTerm :: Term -> Term -> Either RelTTError Term
 substituteTerm s t = substituteAtIndex 0 s t
 
--- | Shift all free variables in a term by a given amount
-shiftTerm :: Int -> Term -> Term
-shiftTerm shift = shiftTermAbove 0 shift
-
 -- | Get the set of free variable names in a term
 freeVariables :: Term -> Set.Set String
 freeVariables = freeVarsAtLevel 0
@@ -208,29 +204,27 @@ freeVarsAtLevel level term = case term of
   App t1 t2 _ -> Set.union (freeVarsAtLevel level t1) (freeVarsAtLevel level t2)
   TMacro name args _ -> Set.insert name $ Set.unions (map (freeVarsAtLevel level) args)
 
-
 -- | Check α-equivalence with lazy macro expansion
 alphaEquivalentLazy :: MacroEnvironment -> Term -> Term -> Int -> Int -> Either RelTTError Bool
 alphaEquivalentLazy env t1 t2 depth1 depth2 = case (t1, t2) of
   -- Case 1: Neither has a macro at head - compare heads and recurse on sub-parts
   (Var name1 i1 _, Var name2 i2 _) ->
-    Right $ if i1 < depth1 && i2 < depth2
-      then i1 == i2 -- Both bound, compare indices
-      else
-        if i1 >= depth1 && i2 >= depth2
-          then name1 == name2 -- Both free, compare names
-          else False -- One bound, one free
-  
+    Right $
+      if i1 < depth1 && i2 < depth2
+        then i1 == i2 -- Both bound, compare indices
+        else
+          if i1 >= depth1 && i2 >= depth2
+            then name1 == name2 -- Both free, compare names
+            else False -- One bound, one free
   (Lam _ body1 _, Lam _ body2 _) ->
     -- Heads match (both lambdas), recurse on bodies
     alphaEquivalentLazy env body1 body2 (depth1 + 1) (depth2 + 1)
-  
   (App f1 a1 _, App f2 a2 _) -> do
     -- Heads match (both apps), recurse on function and argument
     fEq <- alphaEquivalentLazy env f1 f2 depth1 depth2
     aEq <- alphaEquivalentLazy env a1 a2 depth1 depth2
     return $ fEq && aEq
-  
+
   -- Case 2: Both are macros
   (TMacro name1 args1 _, TMacro name2 args2 _) ->
     if name1 == name2 && length args1 == length args2
@@ -242,17 +236,17 @@ alphaEquivalentLazy env t1 t2 depth1 depth2 = case (t1, t2) of
         -- Different macros - expand left one only
         expanded1 <- expandTermMacrosOneStep env t1
         alphaEquivalentLazy env expanded1 t2 depth1 depth2
-  
+
   -- Case 3: Only left is a macro - expand it
   (TMacro _ _ _, _) -> do
     expanded1 <- expandTermMacrosOneStep env t1
     alphaEquivalentLazy env expanded1 t2 depth1 depth2
-  
+
   -- Case 3: Only right is a macro - expand it
   (_, TMacro _ _ _) -> do
     expanded2 <- expandTermMacrosOneStep env t2
     alphaEquivalentLazy env t1 expanded2 depth1 depth2
-  
+
   -- Different constructors
   _ -> Right False
 
@@ -286,12 +280,15 @@ expandTermMacrosOneStep env term = case term of
 -- | Substitute macro arguments using de Bruijn indices
 -- The first parameter has the highest index, last parameter has index 0
 substituteMacroArgs :: Int -> [Term] -> Term -> Term
-substituteMacroArgs maxIdx args term = 
-  foldl (\t (idx, arg) -> 
-    case substituteAtIndex idx arg t of
-      Right result -> result
-      Left _ -> error "Macro substitution failed"
-  ) term (zip [maxIdx, maxIdx-1..0] args)
+substituteMacroArgs maxIdx args term =
+  foldl
+    ( \t (idx, arg) ->
+        case substituteAtIndex idx arg t of
+          Right result -> result
+          Left _ -> error "Macro substitution failed"
+    )
+    term
+    (zip [maxIdx, maxIdx - 1 .. 0] args)
 
 -- | Expand terms with a step limit to prevent infinite loops
 expandTermWithStepLimit :: MacroEnvironment -> TermExpansionMode -> Int -> Term -> Either RelTTError TermExpansionResult

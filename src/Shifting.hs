@@ -4,13 +4,11 @@ module Shifting
     shiftTermAbove,
     shiftTermWithBoundsCheck,
     shiftTermAboveWithBoundsCheck,
-    
     -- Type shifting for terms
     shiftTermsInRType,
     shiftTermsInRTypeAbove,
     shiftTermsInRTypeWithBoundsCheck,
     shiftTermsInRTypeAboveWithBoundsCheck,
-    
     -- Type shifting for relations
     shiftRelsInRType,
     shiftRelsInRTypeAbove,

@@ -3,7 +3,6 @@
 module TypeOpsSpec (spec) where
 
 import Context
-import qualified Data.Map as Map
 import Errors
 import Lib
 import Test.Hspec
@@ -115,7 +114,7 @@ macroExpansionSpec = describe "macro expansion" $ do
 typeSubstitutionSpec :: Spec
 typeSubstitutionSpec = describe "type substitution" $ do
   it "performs basic substitution: [A/X](X → Y) → A → Y" $ do
-    -- X is the bound variable (index 0), Y is a free variable (index 1) 
+    -- X is the bound variable (index 0), Y is a free variable (index 1)
     let target = Arr (RVar "X" 0 (initialPos "test")) (RVar "Y" 1 (initialPos "test")) (initialPos "test")
         replacement = RMacro "A" [] (initialPos "test")
         result = substituteTypeVar 0 replacement target
@@ -254,7 +253,6 @@ deBruijnMacroSubstitutionSpec = describe "de Bruijn macro substitution" $ do
             defaultFixity
             env
         macroApp = RMacro "TripleNest" [RVar "P" 1 (initialPos "test"), RVar "Q" 2 (initialPos "test")] (initialPos "test")
-
 
     case expandMacros env' macroApp of
       Right result -> do
@@ -418,24 +416,23 @@ typeOpsErrorEdgeCasesSpec = describe "type operations error edge cases" $ do
 -- | Test for the quantifier de Bruijn index bug
 quantifierDeBruijnBugSpec :: Spec
 quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug" $ do
-  
   it "substituteTypeVar should correctly handle de Bruijn indices for unbound variables" $ do
     -- When substituting X with R in ∀X.S, the S index should decrement correctly
     let pos = initialPos "test"
-        sInBody = RVar "S" 2 pos  -- S with de Bruijn index 2 (shifted under X binder)
-        r = RVar "R" 0 pos  -- R with de Bruijn index 0
+        sInBody = RVar "S" 2 pos -- S with de Bruijn index 2 (shifted under X binder)
+        r = RVar "R" 0 pos -- R with de Bruijn index 0
         -- Create ∀X.S - S doesn't contain X
         quantType = All "X" sInBody pos
-        expectedAfterSubst = RVar "S" 1 pos  -- S decrements from 2 to 1 after X removal
-        
+        expectedAfterSubst = RVar "S" 1 pos -- S decrements from 2 to 1 after X removal
+
     -- Extract the body and substitute
     case quantType of
-      All varName body _ -> do
+      All _ body _ -> do
         let substituted = substituteTypeVar 0 r body
         -- After substitution, S's index decrements from 2 to 1 since X binding is removed
         substituted `shouldBe` expectedAfterSubst
       _ -> expectationFailure "Test setup error"
-      
+
   it "type equality should work correctly after quantifier instantiation" $ do
     -- Test that demonstrates the equality checking failure
     let pos = initialPos "test"
@@ -446,39 +443,43 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug" $ do
         -- Create quantified version
         quantType = All "X" s1 pos
         r = RVar "R" 0 pos
-        
+
     -- Substitute in the quantified type
     case quantType of
-      All varName body _ -> do
+      All _ body _ -> do
         let substituted = substituteTypeVar 0 r body
         -- Check equality - should be true but fails due to index corruption
         case typeEquality env substituted s2 of
-          Right True -> return ()  -- Expected behavior
-          Right False -> expectationFailure $ 
-            "Type equality failed after substitution. " ++
-            "Expected " ++ show s2 ++ " to equal " ++ show substituted
+          Right True -> return () -- Expected behavior
+          Right False ->
+            expectationFailure $
+              "Type equality failed after substitution. "
+                ++ "Expected "
+                ++ show s2
+                ++ " to equal "
+                ++ show substituted
           Left err -> expectationFailure $ "Type equality error: " ++ show err
       _ -> expectationFailure "Test setup error"
-      
+
   it "nested quantifier substitution corrupts outer variable indices" $ do
     -- Test the nested quantifier case that shows index shifting
     let pos = initialPos "test"
         t = RVar "T" 0 pos
-        x = RVar "X" 0 pos  
+        x = RVar "X" 0 pos
         r = RVar "R" 0 pos
         s = RVar "S" 0 pos
         -- Create ∀X.∀Y.X ∘ T
         innerBody = Comp x t pos
         innerQuant = All "Y" innerBody pos
         outerQuant = All "X" innerQuant pos
-        
+
     -- First substitution: X → R
     case outerQuant of
-      All xName xBody _ -> do
+      All _ xBody _ -> do
         let sub1 = substituteTypeVar 0 r xBody
-        -- Second substitution: Y → S  
+        -- Second substitution: Y → S
         case sub1 of
-          All yName yBody _ -> do
+          All _ yBody _ -> do
             let sub2 = substituteTypeVar 0 s yBody
             -- Expected: R ∘ T (with T having index 0)
             -- Actual: R ∘ T (but indices are corrupted)
@@ -486,7 +487,7 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug" $ do
               Comp _ t' _ -> do
                 -- Check that T maintained its index
                 case t' of
-                  RVar _ idx _ -> idx `shouldBe` 0  -- This fails due to the bug
+                  RVar _ idx _ -> idx `shouldBe` 0 -- This fails due to the bug
                   _ -> expectationFailure "Expected RVar for T"
               _ -> expectationFailure "Expected Comp after substitutions"
           _ -> expectationFailure "Expected All after first substitution"

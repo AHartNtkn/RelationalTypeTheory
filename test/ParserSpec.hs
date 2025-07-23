@@ -27,7 +27,7 @@ spec = do
   parserErrorSpec
 
 -- Unified test helper with bound variables and macro environment
-testParse :: (PositionInsensitive a, Show a) => [String] -> [String] -> [String] -> MacroEnvironment -> Parser a -> String -> a -> Expectation
+testParse :: (PositionInsensitive a) => [String] -> [String] -> [String] -> MacroEnvironment -> Parser a -> String -> a -> Expectation
 testParse tVars rVars pVars env parser input expected =
   let termVarMap = Map.fromList (zip tVars (reverse [0 .. length tVars - 1]))
       relVarMap = Map.fromList (zip rVars (reverse [0 .. length rVars - 1]))

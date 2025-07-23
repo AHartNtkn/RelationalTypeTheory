@@ -121,7 +121,7 @@ executeREPLCommand cmd = case cmd of
       Left (ParseError path err) -> return $ "Parse error in " ++ path ++ ": " ++ err
       Left (CircularDependency cyclePath) -> return $ "Circular dependency detected: " ++ show cyclePath
       Left (ImportResolutionError path err) -> return $ "Import resolution error in " ++ path ++ ": " ++ err
-      Left (DuplicateExport path symbol) -> return $ "Duplicate export in " ++ path ++ ": " ++ symbol
+      Left (DuplicateExport path sym) -> return $ "Duplicate export in " ++ path ++ ": " ++ sym
       Right (newRegistry, moduleInfo) -> do
         -- The new system already loaded all dependencies and built complete environments
         put $
@@ -269,4 +269,3 @@ replLoop = do
       result <- executeREPLCommand cmd
       liftIO $ putStrLn result
       replLoop
-

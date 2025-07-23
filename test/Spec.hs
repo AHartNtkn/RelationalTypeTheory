@@ -2,11 +2,14 @@
 
 -- Import all test modules
 
+import qualified ComprehensiveTheoremAppSpec
 import qualified ContextSpec
 import qualified ErrorsSpec
 import qualified IntegrationSpec
 import qualified MixfixSpec
 import qualified NormalizeSpec
+import qualified NotPreservesBoolBugSpec
+import qualified PTheoremAppSpec
 import qualified ParserSpec
 import qualified PrettyPrintSpec
 import qualified ProofCheckerSpec
@@ -16,11 +19,8 @@ import Test.Hspec
 import qualified TheoremApplicationSpec
 import qualified TheoremArgSpec
 import qualified TheoremArgValidationSpec
-import qualified PTheoremAppSpec
-import qualified ComprehensiveTheoremAppSpec
 import qualified TwoPhaseParsingSpec
 import qualified TypeOpsSpec
-import qualified NotPreservesBoolBugSpec
 
 main :: IO ()
 main = hspec $ do

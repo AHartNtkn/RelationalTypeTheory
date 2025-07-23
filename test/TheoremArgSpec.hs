@@ -1,8 +1,8 @@
-module TheoremArgSpec where
+module TheoremArgSpec (spec) where
 
-import Test.Hspec
 import Lib
 import PrettyPrint
+import Test.Hspec
 import Text.Megaparsec (SourcePos, initialPos)
 
 -- Helper to create dummy source position

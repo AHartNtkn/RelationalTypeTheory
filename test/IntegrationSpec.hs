@@ -3,7 +3,6 @@
 module IntegrationSpec (spec) where
 
 import Context
-import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Errors
 import Lib
@@ -11,9 +10,8 @@ import Normalize
 import Parser
 import ProofChecker
 import Test.Hspec
-import Test.QuickCheck
 import TestHelpers
-import Text.Megaparsec (initialPos, runParser)
+import Text.Megaparsec (initialPos)
 import TypeOps
 
 ip :: SourcePos
@@ -40,7 +38,7 @@ endToEndWorkflowSpec :: Spec
 endToEndWorkflowSpec = describe "end-to-end workflows" $ do
   it "normalizes and compares terms in context" $ do
     -- Create a context with some bindings
-    let ctx = extendTermContext "f" (Arr (RMacro "A" [] ip) (RMacro "B" [] ip) ip) emptyTypingContext
+    let _ctx = extendTermContext "f" (Arr (RMacro "A" [] ip) (RMacro "B" [] ip) ip) emptyTypingContext
 
     -- Create two beta-equivalent terms
     let term1 = App (Lam "x" (App (Var "f" 1 ip) (Var "x" 0 ip) ip) ip) (Var "a" (-1) ip) ip
@@ -265,27 +263,28 @@ booleanDistinctionSpec = describe "boolean distinction" $ do
 
     -- First, let's check what step3 actually proves and then try the conversion
     case inferProofType proofCtx env noTheorems step3 of
-      Right step3Result -> do
+      Right _step3Result -> do
         -- step3 should prove something that β-reduces to x[R]y'
         -- Let's try the conversion directly
         let finalProof = ConvProof (Var "x" 3 ip) step3 (Var "y'" 0 ip) ip
 
         case inferProofType proofCtx env noTheorems finalProof of
           Right result -> do
-            let RelJudgment derivedTerm1 derivedRel derivedTerm2 = resultJudgment result
-            -- We should derive x[R]y' - demonstrating the inconsistency
-            derivedTerm1 `shouldBe` Var "x" 3 ip
-            derivedRel `shouldBe` RMacro "R" [] ip
-            derivedTerm2 `shouldBe` Var "y'" 0 ip
+            case resultJudgment result of
+              RelJudgment derivedTerm1 derivedRel derivedTerm2 -> do
+                -- We should derive x[R]y' - demonstrating the inconsistency
+                derivedTerm1 `shouldBe` Var "x" 3 ip
+                derivedRel `shouldBe` RMacro "R" [] ip
+                derivedTerm2 `shouldBe` Var "y'" 0 ip
 
-            -- This proves ANY x and y' are related by ANY R if tt[Bool]ff
-            -- Verify this is indeed an absurdity by showing it's a general pattern
-            -- If we can derive x[R]y' for arbitrary x, y', R, then the type system is inconsistent
+                -- This proves ANY x and y' are related by ANY R if tt[Bool]ff
+                -- Verify this is indeed an absurdity by showing it's a general pattern
+                -- If we can derive x[R]y' for arbitrary x, y', R, then the type system is inconsistent
 
-            -- The absurdity: we derived a judgment between unrelated terms x and y'
-            -- where x has type A and y' has type B, but they're related by R
-            -- This should not be possible in a consistent system
-            derivedTerm1 `shouldNotBe` derivedTerm2 -- Different terms
+                -- The absurdity: we derived a judgment between unrelated terms x and y'
+                -- where x has type A and y' has type B, but they're related by R
+                -- This should not be possible in a consistent system
+                derivedTerm1 `shouldNotBe` derivedTerm2 -- Different terms
 
           -- The significance: this pattern can be generalized to ANY terms and relations
           -- making the entire relational type system trivial
@@ -301,7 +300,7 @@ booleanDistinctionSpec = describe "boolean distinction" $ do
     -- If we assume tt [Bool] ff, we can derive that ANY two terms are related by ANY relation
     -- This would collapse the entire relational structure, proving the assumption false
 
-    let boolType = All "X" (Arr (RVar "X" 0 ip) (Arr (RVar "X" 0 ip) (RVar "X" 0 ip) ip) ip) ip
+    let _boolType = All "X" (Arr (RVar "X" 0 ip) (Arr (RVar "X" 0 ip) (RVar "X" 0 ip) ip) ip) ip
         ttTerm = Lam "x" (Lam "y" (Var "x" 1 ip) ip) ip
         ffTerm = Lam "x" (Lam "y" (Var "y" 0 ip) ip) ip
 
@@ -332,6 +331,7 @@ booleanDistinctionSpec = describe "boolean distinction" $ do
     termStructure (Var _ idx _) = "Var" ++ show idx
     termStructure (Lam _ body _) = "Lam(" ++ termStructure body ++ ")"
     termStructure (App t1 t2 _) = "App(" ++ termStructure t1 ++ "," ++ termStructure t2 ++ ")"
+    termStructure (TMacro name args _) = "TMacro(" ++ name ++ ",[" ++ show (length args) ++ "])"
 
 -- | Term promotion examples from the paper
 termPromotionExamplesSpec :: Spec
@@ -362,12 +362,9 @@ termPromotionExamplesSpec = describe "term promotion examples" $ do
 compositionExamplesSpec :: Spec
 compositionExamplesSpec = describe "composition examples" $ do
   it "demonstrates basic composition R ∘ S" $ do
-    -- Basic composition
-    let compType = Comp (RMacro "R" [] ip) (RMacro "S" [] ip)
-        env = noMacros
-
     -- Test with proof checking
-    let termCtx =
+    let env = noMacros
+        termCtx =
           extendTermContext "z" (RMacro "C" [] ip) $
             extendTermContext "y" (RMacro "B" [] ip) $
               extendTermContext "x" (RMacro "A" [] ip) emptyTypingContext
@@ -385,11 +382,11 @@ compositionExamplesSpec = describe "composition examples" $ do
 
     case inferProofType proofCtx env noTheorems compProof of
       Right result ->
-        let RelJudgment term1 actualType term2 = resultJudgment result
-         in do
-              term1 `shouldBe` Var "x" 2 ip
-              term2 `shouldBe` Var "z" 0 ip
-              actualType `shouldBe` Comp (RMacro "R" [] ip) (RMacro "S" [] ip) ip
+        case resultJudgment result of
+          RelJudgment term1 actualType term2 -> do
+            term1 `shouldBe` Var "x" 2 ip
+            term2 `shouldBe` Var "z" 0 ip
+            actualType `shouldBe` Comp (RMacro "R" [] ip) (RMacro "S" [] ip) ip
       Left err -> expectationFailure $ "Expected successful composition proof: " ++ show err
 
   it "demonstrates complex composition DoubleComp R S := R ∘ R ∘ S" $ do
@@ -425,11 +422,11 @@ converseExamplesSpec = describe "converse examples" $ do
 
     case inferProofType proofCtx env noTheorems convProof of
       Right result ->
-        let RelJudgment term1 actualType term2 = resultJudgment result
-         in do
-              term1 `shouldBe` Var "y" 0 ip -- Terms swapped
-              term2 `shouldBe` Var "x" 1 ip
-              actualType `shouldBe` Conv convType ip
+        case resultJudgment result of
+          RelJudgment term1 actualType term2 -> do
+            term1 `shouldBe` Var "y" 0 ip -- Terms swapped
+            term2 `shouldBe` Var "x" 1 ip
+            actualType `shouldBe` Conv convType ip
       Left err -> expectationFailure $ "Expected successful converse proof: " ++ show err
 
   it "demonstrates symmetry macro Sym R := R˘" $ do
@@ -454,11 +451,12 @@ proofTermExamplesSpec = describe "proof term examples" $ do
 
     case inferProofType termCtx env noTheorems iotaProof of
       Right result ->
-        let RelJudgment term1 (Prom term2 _) term3 = resultJudgment result
-         in do
-              term1 `shouldBe` Var "t" 0 ip
-              term2 `shouldBe` idTerm
-              term3 `shouldBe` App idTerm (Var "t" 0 ip) ip
+        case resultJudgment result of
+          RelJudgment term1 (Prom term2 _) term3 -> do
+            term1 `shouldBe` Var "t" 0 ip
+            term2 `shouldBe` idTerm
+            term3 `shouldBe` App idTerm (Var "t" 0 ip) ip
+          RelJudgment _ relType _ -> expectationFailure $ "Expected promotion type but got: " ++ show relType
       Left err -> expectationFailure $ "Expected successful iota proof: " ++ show err
 
   it "verifies literal iota typing rule ι⟨a, f⟩ : a [f] (f a) end-to-end" $ do
@@ -473,26 +471,28 @@ proofTermExamplesSpec = describe "proof term examples" $ do
         let (_, theoremDefs) = extractDeclarations decls
         length theoremDefs `shouldBe` 1
 
-        let TheoremDef "iotaRule" bindings judgment proof = head theoremDefs
+        case head theoremDefs of
+          TheoremDef "iotaRule" bindings judgment proof -> do
+            -- Verify the bindings
+            length bindings `shouldBe` 2
 
-        -- Verify the bindings
-        length bindings `shouldBe` 2
+            -- Verify the judgment structure
+            case judgment of
+              RelJudgment leftTerm relType rightTerm -> do
+                leftTerm `shouldBeEqual` Var "a" 1 ip
+                relType `shouldBeEqual` Prom (Var "f" 0 ip) ip
+                rightTerm `shouldBeEqual` App (Var "f" 0 ip) (Var "a" 1 ip) ip
 
-        -- Verify the judgment structure
-        let RelJudgment leftTerm relType rightTerm = judgment
-        leftTerm `shouldBeEqual` Var "a" 1 ip
-        relType `shouldBeEqual` Prom (Var "f" 0 ip) ip
-        rightTerm `shouldBeEqual` App (Var "f" 0 ip) (Var "a" 1 ip) ip
+                -- Verify the proof term
+                proof `shouldBeEqual` Iota (Var "a" 1 ip) (Var "f" 0 ip) ip
 
-        -- Verify the proof term
-        proof `shouldBeEqual` Iota (Var "a" 1 ip) (Var "f" 0 ip) ip
-
-        -- Type check the theorem
-        case parseAndCheckTheorem fileContent "iotaRule" of
-          Right result -> do
-            -- Successfully parsed and proved the literal typing rule
-            resultJudgment result `shouldBeEqual` judgment
-          Left err -> expectationFailure $ "Expected successful literal iota rule proof: " ++ show err
+                -- Type check the theorem
+                case parseAndCheckTheorem fileContent "iotaRule" of
+                  Right result -> do
+                    -- Successfully parsed and proved the literal typing rule
+                    resultJudgment result `shouldBeEqual` judgment
+                  Left err -> expectationFailure $ "Expected successful literal iota rule proof: " ++ show err
+          other -> expectationFailure $ "Expected TheoremDef 'iotaRule' but got: " ++ show other
       Left parseErr -> expectationFailure $ "Expected successful parsing: " ++ show parseErr
 
   it "demonstrates transitivity via composition" $ do
@@ -515,12 +515,13 @@ proofTermExamplesSpec = describe "proof term examples" $ do
 
     case inferProofType proofCtx env noTheorems transProof of
       Right result ->
-        let RelJudgment term1 (Comp rtype1 rtype2 _) term2 = resultJudgment result
-         in do
-              term1 `shouldBe` Var "t" 2 ip
-              term2 `shouldBe` Var "v" 0 ip
-              rtype1 `shouldBe` RMacro "R" [] ip
-              rtype2 `shouldBe` RMacro "S" [] ip
+        case resultJudgment result of
+          RelJudgment term1 (Comp rtype1 rtype2 _) term2 -> do
+            term1 `shouldBe` Var "t" 2 ip
+            term2 `shouldBe` Var "v" 0 ip
+            rtype1 `shouldBe` RMacro "R" [] ip
+            rtype2 `shouldBe` RMacro "S" [] ip
+          RelJudgment _ relType _ -> expectationFailure $ "Expected composition type but got: " ++ show relType
       Left err -> expectationFailure $ "Expected successful transitivity proof: " ++ show err
 
 -- | Test Parser → ProofChecker integration pipeline
@@ -769,15 +770,6 @@ checkTheoremInEnvironment env (TheoremDef name bindings judgment proof) = do
 checkTheoremInEnvironment _ _ =
   expectationFailure "Expected theorem declaration"
 
--- | Build a complex example context
-buildExampleContext :: TypingContext
-buildExampleContext =
-  let ctx0 = emptyTypingContext
-      ctx1 = extendTermContext "x" (RMacro "Int" [] ip) ctx0
-      ctx2 = extendRelContext "R" ctx1
-      ctx3 = extendProofContext "p" (RelJudgment (Var "x" 1 ip) (RVar "R" 0 ip) (Var "y" (-1) ip)) ctx2
-   in ctx3
-
 -- | Test TMacro integration with proof checking
 tmacroProofIntegrationSpec :: Spec
 tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
@@ -795,11 +787,12 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
 
     case inferProofType termCtx env noTheorems iotaProof of
       Right result ->
-        let RelJudgment term1 (Prom promTerm _) term2 = resultJudgment result
-         in do
-              term1 `shouldBe` Var "t" 1 ip
-              promTerm `shouldBe` tmacroTerm -- Should contain the TMacro
-              term2 `shouldBe` App tmacroTerm (Var "t" 1 ip) ip -- Application of TMacro
+        case resultJudgment result of
+          RelJudgment term1 (Prom promTerm _) term2 -> do
+            term1 `shouldBe` Var "t" 1 ip
+            promTerm `shouldBe` tmacroTerm -- Should contain the TMacro
+            term2 `shouldBe` App tmacroTerm (Var "t" 1 ip) ip -- Application of TMacro
+          RelJudgment _ relType _ -> expectationFailure $ "Expected promotion type but got: " ++ show relType
       Left err -> expectationFailure $ "Expected successful TMacro iota proof: " ++ show err
 
   it "handles TMacro in proof term applications" $ do
@@ -825,11 +818,11 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
 
     case inferProofType proofCtx env noTheorems appProof of
       Right result ->
-        let RelJudgment term1 relType term2 = resultJudgment result
-         in do
-              term1 `shouldBe` App constY (Var "x" 1 ip) ip
-              term2 `shouldBe` App constY (Var "x" 1 ip) ip
-              relType `shouldBe` RMacro "S" [] ip
+        case resultJudgment result of
+          RelJudgment term1 relType term2 -> do
+            term1 `shouldBe` App constY (Var "x" 1 ip) ip
+            term2 `shouldBe` App constY (Var "x" 1 ip) ip
+            relType `shouldBe` RMacro "S" [] ip
       Left err -> expectationFailure $ "Expected successful TMacro application proof: " ++ show err
 
   it "handles nested TMacro applications in proofs" $ do
@@ -849,18 +842,17 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
 
     case inferProofType termCtx macroEnv2 noTheorems iotaProof of
       Right result ->
-        let RelJudgment term1 (Prom promTerm _) term2 = resultJudgment result
-         in do
-              term1 `shouldBe` nestedTMacro
-              promTerm `shouldBe` TMacro "id" [nestedTMacro] ip
-              term2 `shouldBe` App (TMacro "id" [nestedTMacro] ip) nestedTMacro ip
+        case resultJudgment result of
+          RelJudgment term1 (Prom promTerm _) term2 -> do
+            term1 `shouldBe` nestedTMacro
+            promTerm `shouldBe` TMacro "id" [nestedTMacro] ip
+            term2 `shouldBe` App (TMacro "id" [nestedTMacro] ip) nestedTMacro ip
+          RelJudgment _ relType _ -> expectationFailure $ "Expected promotion type but got: " ++ show relType
       Left err -> expectationFailure $ "Expected successful nested TMacro proof: " ++ show err
 
   it "handles TMacro substitution in lambda abstractions" $ do
     -- Test lambda abstractions containing TMacros
-    let termCtx = extendTermContext "a" (RMacro "A" [] ip) emptyTypingContext
-
-        -- Lambda with TMacro: λy. const a y
+    let -- Lambda with TMacro: λy. const a y
         lambdaWithTMacro = Lam "y" (App (TMacro "const" [Var "a" 1 ip] ip) (Var "y" 0 ip) ip) ip
 
         -- Test substitution preserves TMacro structure
@@ -884,14 +876,14 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
 
     case inferProofType termCtx env noTheorems convProof of
       Right result ->
-        let RelJudgment term1 relType term2 = resultJudgment result
-         in do
-              term1 `shouldBe` Var "t" 0 ip
-              term2 `shouldBe` idT
-              -- The relational type should be preserved through conversion
-              case relType of
-                Prom _ _ -> return () -- Expected promoted type
-                _ -> expectationFailure $ "Expected promoted type, got: " ++ show relType
+        case resultJudgment result of
+          RelJudgment term1 relType term2 -> do
+            term1 `shouldBe` Var "t" 0 ip
+            term2 `shouldBe` idT
+            -- The relational type should be preserved through conversion
+            case relType of
+              Prom _ _ -> return () -- Expected promoted type
+              _ -> expectationFailure $ "Expected promoted type, got: " ++ show relType
       Left err -> expectationFailure $ "Expected successful TMacro conversion proof: " ++ show err
 
   it "handles TMacro arity validation in proof context" $ do
@@ -909,10 +901,11 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
     case inferProofType termCtx env noTheorems iotaProof of
       Right result ->
         -- The proof should succeed syntactically, arity checking happens during expansion
-        let RelJudgment term1 (Prom promTerm _) _ = resultJudgment result
-         in do
-              term1 `shouldBe` wrongArityTMacro
-              promTerm `shouldBe` wrongArityTMacro
+        case resultJudgment result of
+          RelJudgment term1 (Prom promTerm _) _ -> do
+            term1 `shouldBe` wrongArityTMacro
+            promTerm `shouldBe` wrongArityTMacro
+          RelJudgment _ relType _ -> expectationFailure $ "Expected promotion type but got: " ++ show relType
       Left err -> expectationFailure $ "Expected proof to succeed syntactically: " ++ show err
 
   it "detects variable shadowing bug in pi elimination" $ do
@@ -983,7 +976,6 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
 -- | Test for quantifier de Bruijn index bug through integration
 quantifierDeBruijnBugSpec :: Spec
 quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integration)" $ do
-  
   it "parse and check theorem with unbound relation in quantifier" $ do
     -- Test Method 2: Parse theorem declaration and check it
     let theoremText = "⊢ bug_test (S : Rel) (a : Term) (b : Term) (p : a [∀X.S] b) : a [S] b := p{S};"
@@ -992,35 +984,37 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integratio
       Right (TheoremDef _ bindings judgment proof) -> do
         let ctx = buildContextFromBindings bindings
         case checkProof ctx noMacros noTheorems proof judgment of
-          Right _ -> return ()  -- Should succeed
-          Left err -> expectationFailure $ 
-            "Theorem should type check but failed due to de Bruijn bug: " ++ show err
+          Right _ -> return () -- Should succeed
+          Left err ->
+            expectationFailure $
+              "Theorem should type check but failed due to de Bruijn bug: " ++ show err
       _ -> expectationFailure "Expected theorem declaration"
-      
+
   it "parse and check file content with quantifier bug patterns" $ do
     -- Test Method 3: Parse full file content
-    let fileContent = unlines
-          [ "-- Multiple theorems demonstrating the bug"
-          , "⊢ constant_bug (S : Rel) (a : Term) (b : Term)"
-          , "    (p : a [∀X.S] b) : a [S] b := p{S};"
-          , ""
-          , "⊢ composition_bug (R : Rel) (S : Rel) (a : Term) (b : Term)"
-          , "    (p : a [∀X.X ∘ S] b) : a [R ∘ S] b := p{R};"
-          , ""
-          , "⊢ control_works (R : Rel) (a : Term) (b : Term)"
-          , "    (p : a [∀X.X] b) : a [R] b := p{R};"
-          ]
-          
+    let fileContent =
+          unlines
+            [ "-- Multiple theorems demonstrating the bug",
+              "⊢ constant_bug (S : Rel) (a : Term) (b : Term)",
+              "    (p : a [∀X.S] b) : a [S] b := p{S};",
+              "",
+              "⊢ composition_bug (R : Rel) (S : Rel) (a : Term) (b : Term)",
+              "    (p : a [∀X.X ∘ S] b) : a [R ∘ S] b := p{R};",
+              "",
+              "⊢ control_works (R : Rel) (a : Term) (b : Term)",
+              "    (p : a [∀X.X] b) : a [R] b := p{R};"
+            ]
+
     case runParserEmpty parseFile fileContent of
       Left parseErr -> expectationFailure $ "File should parse: " ++ show parseErr
       Right decls -> do
         -- Build environments
-        let macroEnv = buildMacroEnv decls
-            theoremEnv = buildTheoremEnv decls
-        
+        let builtMacroEnv = buildMacroEnv decls
+            builtTheoremEnv = buildTheoremEnv decls
+
         -- Check each theorem
-        mapM_ (checkDeclForBugTest macroEnv theoremEnv) decls
-        
+        mapM_ (checkDeclForBugTest builtMacroEnv builtTheoremEnv) decls
+
   it "nested quantifier substitution shows index corruption clearly" $ do
     -- Test the case that clearly demonstrates the index shifting bug
     let theoremText = "⊢ nested_bug (R : Rel) (S : Rel) (T : Rel) (a : Term) (b : Term) (p : a [∀X.∀Y.X ∘ T] b) : a [R ∘ T] b := (p{R}){S};"
@@ -1029,11 +1023,12 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integratio
       Right (TheoremDef _ bindings judgment proof) -> do
         let ctx = buildContextFromBindings bindings
         case checkProof ctx noMacros noTheorems proof judgment of
-          Right _ -> return ()  -- Should work when bug is fixed
-          Left err -> expectationFailure $
-            "Nested quantifier theorem should work but failed: " ++ show err
+          Right _ -> return () -- Should work when bug is fixed
+          Left err ->
+            expectationFailure $
+              "Nested quantifier theorem should work but failed: " ++ show err
       _ -> expectationFailure "Expected theorem declaration"
-      
+
   it "quantifier commutativity with type lambdas should work" $ do
     -- Test the failing forall_commute case from demo.rtt
     -- This involves both type lambdas (ΛY. ΛX.) and type applications (p{X}{Y})
@@ -1043,23 +1038,24 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integratio
       Right (TheoremDef _ bindings judgment proof) -> do
         let ctx = buildContextFromBindings bindings
         case checkProof ctx noMacros noTheorems proof judgment of
-          Right _ -> return ()  -- Should work when bug is fixed
-          Left err -> expectationFailure $
-            "Quantifier commutativity theorem should work but failed: " ++ show err
+          Right _ -> return () -- Should work when bug is fixed
+          Left err ->
+            expectationFailure $
+              "Quantifier commutativity theorem should work but failed: " ++ show err
       _ -> expectationFailure "Expected theorem declaration"
 
 -- Helper functions for quantifier bug tests
 
 checkDeclForBugTest :: MacroEnvironment -> TheoremEnvironment -> Declaration -> Expectation
-checkDeclForBugTest _ _ (MacroDef _ _ _) = return ()  -- Skip macro definitions
-checkDeclForBugTest macroEnv theoremEnv (TheoremDef _ bindings judgment proof) = do
+checkDeclForBugTest _ _ (MacroDef _ _ _) = return () -- Skip macro definitions
+checkDeclForBugTest localMacroEnv localTheoremEnv (TheoremDef _ bindings judgment proof) = do
   let ctx = buildContextFromBindings bindings
-  case checkProof ctx macroEnv theoremEnv proof judgment of
+  case checkProof ctx localMacroEnv localTheoremEnv proof judgment of
     Right _ -> return ()
     Left err -> expectationFailure $ "Theorem should work: " ++ show err
-checkDeclForBugTest _ _ _ = return ()  -- Skip other declarations
+checkDeclForBugTest _ _ _ = return () -- Skip other declarations
 
-buildMacroEnv :: [Declaration] -> MacroEnvironment  
+buildMacroEnv :: [Declaration] -> MacroEnvironment
 buildMacroEnv = foldr addMacro noMacros
   where
     addMacro (MacroDef name params body) env = extendMacroEnvironment name params body defaultFixity env
@@ -1068,6 +1064,6 @@ buildMacroEnv = foldr addMacro noMacros
 buildTheoremEnv :: [Declaration] -> TheoremEnvironment
 buildTheoremEnv = foldr addTheorem noTheorems
   where
-    addTheorem (TheoremDef name bindings judgment proof) env = 
+    addTheorem (TheoremDef name bindings judgment proof) env =
       extendTheoremEnvironment name bindings judgment proof env
     addTheorem _ env = env

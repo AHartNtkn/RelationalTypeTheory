@@ -22,8 +22,8 @@ where
 
 import Data.List (intercalate)
 import Errors
-import Lib (MixfixPart(..), parseMixfixPattern, splitMixfix)
-import Lib hiding (splitMixfix, MixfixPart, parseMixfixPattern)
+import Lib (MixfixPart (..), parseMixfixPattern)
+import Lib hiding (MixfixPart, parseMixfixPattern, splitMixfix)
 import Text.Megaparsec (sourceColumn, sourceLine, sourceName, unPos)
 
 -- Configuration for pretty printing
@@ -71,7 +71,7 @@ prettyTermWithConfig config term = case term of
     | '_' `elem` name ->
         let pattern = parseMixfixPattern name
             argStrs = map (prettyTermWithParens config) args
-        in renderMixfixPattern pattern argStrs
+         in renderMixfixPattern pattern argStrs
     | null args -> name
     | otherwise -> name ++ " " ++ intercalate " " (map (prettyTermWithParens config) args)
 
@@ -84,7 +84,7 @@ renderMixfixPattern pattern args = trimSpaces $ concat (go pattern args)
     go (Literal s : rest) argList = s : go rest argList
     go (Hole : rest) [] = error "renderMixfixPattern: more holes than arguments"
     go (Hole : rest) (arg : restArgs) = (" " ++ arg ++ " ") : go rest restArgs
-    
+
     trimSpaces = unwords . words
 
 -- Add parentheses when needed for terms
@@ -148,9 +148,9 @@ prettyProofWithConfig config proof = case proof of
     if showIndices config
       then name ++ "_" ++ show idx
       else name
-  PTheoremApp name args _ -> 
-    if null args 
-      then name 
+  PTheoremApp name args _ ->
+    if null args
+      then name
       else name ++ " " ++ unwords (map (prettyTheoremArgWithConfig config) args)
   LamP name rtype body _ ->
     let lambda = if useUnicode config then "λ" else "\\"
@@ -326,12 +326,12 @@ prettyError err = case err of
       ++ "  Actual judgment: "
       ++ prettyRelJudgment actual
       ++ case normalizedForms of
-           Nothing -> ""
-           Just (normExpected, normActual) ->
-             "\n  Expected judgment (normalized): "
-               ++ prettyRelJudgment normExpected
-               ++ "\n  Actual judgment (normalized): "
-               ++ prettyRelJudgment normActual
+        Nothing -> ""
+        Just (normExpected, normActual) ->
+          "\n  Expected judgment (normalized): "
+            ++ prettyRelJudgment normExpected
+            ++ "\n  Actual judgment (normalized): "
+            ++ prettyRelJudgment normActual
       ++ prettyContext ctx
   LeftConversionError expected actual ctx ->
     "Left conversion error: expected "
@@ -365,11 +365,11 @@ prettyError err = case err of
   InternalError msg ctx ->
     "Internal error: " ++ msg ++ prettyContext ctx
 
--- Pretty print theorem arguments  
+-- Pretty print theorem arguments
 prettyTheoremArgWithConfig :: PrettyConfig -> TheoremArg -> String
 prettyTheoremArgWithConfig config arg = case arg of
   TermArg term -> "(" ++ prettyTermWithConfig config term ++ ")"
-  RelArg rtype -> "(" ++ prettyRTypeWithConfig config rtype ++ ")" 
+  RelArg rtype -> "(" ++ prettyRTypeWithConfig config rtype ++ ")"
   ProofArg proof -> "(" ++ prettyProofWithConfig config proof ++ ")"
 
 -- Helper function to pretty print error context

@@ -1,12 +1,11 @@
-module TheoremArgValidationSpec where
+module TheoremArgValidationSpec (spec) where
 
-import Test.Hspec
+import qualified Data.Map as Map
+import Errors
 import Lib
 import ProofChecker
-import Context
-import Errors
-import Text.Megaparsec (SourcePos, initialPos)
-import qualified Data.Map as Map
+import Test.Hspec
+import Text.Megaparsec (initialPos)
 
 -- Helper to create dummy source position
 dummyPos :: SourcePos
@@ -24,7 +23,6 @@ emptyTheoremEnv = TheoremEnvironment Map.empty
 
 spec :: Spec
 spec = describe "Theorem Argument Validation" $ do
-  
   describe "checkTheoremArgs" $ do
     it "validates empty argument list correctly" $ do
       let bindings = []
@@ -49,7 +47,7 @@ spec = describe "Theorem Argument Validation" $ do
     it "validates multiple mixed arguments correctly" $ do
       let bindings = [TermBinding "x", RelBinding "R", TermBinding "y"]
           term1 = Var "a" 0 dummyPos
-          rtype = RVar "S" 0 dummyPos  
+          rtype = RVar "S" 0 dummyPos
           term2 = Var "b" 1 dummyPos
           args = [TermArg term1, RelArg rtype, TermArg term2]
       result <- return $ checkTheoremArgs bindings args emptyCtx emptyMacroEnv emptyTheoremEnv dummyPos
@@ -58,7 +56,7 @@ spec = describe "Theorem Argument Validation" $ do
     it "rejects mismatched argument types" $ do
       let bindings = [TermBinding "x"]
           rtype = RVar "R" 0 dummyPos
-          args = [RelArg rtype]  -- Wrong type: should be TermArg
+          args = [RelArg rtype] -- Wrong type: should be TermArg
       result <- return $ checkTheoremArgs bindings args emptyCtx emptyMacroEnv emptyTheoremEnv dummyPos
       result `shouldSatisfy` isLeft
 
@@ -85,7 +83,7 @@ spec = describe "Theorem Argument Validation" $ do
       let bindings = [RelBinding "R"]
           replacementRel = RVar "S" 0 dummyPos
           args = [RelArg replacementRel]
-          -- Original judgment: x [R] y  
+          -- Original judgment: x [R] y
           originalJudgment = RelJudgment (Var "x" 0 dummyPos) (RVar "R" 0 dummyPos) (Var "y" 1 dummyPos)
           -- Expected result: x [S] y (R substituted with S)
           expectedJudgment = RelJudgment (Var "x" 0 dummyPos) replacementRel (Var "y" 1 dummyPos)

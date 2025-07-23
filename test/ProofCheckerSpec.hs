@@ -229,26 +229,26 @@ typeApplicationSpec = describe "type applications (TyApp)" $ do
   it "tests universal instantiation over macro expanding to quantified type" $ do
     -- Test: if we have C := ∀X. X → X → X, can we do p{A} where p : b [C] b?
     let termCtx = extendTermContext "b" (RMacro "Term" [] (initialPos "test")) emptyTypingContext
-        
+
         -- Define macro C := ∀X. X → X → X (like Bool)
         pos = initialPos "test"
         quantifiedMacro = RelMacro $ All "X" (Arr (RVar "X" 0 pos) (Arr (RVar "X" 0 pos) (RVar "X" 0 pos) pos) pos) pos
         macroEnv = extendMacroEnvironment "C" [] quantifiedMacro defaultFixity noMacros
-        
-        -- Proof variable p : b [C] b  
+
+        -- Proof variable p : b [C] b
         macroJudgment = RelJudgment (Var "b" 0 (initialPos "test")) (RMacro "C" [] (initialPos "test")) (Var "b" 0 (initialPos "test"))
         ctx = extendProofContext "p" macroJudgment termCtx
-        
+
         -- Type application: p{A}
         instantiationType = RMacro "A" [] (initialPos "test")
         typeAppProof = TyApp (PVar "p" 0 (initialPos "test")) instantiationType (initialPos "test")
-        
+
     case inferProofType ctx macroEnv noTheorems typeAppProof of
       Right result -> do
         -- Expected: b [A → A → A] b
-        let RelJudgment leftTerm relType rightTerm = resultJudgment result
+        let RelJudgment _ relType _ = resultJudgment result
         case relType of
-          Arr (RMacro "A" [] _) (Arr (RMacro "A" [] _) (RMacro "A" [] _) _) _ -> 
+          Arr (RMacro "A" [] _) (Arr (RMacro "A" [] _) (RMacro "A" [] _) _) _ ->
             return () -- This is what we expect
           _ -> expectationFailure $ "Expected A → A → A type, got: " ++ show relType
       Left err -> expectationFailure $ "Expected successful type application over macro: " ++ show err
@@ -347,7 +347,7 @@ conversionProofSpec = describe "conversion proofs (ConvProof)" $ do
 
     case inferProofType ctx macroEnv noTheorems conversionProof of
       Left (LeftConversionError _ _ _) -> return () -- Expected left conversion error
-      Left (RightConversionError _ _ _) -> return () -- Expected right conversion error  
+      Left (RightConversionError _ _ _) -> return () -- Expected right conversion error
       Left err -> expectationFailure $ "Expected conversion error, got: " ++ show err
       Right _ -> expectationFailure "Expected conversion to fail with non-equivalent terms"
 
@@ -1331,13 +1331,10 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
             [TermBinding "t"]
             (RelJudgment (Var "t" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "t" 0 (initialPos "test")))
             (Iota (Var "t" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")) (initialPos "test"))
-        theoremEnv =
-          extendTheoremEnvironment
-            "identity"
-            [TermBinding "t"]
-            (RelJudgment (Var "t" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "t" 0 (initialPos "test")))
-            (Iota (Var "t" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")) (initialPos "test"))
-            noTheorems
+        theoremEnv = case simpleTheorem of
+          TheoremDef name bindings judgment proof ->
+            extendTheoremEnvironment name bindings judgment proof noTheorems
+          _ -> error "Expected TheoremDef in test"
 
         -- Create context and test theorem reference
         ctx = emptyTypingContext
@@ -1371,16 +1368,10 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
             ]
             (RelJudgment (Var "t" 0 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")))
             (PVar "p" 0 (initialPos "test"))
-        theoremEnv =
-          extendTheoremEnvironment
-            "complex"
-            [ TermBinding "t",
-              RelBinding "R",
-              ProofBinding "p" (RelJudgment (Var "t" 0 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")))
-            ]
-            (RelJudgment (Var "t" 0 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")))
-            (PVar "p" 0 (initialPos "test"))
-            noTheorems
+        theoremEnv = case complexTheorem of
+          TheoremDef name bindings judgment proof ->
+            extendTheoremEnvironment name bindings judgment proof noTheorems
+          _ -> error "Expected TheoremDef in test"
 
         ctx = emptyTypingContext
         macroEnv = noMacros
@@ -1600,9 +1591,11 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
 
     case inferProofType ctx macroEnv identityTheorem lambdaProof of
       Right result -> do
-        let RelJudgment _ (Arr argType _ _) _ = resultJudgment result
-        argType `shouldBe` RMacro "SomeRel" [] (initialPos "test")
-        return ()
+        case resultJudgment result of
+          RelJudgment _ (Arr argType _ _) _ -> do
+            argType `shouldBe` RMacro "SomeRel" [] (initialPos "test")
+            return ()
+          other -> expectationFailure $ "Expected arrow type but got: " ++ show other
       Left err -> expectationFailure $ "Theorem reference in lambda failed: " ++ show err
 
   it "handles theorem references in composition proofs" $ do
@@ -1634,10 +1627,12 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
 
     case inferProofType ctx macroEnv theorem2 compositionProof of
       Right result -> do
-        let RelJudgment _ (Comp r1 r2 _) _ = resultJudgment result
-        r1 `shouldBe` RMacro "R" [] (initialPos "test")
-        r2 `shouldBe` RMacro "S" [] (initialPos "test")
-        return ()
+        case resultJudgment result of
+          RelJudgment _ (Comp r1 r2 _) _ -> do
+            r1 `shouldBe` RMacro "R" [] (initialPos "test")
+            r2 `shouldBe` RMacro "S" [] (initialPos "test")
+            return ()
+          other -> expectationFailure $ "Expected composition type but got: " ++ show other
       Left err -> expectationFailure $ "Theorem reference in composition failed: " ++ show err
 
   it "handles theorem references in conversion proofs" $ do
@@ -1847,90 +1842,107 @@ conversionBetaEtaSpec = describe "conversion proofs use β-η equivalence" $ do
 judgmentEqualityMacroExpansionSpec :: Spec
 judgmentEqualityMacroExpansionSpec = describe "judgment equality with macro expansion" $ do
   it "expands term macros in both judgments before comparing" $ do
-    let macroEnv = MacroEnvironment (Map.fromList [
-          ("True", ([], TermMacro (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")))),
-          ("Identity", ([], RelMacro (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test"))))
-          ]) Map.empty
+    let macroEnv =
+          MacroEnvironment
+            ( Map.fromList
+                [ ("True", ([], TermMacro (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")))),
+                  ("Identity", ([], RelMacro (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test"))))
+                ]
+            )
+            Map.empty
         judgment1 = RelJudgment (TMacro "True" [] (initialPos "test")) (RMacro "Identity" [] (initialPos "test")) (TMacro "True" [] (initialPos "test"))
         judgment2 = RelJudgment (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (RMacro "Identity" [] (initialPos "test")) (Lam "a" (Lam "b" (Var "a" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))
-    
+
     case relJudgmentEqual macroEnv judgment1 judgment2 of
-      Right result -> result `shouldBe` True  -- Should be alpha equivalent after macro expansion
+      Right result -> result `shouldBe` True -- Should be alpha equivalent after macro expansion
       Left err -> expectationFailure $ "Judgment equality with macro expansion failed: " ++ show err
 
   it "expands relation macros before comparing" $ do
-    let macroEnv = MacroEnvironment (Map.fromList [
-          ("Bool", ([], RelMacro (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))))
-          ]) Map.empty
+    let macroEnv =
+          MacroEnvironment
+            ( Map.fromList
+                [ ("Bool", ([], RelMacro (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))))
+                ]
+            )
+            Map.empty
         judgment1 = RelJudgment (Var "x" 0 (initialPos "test")) (RMacro "Bool" [] (initialPos "test")) (Var "x" 0 (initialPos "test"))
         judgment2 = RelJudgment (Var "x" 0 (initialPos "test")) (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "x" 0 (initialPos "test"))
-    
+
     case relJudgmentEqual macroEnv judgment1 judgment2 of
-      Right result -> result `shouldBe` True  -- Should be equal after macro expansion
+      Right result -> result `shouldBe` True -- Should be equal after macro expansion
       Left err -> expectationFailure $ "Judgment equality with relation macro expansion failed: " ++ show err
 
 -- | Test for quantifier de Bruijn index bug in proof checking
 quantifierDeBruijnBugProofSpec :: Spec
 quantifierDeBruijnBugProofSpec = describe "quantifier de Bruijn bug in proof checking" $ do
-  
   it "type application with unbound relation in quantifier should work" $ do
     -- This test demonstrates the bug through the proof checker
     -- p{S} where p : a [∀X.S] b should type check to a [S] b
     let pos = initialPos "test"
         -- Create the context with necessary bindings
-        ctx = extendRelContext "S" 
-              $ extendTermContext "a" (RMacro "A" [] pos) 
-              $ extendTermContext "b" (RMacro "B" [] pos) 
-              $ extendProofContext "p" (RelJudgment (Var "a" 1 pos) 
-                                                   (All "X" (RVar "S" 1 pos) pos) 
-                                                   (Var "b" 0 pos))
-              $ emptyTypingContext
-        
+        ctx =
+          extendRelContext "S"
+            $ extendTermContext "a" (RMacro "A" [] pos)
+            $ extendTermContext "b" (RMacro "B" [] pos)
+            $ extendProofContext
+              "p"
+              ( RelJudgment
+                  (Var "a" 1 pos)
+                  (All "X" (RVar "S" 1 pos) pos)
+                  (Var "b" 0 pos)
+              )
+            $ emptyTypingContext
+
         -- Create the proof: p{S}
         proof = TyApp (PVar "p" 0 pos) (RVar "S" 0 pos) pos
-        
+
         -- Expected judgment: a [S] b
         expectedJudgment = RelJudgment (Var "a" 1 pos) (RVar "S" 0 pos) (Var "b" 0 pos)
-        
+
     -- Check the proof
     case checkProof ctx noMacros noTheorems proof expectedJudgment of
-      Right _ -> return ()  -- Should succeed
-      Left err -> expectationFailure $ 
-        "Type application should work but failed with: " ++ show err
-        
+      Right _ -> return () -- Should succeed
+      Left err ->
+        expectationFailure $
+          "Type application should work but failed with: " ++ show err
+
   it "nested quantifier type applications work" $ do
     -- Test nested type applications using proper RelTT syntax
     let nestedTheorem = "⊢ nested_test (a : Term) (b : Term) (R : Rel) (S : Rel) (T : Rel) (p : a [∀X.∀Y.(X ∘ T)] b) : a [R ∘ T] b := (p{R}){S};"
         simpleTheorem = "⊢ simple_test (a : Term) (b : Term) (R : Rel) (S : Rel) (p : a [∀X.S] b) : a [S] b := p{R};"
-    
+
     case runParserEmpty parseDeclaration nestedTheorem of
       Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr
       Right (TheoremDef _ bindings judgment proof) -> do
         let ctx = buildContextFromBindings bindings
         case checkProof ctx noMacros noTheorems proof judgment of
-          Right _ -> return ()  -- Should succeed
+          Right _ -> return () -- Should succeed
           Left err -> expectationFailure $ "Nested quantifier theorem should work: " ++ show err
       _ -> expectationFailure "Expected theorem declaration"
-    
+
     case runParserEmpty parseDeclaration simpleTheorem of
-      Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr  
+      Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr
       Right (TheoremDef _ bindings judgment proof) -> do
         let ctx = buildContextFromBindings bindings
         case checkProof ctx noMacros noTheorems proof judgment of
-          Right _ -> return ()  -- Should succeed
+          Right _ -> return () -- Should succeed
           Left err -> expectationFailure $ "Simple quantifier theorem should work: " ++ show err
       _ -> expectationFailure "Expected theorem declaration"
 
   it "expands both term and relation macros together" $ do
-    let macroEnv = MacroEnvironment (Map.fromList [
-          ("True", ([], TermMacro (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")))),
-          ("Bool", ([], RelMacro (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))))
-          ]) Map.empty
+    let macroEnv =
+          MacroEnvironment
+            ( Map.fromList
+                [ ("True", ([], TermMacro (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")))),
+                  ("Bool", ([], RelMacro (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))))
+                ]
+            )
+            Map.empty
         judgment1 = RelJudgment (TMacro "True" [] (initialPos "test")) (RMacro "Bool" [] (initialPos "test")) (TMacro "True" [] (initialPos "test"))
         judgment2 = RelJudgment (Lam "a" (Lam "b" (Var "a" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (All "Y" (Arr (RVar "Y" 0 (initialPos "test")) (Arr (RVar "Y" 0 (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Lam "c" (Lam "d" (Var "c" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))
-    
+
     case relJudgmentEqual macroEnv judgment1 judgment2 of
-      Right result -> result `shouldBe` True  -- Should be alpha equivalent after expanding all macros
+      Right result -> result `shouldBe` True -- Should be alpha equivalent after expanding all macros
       Left err -> expectationFailure $ "Judgment equality with mixed macro expansion failed: " ++ show err
 
   it "debug: check de Bruijn indices in proof inference" $ do
@@ -1938,12 +1950,12 @@ quantifierDeBruijnBugProofSpec = describe "quantifier de Bruijn bug in proof che
     let proof = LamP "p" (RVar "R" 0 (initialPos "test")) (PVar "p" 0 (initialPos "test")) (initialPos "test")
         ctx = emptyTypingContext
         macroEnv = MacroEnvironment Map.empty Map.empty
-        
+
     case inferProofType ctx macroEnv noTheorems proof of
       Right result -> do
         let actualJudgment = resultJudgment result
         putStrLn $ "Simple proof result: " ++ show actualJudgment
-        
+
         -- Should be something like: λx.x [R → R] λx'.x'
         case actualJudgment of
           RelJudgment (Lam _ (Var _ idx1 _) _) _ (Lam _ (Var _ idx2 _) _) -> do
@@ -1952,36 +1964,3 @@ quantifierDeBruijnBugProofSpec = describe "quantifier de Bruijn bug in proof che
             idx2 `shouldBe` 0
           other -> expectationFailure $ "Unexpected judgment structure: " ++ show other
       Left err -> expectationFailure $ "Simple proof inference failed: " ++ show err
-
--- | Test de Bruijn indices bug in lambda proof inference
-deBruijnIndicesBugSpec :: Spec
-deBruijnIndicesBugSpec = describe "de Bruijn indices bug diagnosis" $ do
-  it "observes the incorrect de Bruijn indices in Church encodings" $ do
-    -- Test the exact case from bool.rtt: ΛX. λp:X. λq:X. p
-    -- This should generate True = λx. λy. x where x has index 1 (outer lambda)
-    let pos = initialPos "test"
-        -- Proof: ΛX. λp:X. λq:X. p  
-        innerProof = PVar "p" 1 pos  -- p should refer to outer lambda parameter (index 1, since q is at index 0)
-        lambdaProof2 = LamP "q" (RVar "X" 0 pos) innerProof pos  -- λq:X. p
-        lambdaProof1 = LamP "p" (RVar "X" 0 pos) lambdaProof2 pos  -- λp:X. λq:X. p
-        tyLamProof = TyLam "X" lambdaProof1 pos  -- ΛX. λp:X. λq:X. p
-        
-        ctx = emptyTypingContext
-        macroEnv = noMacros
-        
-    case inferProofType ctx macroEnv noTheorems tyLamProof of
-      Right result -> do
-        let RelJudgment leftTerm _ rightTerm = resultJudgment result
-        case (leftTerm, rightTerm) of
-          (Lam _ (Lam _ (Var outerVar leftIdx _) _) _, Lam _ (Lam _ (Var outerVar' rightIdx _) _) _) -> do
-            -- BUG: These should have index 1 (refer to outer lambda) but currently have index 0
-            putStrLn $ "Left outer var '" ++ outerVar ++ "' has de Bruijn index: " ++ show leftIdx
-            putStrLn $ "Right outer var '" ++ outerVar' ++ "' has de Bruijn index: " ++ show rightIdx
-            putStrLn $ "EXPECTED: Index should be 1 for True (λx.λy.x)"
-            putStrLn $ "ACTUAL: Index is " ++ show leftIdx ++ " which represents False (λx.λy.y)"
-            
-            -- The bug: currently generates False instead of True
-            leftIdx `shouldBe` 1  -- SHOULD BE index 1 for True (λx.λy.x)
-            rightIdx `shouldBe` 1  -- SHOULD BE index 1 for True (λx.λy.x)
-          other -> expectationFailure $ "Expected lambda structure but got: " ++ show other
-      Left err -> expectationFailure $ "Type lambda inference failed: " ++ show err

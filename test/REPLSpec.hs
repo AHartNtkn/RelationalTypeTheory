@@ -166,8 +166,8 @@ spec = do
       -- This should parse successfully but may fail in proof checking
       result <- evalStateT (executeREPLCommand (ParseDeclaration theoremDecl)) initialREPLState
       -- Could be either success or proof checking error
-      let isInfixOf needle haystack = needle `elem` (words haystack)
-      result `shouldSatisfy` (\r -> "Added theorem:" `isInfixOf` r || "error:" `isInfixOf` r)
+      let isWordInfixOf needle haystack = needle `elem` (words haystack)
+      result `shouldSatisfy` (\r -> "Added theorem:" `isWordInfixOf` r || "error:" `isWordInfixOf` r)
 
     it "handles invalid declaration syntax" $ do
       result <- evalStateT (executeREPLCommand (ParseDeclaration "invalid")) initialREPLState
@@ -180,8 +180,8 @@ spec = do
       finalState <-
         execStateT
           ( do
-              executeREPLCommand (ParseDeclaration macro1)
-              executeREPLCommand (ParseDeclaration macro2)
+              void $ executeREPLCommand (ParseDeclaration macro1)
+              void $ executeREPLCommand (ParseDeclaration macro2)
           )
           initialREPLState
 
@@ -192,7 +192,7 @@ spec = do
       result <-
         evalStateT
           ( do
-              executeREPLCommand (ParseDeclaration macro)
+              void $ executeREPLCommand (ParseDeclaration macro)
               executeREPLCommand ListDeclarations
           )
           initialREPLState
@@ -204,7 +204,7 @@ spec = do
       result <-
         evalStateT
           ( do
-              executeREPLCommand (ParseDeclaration macro)
+              void $ executeREPLCommand (ParseDeclaration macro)
               executeREPLCommand (ShowInfo "Id")
           )
           initialREPLState
@@ -216,7 +216,7 @@ spec = do
       result <-
         evalStateT
           ( do
-              executeREPLCommand (ParseDeclaration macro)
+              void $ executeREPLCommand (ParseDeclaration macro)
               executeREPLCommand (ExpandMacro "Id")
           )
           initialREPLState
@@ -260,10 +260,10 @@ spec = do
       results <- evalStateT (mapM executeREPLCommand operations) initialREPLState
 
       -- Should have some successes and some errors
-      let isInfixOf needle haystack = needle `elem` (words haystack)
+      let isWordInfixOf needle haystack = needle `elem` (words haystack)
           shouldBeGreaterThan actual expected = actual > expected `shouldBe` True
-      let successes = filter (not . ("error:" `isInfixOf`)) results
-      let errors = filter ("error:" `isInfixOf`) results
+      let successes = filter (not . ("error:" `isWordInfixOf`)) results
+      let errors = filter ("error:" `isWordInfixOf`) results
       length successes `shouldBeGreaterThan` 0
       length errors `shouldBeGreaterThan` 0
 
@@ -272,7 +272,7 @@ spec = do
       result <-
         evalStateT
           ( do
-              executeREPLCommand (ParseDeclaration macro)
+              void $ executeREPLCommand (ParseDeclaration macro)
               executeREPLCommand ListDeclarations
           )
           initialREPLState
@@ -283,7 +283,7 @@ spec = do
       result <-
         evalStateT
           ( do
-              executeREPLCommand (ParseDeclaration complexMacro)
+              void $ executeREPLCommand (ParseDeclaration complexMacro)
               executeREPLCommand (ShowInfo "Complex")
           )
           initialREPLState

@@ -102,12 +102,12 @@ formatError err = case err of
         ++ "\n  Actual judgment:   "
         ++ show actual
         ++ case normalizedForms of
-             Nothing -> ""
-             Just (normExpected, normActual) ->
-               "\n  Expected judgment (normalized): "
-                 ++ show normExpected
-                 ++ "\n  Actual judgment (normalized):   "
-                 ++ show normActual
+          Nothing -> ""
+          Just (normExpected, normActual) ->
+            "\n  Expected judgment (normalized): "
+              ++ show normExpected
+              ++ "\n  Actual judgment (normalized):   "
+              ++ show normActual
   LeftConversionError expected actual ctx ->
     formatWithContext ctx $
       "Left conversion error: expected "

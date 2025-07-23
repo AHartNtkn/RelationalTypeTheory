@@ -52,7 +52,7 @@ data RType
 
 data Proof
   = PVar String Int SourcePos
-  | PTheoremApp String [TheoremArg] SourcePos  -- theorem application (empty list = no args)
+  | PTheoremApp String [TheoremArg] SourcePos -- theorem application (empty list = no args)
   | LamP String RType Proof SourcePos
   | AppP Proof Proof SourcePos
   | TyApp Proof RType SourcePos
@@ -79,7 +79,7 @@ data Declaration
   | TheoremDef String [Binding] RelJudgment Proof
   | ImportDecl ImportDeclaration
   | ExportDecl ExportDeclaration
-  | FixityDecl Fixity String  -- NEW: fixity declaration for a macro
+  | FixityDecl Fixity String -- NEW: fixity declaration for a macro
   deriving (Show, Eq)
 
 data Binding
@@ -112,17 +112,17 @@ data TypeEnvironment = TypeEnvironment
 
 -- | Fixity declarations for mixfix operators
 data Fixity
-  = Infixl Int    -- left associative, level 0-9
-  | Infixr Int    -- right associative, level 0-9
-  | InfixN Int    -- non-associative, level 0-9
-  | Prefix Int    -- prefix operator, level 0-9
-  | Postfix Int   -- postfix operator, level 0-9
+  = Infixl Int -- left associative, level 0-9
+  | Infixr Int -- right associative, level 0-9
+  | InfixN Int -- non-associative, level 0-9
+  | Prefix Int -- prefix operator, level 0-9
+  | Postfix Int -- postfix operator, level 0-9
   deriving (Show, Eq)
 
 -- | Environment for macro definitions
 data MacroEnvironment = MacroEnvironment
-  { macroDefinitions :: Map.Map String ([String], MacroBody) -- macro name -> (params, body)
-  , macroFixities :: Map.Map String Fixity                   -- macro name -> fixity declaration
+  { macroDefinitions :: Map.Map String ([String], MacroBody), -- macro name -> (params, body)
+    macroFixities :: Map.Map String Fixity -- macro name -> fixity declaration
   }
   deriving (Show, Eq)
 
@@ -210,12 +210,12 @@ parseMixfixPattern :: String -> [MixfixPart]
 parseMixfixPattern = go
   where
     go [] = []
-    go ('_':rest) = Hole : go rest
-    go str = 
+    go ('_' : rest) = Hole : go rest
+    go str =
       let (literal, rest) = span (/= '_') str
-      in if null literal 
-         then go rest
-         else Literal literal : go rest
+       in if null literal
+            then go rest
+            else Literal literal : go rest
 
 -- | Count the number of holes in a mixfix pattern
 holes :: String -> Int
@@ -243,6 +243,6 @@ mixfixKeywords env =
   Set.fromList
     . filter (not . null)
     . concatMap splitMixfix
-    . filter ('_' `elem`)  -- Only process mixfix patterns (containing underscores)
+    . filter ('_' `elem`) -- Only process mixfix patterns (containing underscores)
     . Map.keys
     $ macroDefinitions env

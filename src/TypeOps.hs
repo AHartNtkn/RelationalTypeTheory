@@ -122,53 +122,58 @@ typeEquality env t1 t2 = case (t1, t2) of
 
 -- | Substitute relational variable at given index with type 's' in 'body', keeping
 --   de Bruijn indices consistent under *any* nesting of ∀-binders.
-substituteTypeVar :: Int      -- ^ index of the bound variable to substitute
-                  -> RType    -- ^ s  — replacement type
-                  -> RType    -- ^ body (under that binder)
-                  -> RType
+substituteTypeVar ::
+  -- | index of the bound variable to substitute
+  Int ->
+  -- | s  — replacement type
+  RType ->
+  -- | body (under that binder)
+  RType ->
+  RType
 substituteTypeVar targetIndex s body = go 0 body
   where
     -- go d τ  ::  τ under d enclosing binders
     go :: Int -> RType -> RType
     go d ty = case ty of
       RVar y k p
-        | k == d + targetIndex ->            -- bound occurrence at target index
-            shiftRelsInRType d s             -- put 's' under the d binders
-        | k > d + targetIndex -> RVar y (k-1) p  -- bypass the deleted binder
-        | otherwise       -> ty              -- untouched
-
-      All y t p     -> All  y (go (d+1) t) p -- enter another binder
-      Arr  a b p    -> Arr  (go d a) (go d b) p
-      Comp a b p    -> Comp (go d a) (go d b) p
-      Conv r p      -> Conv (go d r) p
+        | k == d + targetIndex -> -- bound occurrence at target index
+            shiftRelsInRType d s -- put 's' under the d binders
+        | k > d + targetIndex -> RVar y (k - 1) p -- bypass the deleted binder
+        | otherwise -> ty -- untouched
+      All y t p -> All y (go (d + 1) t) p -- enter another binder
+      Arr a b p -> Arr (go d a) (go d b) p
+      Comp a b p -> Comp (go d a) (go d b) p
+      Conv r p -> Conv (go d r) p
       RMacro n as p -> RMacro n (map (go d) as) p
-      Prom t  p     -> Prom t p              -- terms unchanged
+      Prom t p -> Prom t p -- terms unchanged
 
 -- | Simultaneously substitute multiple variables in a type
 --   This is the ONLY correct way to handle macro parameter substitution
-substituteMultipleTypeVars :: [(Int, RType)] -- ^ [(index, replacement), ...]
-                           -> RType          -- ^ body
-                           -> RType
+substituteMultipleTypeVars ::
+  -- | [(index, replacement), ...]
+  [(Int, RType)] ->
+  -- | body
+  RType ->
+  RType
 substituteMultipleTypeVars substitutions body = go 0 body
   where
     go :: Int -> RType -> RType
     go d ty = case ty of
       RVar y k p ->
         case lookup (k - d) substitutions of
-          Just replacement -> shiftRelsInRType d replacement  -- substitute and shift
-          Nothing -> 
+          Just replacement -> shiftRelsInRType d replacement -- substitute and shift
+          Nothing ->
             -- Decrement index by number of substitutions that are lower-indexed
             let decrementAmount = length $ filter (\(idx, _) -> idx < (k - d)) substitutions
-            in if k - d >= 0 && decrementAmount > 0
-               then RVar y (k - decrementAmount) p
-               else ty
-               
-      All y t p     -> All  y (go (d+1) t) p
-      Arr  a b p    -> Arr  (go d a) (go d b) p
-      Comp a b p    -> Comp (go d a) (go d b) p
-      Conv r p      -> Conv (go d r) p
+             in if k - d >= 0 && decrementAmount > 0
+                  then RVar y (k - decrementAmount) p
+                  else ty
+      All y t p -> All y (go (d + 1) t) p
+      Arr a b p -> Arr (go d a) (go d b) p
+      Comp a b p -> Comp (go d a) (go d b) p
+      Conv r p -> Conv (go d r) p
       RMacro n as p -> RMacro n (map (go d) as) p
-      Prom t  p     -> Prom t p
+      Prom t p -> Prom t p
 
 -- | Get free type variables in a relational type
 freeTypeVariables :: RType -> Set.Set String

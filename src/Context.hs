@@ -84,8 +84,10 @@ extendTypeEnvironment name ty env =
 -- | Extend macro environment with a macro definition
 extendMacroEnvironment :: String -> [String] -> MacroBody -> Fixity -> MacroEnvironment -> MacroEnvironment
 extendMacroEnvironment name params body fixity env =
-  env { macroDefinitions = Map.insert name (params, body) (macroDefinitions env)
-      , macroFixities = Map.insert name fixity (macroFixities env) }
+  env
+    { macroDefinitions = Map.insert name (params, body) (macroDefinitions env),
+      macroFixities = Map.insert name fixity (macroFixities env)
+    }
 
 -- | Extend theorem environment with a theorem definition
 extendTheoremEnvironment :: String -> [Binding] -> RelJudgment -> Proof -> TheoremEnvironment -> TheoremEnvironment
@@ -223,8 +225,8 @@ freshVar :: String -> TypingContext -> (String, TypingContext)
 freshVar prefix ctx =
   let counter = gensymCounter ctx
       newName = prefix ++ show counter
-      newCtx = ctx { gensymCounter = counter + 1 }
-  in (newName, newCtx)
+      newCtx = ctx {gensymCounter = counter + 1}
+   in (newName, newCtx)
 
 -- | Generate a pair of fresh variable names with the same counter and return updated context
 freshVarPair :: String -> String -> TypingContext -> (String, String, TypingContext)
@@ -232,5 +234,5 @@ freshVarPair prefix1 prefix2 ctx =
   let counter = gensymCounter ctx
       name1 = prefix1 ++ show counter
       name2 = prefix2 ++ show counter
-      newCtx = ctx { gensymCounter = counter + 1 }
-  in (name1, name2, newCtx)
+      newCtx = ctx {gensymCounter = counter + 1}
+   in (name1, name2, newCtx)

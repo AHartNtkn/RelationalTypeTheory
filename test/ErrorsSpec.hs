@@ -191,7 +191,7 @@ proofCheckingErrorsSpec = describe "proof checking errors" $ do
         t1' = Var "a" (-1) (initialPos "test") -- Not equivalent
         err = LeftConversionError t1 t1' (ErrorContext (initialPos "test") "proof conversion")
     formatError err `shouldContain` "Left conversion error"
-    
+
   it "detects right conversion failures in proof conversion" $ do
     let t2 = Var "a" (-1) (initialPos "test")
         t2' = Var "b" (-1) (initialPos "test") -- Not equivalent
