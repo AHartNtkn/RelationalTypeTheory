@@ -24,6 +24,7 @@ spec = do
   relationalMixfixSpec
   mixfixComplexSpec
   mixfixUnicodeSpec
+  fixityOrderingSpec
 
 -- Test the mixfixIdentifier parser itself
 mixfixIdentifierSpec :: Spec
@@ -202,13 +203,13 @@ relationalMixfixSpec :: Spec
 relationalMixfixSpec = describe "Relational mixfix macros" $ do
   it "parses relational infix macro applications" $ do
     let env = MacroEnvironment 
-          { macroDefinitions = Map.fromList [("+R+", (["A", "B"], RelMacro (Comp (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))))]
-          , macroFixities = Map.fromList [("+R+", Infixl 6)]
+          { macroDefinitions = Map.fromList [("_+R+_", (["A", "B"], RelMacro (Comp (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))))]
+          , macroFixities = Map.fromList [("_+R+_", Infixl 6)]
           }
     let ctx = ParseContext Map.empty (Map.fromList [("X", 1), ("Y", 0)]) Map.empty env noTheorems (mixfixKeywords env)
     case runReader (runParserT (parseRType <* eof) "test" "X +R+ Y") ctx of
       Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
-      Right result -> result `shouldBeEqual` (RMacro "+R+" [RVar "X" 1 (initialPos "test"), RVar "Y" 0 (initialPos "test")] (initialPos "test"))
+      Right result -> result `shouldBeEqual` (RMacro "_+R+_" [RVar "X" 1 (initialPos "test"), RVar "Y" 0 (initialPos "test")] (initialPos "test"))
 
   it "parses relational prefix macro applications" $ do
     let env = MacroEnvironment 
@@ -216,7 +217,7 @@ relationalMixfixSpec = describe "Relational mixfix macros" $ do
           , macroFixities = Map.fromList [("notR_", Prefix 9)]
           }
     let ctx = ParseContext Map.empty (Map.fromList [("X", 0)]) Map.empty env noTheorems (mixfixKeywords env)
-    case runReader (runParserT (parseRType <* eof) "test" "notR_ X") ctx of
+    case runReader (runParserT (parseRType <* eof) "test" "notR X") ctx of
       Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
       Right result -> result `shouldBeEqual` (RMacro "notR_" [RVar "X" 0 (initialPos "test")] (initialPos "test"))
 
@@ -409,3 +410,74 @@ mixfixUnicodeSpec = describe "Unicode mixfix operations" $ do
       in case runReader (runParserT (parseTerm <* eof) "test" input) ctx of
            Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
            Right result -> result `shouldBeEqual` expected
+
+-- Test fixity declaration ordering
+fixityOrderingSpec :: Spec
+fixityOrderingSpec = describe "Fixity declaration ordering" $ do
+  it "preserves fixity declarations when they come before macro definitions" $ do
+    let content = "infixr 7 _*_;\n_*_ x y := x;"
+    case runParserEmpty parseFile content of
+      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+      Right decls -> do
+        let env = buildEnvironmentFromDecls decls
+        case Map.lookup "_*_" (macroFixities env) of
+          Nothing -> expectationFailure "No fixity found for _*_"
+          Just fixity -> fixity `shouldBe` Infixr 7
+  
+  it "applies fixity declaration regardless of order" $ do
+    let content = "_*_ x y := x;\ninfixr 7 _*_;"
+    case runParserEmpty parseFile content of
+      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+      Right decls -> do
+        let env = buildEnvironmentFromDecls decls
+        case Map.lookup "_*_" (macroFixities env) of
+          Nothing -> expectationFailure "No fixity found for _*_"  
+          Just fixity -> fixity `shouldBe` Infixr 7
+  
+  it "uses default fixity when no declaration is provided" $ do
+    let content = "_*_ x y := x;"
+    case runParserEmpty parseFile content of
+      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+      Right decls -> do
+        let env = buildEnvironmentFromDecls decls
+        case Map.lookup "_*_" (macroFixities env) of
+          Nothing -> expectationFailure "No fixity found for _*_"
+          Just fixity -> fixity `shouldBe` Infixl 6  -- default binary fixity
+  
+  it "handles multiple fixity declarations correctly" $ do
+    let content = unlines
+          [ "infixr 7 _*_;"
+          , "infixl 6 _+_;"
+          , "_*_ x y := x;"
+          , "_+_ a b := a;"
+          ]
+    case runParserEmpty parseFile content of
+      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+      Right decls -> do
+        let env = buildEnvironmentFromDecls decls
+        case (Map.lookup "_*_" (macroFixities env), Map.lookup "_+_" (macroFixities env)) of
+          (Just multFixity, Just plusFixity) -> do
+            multFixity `shouldBe` Infixr 7
+            plusFixity `shouldBe` Infixl 6
+          _ -> expectationFailure "Missing fixity declarations"
+  
+  where
+    -- Helper to build macro environment from parsed declarations (mirrors parser logic)
+    buildEnvironmentFromDecls :: [Declaration] -> MacroEnvironment
+    buildEnvironmentFromDecls decls = foldl processDecl noMacros decls
+      where
+        processDecl env (MacroDef name args body) = 
+          if '_' `elem` name then
+            -- Mixfix macro: use declared fixity or default
+            let fixity = case Map.lookup name (macroFixities env) of
+                          Just declaredFixity -> declaredFixity  -- Use declared fixity
+                          Nothing -> case holes name of           -- Use default fixity
+                            2 -> Infixl 6  -- default infix for binary operators
+                            _ -> Prefix 9  -- default prefix for other mixfix
+            in extendMacroEnvironment name args body fixity env
+          else
+            -- Regular macro: add without fixity (use dummy fixity that won't be used)
+            extendMacroEnvironment name args body (Prefix 9) env
+        processDecl env (FixityDecl fixity name) =
+          env { macroFixities = Map.insert name fixity (macroFixities env) }
+        processDecl env _ = env

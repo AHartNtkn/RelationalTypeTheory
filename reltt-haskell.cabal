@@ -36,6 +36,7 @@ library
       PrettyPrint
       ModuleSystem
   other-modules:
+      Parser.Mixfix
       Paths_reltt_haskell
   autogen-modules:
       Paths_reltt_haskell

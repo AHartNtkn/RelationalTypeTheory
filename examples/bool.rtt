@@ -20,10 +20,10 @@ False := (λx. λy. y);
 Not b := (λt. λf. b f t);
 
 -- Logical conjunction (and)
-And b1 b2 := (λt. λf. b1 (b2 t f) f);
+_&&_ b1 b2 := (λt. λf. b1 (b2 t f) f);
 
 -- Logical disjunction (or)
-Or b1 b2 := (λt. λf. b1 t (b2 t f));
+_||_ b1 b2 := (λt. λf. b1 t (b2 t f));
 
 -- Logical exclusive or (xor)
 Xor b1 b2 := (λt. λf. b1 (b2 f t) (b2 t f));
@@ -42,10 +42,10 @@ Iff b1 b2 := (λt. λf. b1 (b2 t f) (b2 f t));
 IfThenElse b x y := b x y;
 
 -- NAND (not and)
-Nand b1 b2 := Not (And b1 b2);
+Nand b1 b2 := Not (b1 && b2);
 
 -- NOR (not or)
-Nor b1 b2 := Not (Or b1 b2);
+Nor b1 b2 := Not (b1 || b2);
 
 -- =============================================================================
 -- PROVEN THEOREMS - TYPE MEMBERSHIP
@@ -78,32 +78,32 @@ Nor b1 b2 := Not (Or b1 b2);
 -- =============================================================================
 
 -- True AND True related to True
-⊢ true_and_true : (And True True) [True] (True (And True True)) := ι⟨And True True, True⟩;
+⊢ true_and_true : (True && True) [True] (True (True && True)) := ι⟨True && True, True⟩;
 
 -- True AND False related to False
-⊢ true_and_false : (And True False) [False] (False (And True False)) := ι⟨And True False, False⟩;
+⊢ true_and_false : (True && False) [False] (False (True && False)) := ι⟨True && False, False⟩;
 
 -- False AND True related to False
-⊢ false_and_true : (And False True) [False] (False (And False True)) := ι⟨And False True, False⟩;
+⊢ false_and_true : (False && True) [False] (False (False && True)) := ι⟨False && True, False⟩;
 
 -- False AND False related to False
-⊢ false_and_false : (And False False) [False] (False (And False False)) := ι⟨And False False, False⟩;
+⊢ false_and_false : (False && False) [False] (False (False && False)) := ι⟨False && False, False⟩;
 
 -- =============================================================================
 -- PROVEN THEOREMS - DISJUNCTION PROPERTIES
 -- =============================================================================
 
 -- True OR True related to True
-⊢ true_or_true : (Or True True) [True] (True (Or True True)) := ι⟨Or True True, True⟩;
+⊢ true_or_true : (True || True) [True] (True (True || True)) := ι⟨True || True, True⟩;
 
 -- True OR False related to True
-⊢ true_or_false : (Or True False) [True] (True (Or True False)) := ι⟨Or True False, True⟩;
+⊢ true_or_false : (True || False) [True] (True (True || False)) := ι⟨True || False, True⟩;
 
 -- False OR True related to True
-⊢ false_or_true : (Or False True) [True] (True (Or False True)) := ι⟨Or False True, True⟩;
+⊢ false_or_true : (False || True) [True] (True (False || True)) := ι⟨False || True, True⟩;
 
 -- False OR False related to False
-⊢ false_or_false : (Or False False) [False] (False (Or False False)) := ι⟨Or False False, False⟩;
+⊢ false_or_false : (False || False) [False] (False (False || False)) := ι⟨False || False, False⟩;
 
 -- =============================================================================
 -- PROVEN THEOREMS - IMPLICATION PROPERTIES
@@ -162,12 +162,12 @@ Nor b1 b2 := Not (Or b1 b2);
 -- =============================================================================
 
 -- Law of excluded middle: A or Not A is always True
-⊢ excluded_middle_true : (Or True (Not True)) [True] (True (Or True (Not True))) := ι⟨Or True (Not True), True⟩;
-⊢ excluded_middle_false : (Or False (Not False)) [True] (True (Or False (Not False))) := ι⟨Or False (Not False), True⟩;
+⊢ excluded_middle_true : (True || (Not True)) [True] (True (True || (Not True))) := ι⟨True || (Not True), True⟩;
+⊢ excluded_middle_false : (False || (Not False)) [True] (True (False || (Not False))) := ι⟨False || (Not False), True⟩;
 
 -- Law of non-contradiction: A and Not A is always False
-⊢ non_contradiction_true : (And True (Not True)) [False] (False (And True (Not True))) := ι⟨And True (Not True), False⟩;
-⊢ non_contradiction_false : (And False (Not False)) [False] (False (And False (Not False))) := ι⟨And False (Not False), False⟩;
+⊢ non_contradiction_true : (True && (Not True)) [False] (False (True && (Not True))) := ι⟨True && (Not True), False⟩;
+⊢ non_contradiction_false : (False && (Not False)) [False] (False (False && (Not False))) := ι⟨False && (Not False), False⟩;
 
 -- =============================================================================
 -- NEGATION FUNCTION TYPING
@@ -182,7 +182,7 @@ Nor b1 b2 := Not (Or b1 b2);
 -- =============================================================================
 
 -- Binary and function has type Bool → Bool → Bool
-⊢ and_type : (λx. λy. And x y) [Bool → Bool → Bool] (λx. λy. And x y) := 
+⊢ and_type : (λx. λy. x && y) [Bool → Bool → Bool] (λx. λy. x && y) := 
   λb1:Bool. λb2:Bool. ΛX. λx:X. λy:X. (b1{X} (b2{X} x y) y);
 
 -- =============================================================================
@@ -190,6 +190,6 @@ Nor b1 b2 := Not (Or b1 b2);
 -- =============================================================================
 
 -- Binary or function has type Bool → Bool → Bool  
-⊢ or_type : (λx. λy. Or x y) [Bool → Bool → Bool] (λx. λy. Or x y) := 
+⊢ or_type : (λx. λy. x || y) [Bool → Bool → Bool] (λx. λy. x || y) := 
   λb1:Bool. λb2:Bool. ΛX. λx:X. λy:X. (b1{X} x (b2{X} x y));
 
