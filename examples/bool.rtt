@@ -68,11 +68,8 @@ Nor b1 b2 := Not (b1 || b2);
 -- Not False is True
 ⊢ not_false_is_true : (Not False) [Bool] True := (Not False) ⇃ true_is_bool ⇂ True;
 
--- Double negation of True is True
-⊢ double_neg_true : (Not (Not True)) [Bool] True := (Not (Not True)) ⇃ true_is_bool ⇂ True;
-
--- Double negation of False is False
-⊢ double_neg_false : (Not (Not False)) [Bool] False := (Not (Not False)) ⇃ false_is_bool ⇂ False;
+-- Double negation (Provable directly due to eta-equivalence)
+⊢ double_neg (x : Term) (p : x [Bool] x) : (Not (Not x)) [Bool] x := (Not (Not x)) ⇃ p ⇂ x;
 
 -- =============================================================================
 -- PROVEN THEOREMS - CONJUNCTION PROPERTIES

@@ -209,7 +209,7 @@ parseTermVar = do
       case Map.lookup name (macroDefinitions (macroEnv ctx)) of
         Just ([], _) -> return (TMacro name [] pos) -- 0-arity macro
         Just (_, _) -> return (TMacro name [] pos) -- Start macro accumulation
-        Nothing -> fail $ "Unknown identifier: " ++ name
+        Nothing -> fail $ "Unknown term: " ++ name
 
 parseLam :: Parser Term
 parseLam = do
@@ -264,8 +264,7 @@ parseRVarOrApp = do
               -- Automatically promote term variable to relational context
               return $ Prom (Var name index pos) pos
             Nothing ->
-              -- Unknown identifier - generate error
-              fail $ "Unknown identifier: " ++ name
+              fail $ "Unknown relation: " ++ name
 
 parseAll :: Parser RType
 parseAll = do
@@ -338,7 +337,7 @@ parseProofVar = do
           -- Try to parse arguments for this theorem
           args <- parseTheoremArgs bindings
           return (PTheoremApp name args pos)
-        Left _ -> fail $ "Unknown identifier: " ++ name
+        Left _ -> fail $ "Unknown proof: " ++ name
 
 -- Parse theorem arguments based on the expected binding types
 parseTheoremArgs :: [Binding] -> Parser [TheoremArg]
