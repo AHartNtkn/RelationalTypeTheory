@@ -22,6 +22,7 @@ spec = do
   mixfixOperatorTableSpec
   mixfixParsingSpec
   relationalMixfixSpec
+  mixfixBugSpec
   mixfixComplexSpec
   mixfixUnicodeSpec
   fixityOrderingSpec
@@ -154,7 +155,7 @@ mixfixOperatorTableSpec = describe "Dynamic operator table generation" $ do
   where
     testParseWithEnv env input expected =
       let termVarMap = Map.fromList [("a", 1), ("b", 0)]
-          ctx = ParseContext termVarMap Map.empty Map.empty env noTheorems (mixfixKeywords env)
+          ctx = ParseContext termVarMap Map.empty Map.empty env noTheorems (mixfixKeywords env) True
        in case runReader (runParserT (parseTerm <* eof) "test" input) ctx of
             Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
             Right result -> result `shouldBeEqual` expected
@@ -208,7 +209,7 @@ mixfixParsingSpec = describe "Mixfix expression parsing" $ do
 
     testParseExpr env vars input expected =
       let termVarMap = Map.fromList (zip vars (reverse [0 .. length vars - 1]))
-          ctx = ParseContext termVarMap Map.empty Map.empty env noTheorems (mixfixKeywords env)
+          ctx = ParseContext termVarMap Map.empty Map.empty env noTheorems (mixfixKeywords env) True
        in case runReader (runParserT (parseTerm <* eof) "test" input) ctx of
             Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
             Right result -> result `shouldBeEqual` expected
@@ -222,7 +223,7 @@ relationalMixfixSpec = describe "Relational mixfix macros" $ do
             { macroDefinitions = Map.fromList [("_+R+_", (["A", "B"], RelMacro (Comp (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))))],
               macroFixities = Map.fromList [("_+R+_", Infixl 6)]
             }
-    let ctx = ParseContext Map.empty (Map.fromList [("X", 1), ("Y", 0)]) Map.empty env noTheorems (mixfixKeywords env)
+    let ctx = ParseContext Map.empty (Map.fromList [("X", 1), ("Y", 0)]) Map.empty env noTheorems (mixfixKeywords env) True
     case runReader (runParserT (parseRType <* eof) "test" "X +R+ Y") ctx of
       Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
       Right result -> result `shouldBeEqual` (RMacro "_+R+_" [RVar "X" 1 (initialPos "test"), RVar "Y" 0 (initialPos "test")] (initialPos "test"))
@@ -233,7 +234,7 @@ relationalMixfixSpec = describe "Relational mixfix macros" $ do
             { macroDefinitions = Map.fromList [("notR_", (["A"], RelMacro (Conv (RVar "A" 0 (initialPos "test")) (initialPos "test"))))],
               macroFixities = Map.fromList [("notR_", Prefix 9)]
             }
-    let ctx = ParseContext Map.empty (Map.fromList [("X", 0)]) Map.empty env noTheorems (mixfixKeywords env)
+    let ctx = ParseContext Map.empty (Map.fromList [("X", 0)]) Map.empty env noTheorems (mixfixKeywords env) True
     case runReader (runParserT (parseRType <* eof) "test" "notR X") ctx of
       Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
       Right result -> result `shouldBeEqual` (RMacro "notR_" [RVar "X" 0 (initialPos "test")] (initialPos "test"))
@@ -244,7 +245,7 @@ relationalMixfixSpec = describe "Relational mixfix macros" $ do
             { macroDefinitions = Map.fromList [("_converse", (["A"], RelMacro (Conv (RVar "A" 0 (initialPos "test")) (initialPos "test"))))],
               macroFixities = Map.fromList [("_converse", Postfix 8)]
             }
-    let ctx = ParseContext Map.empty (Map.fromList [("X", 0)]) Map.empty env noTheorems (mixfixKeywords env)
+    let ctx = ParseContext Map.empty (Map.fromList [("X", 0)]) Map.empty env noTheorems (mixfixKeywords env) True
     case runReader (runParserT (parseRType <* eof) "test" "X converse") ctx of
       Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
       Right result -> result `shouldBeEqual` (RMacro "_converse" [RVar "X" 0 (initialPos "test")] (initialPos "test"))
@@ -255,10 +256,25 @@ relationalMixfixSpec = describe "Relational mixfix macros" $ do
             { macroDefinitions = Map.fromList [("if_then_else_", (["C", "T", "E"], RelMacro (RVar "T" 1 (initialPos "test"))))],
               macroFixities = Map.fromList [("if_then_else_", Prefix 5)]
             }
-    let ctx = ParseContext Map.empty (Map.fromList [("C", 2), ("T", 1), ("E", 0)]) Map.empty env noTheorems (mixfixKeywords env)
+    let ctx = ParseContext Map.empty (Map.fromList [("C", 2), ("T", 1), ("E", 0)]) Map.empty env noTheorems (mixfixKeywords env) True
     case runReader (runParserT (parseRType <* eof) "test" "if_then_else_ C T E") ctx of
       Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
       Right result -> result `shouldBeEqual` (RMacro "if_then_else_" [RVar "C" 2 (initialPos "test"), RVar "T" 1 (initialPos "test"), RVar "E" 0 (initialPos "test")] (initialPos "test"))
+
+-- Test for the mixfix parser bug with multiple holes and repeated literals
+mixfixBugSpec :: Spec
+mixfixBugSpec = describe "Mixfix parser bug with repeated literals" $ do
+  it "should parse _·_·_ pattern with three arguments" $ do
+    let env =
+          MacroEnvironment
+            { macroDefinitions = Map.fromList [("_·_·_", (["t1", "R", "t2"], RelMacro (Comp (Comp (RVar "t1" 2 (initialPos "test")) (RVar "R" 1 (initialPos "test")) (initialPos "test")) (Conv (RVar "t2" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))))],
+              macroFixities = Map.fromList []
+            }
+    let ctx = ParseContext Map.empty (Map.fromList [("t", 2), ("R", 1)]) Map.empty env noTheorems (mixfixKeywords env) True
+    -- This should parse as a single application of _·_·_ with three arguments
+    case runReader (runParserT (parseRType <* eof) "test" "t · R · t") ctx of
+      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+      Right result -> result `shouldBeEqual` (RMacro "_·_·_" [RVar "t" 2 (initialPos "test"), RVar "R" 1 (initialPos "test"), RVar "t" 2 (initialPos "test")] (initialPos "test"))
 
 -- Test complex mixfix scenarios
 mixfixComplexSpec :: Spec
@@ -383,7 +399,7 @@ mixfixUnicodeSpec = describe "Unicode mixfix operations" $ do
             { macroDefinitions = Map.fromList [("_†", (["A"], RelMacro (Conv (RVar "A" 0 (initialPos "test")) (initialPos "test"))))],
               macroFixities = Map.fromList [("_†", Postfix 8)]
             }
-    let ctx = ParseContext Map.empty (Map.fromList [("X", 0)]) Map.empty env noTheorems (mixfixKeywords env)
+    let ctx = ParseContext Map.empty (Map.fromList [("X", 0)]) Map.empty env noTheorems (mixfixKeywords env) True
     case runReader (runParserT (parseRType <* eof) "test" "X †") ctx of
       Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
       Right result -> result `shouldBeEqual` (RMacro "_†" [RVar "X" 0 (initialPos "test")] (initialPos "test"))
@@ -404,7 +420,7 @@ mixfixUnicodeSpec = describe "Unicode mixfix operations" $ do
             { macroDefinitions = Map.fromList [("_⊆_", (["A", "B"], RelMacro (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))))],
               macroFixities = Map.fromList [("_⊆_", Infixl 4)]
             }
-    let ctx = ParseContext Map.empty (Map.fromList [("X", 1), ("Y", 0)]) Map.empty env noTheorems (mixfixKeywords env)
+    let ctx = ParseContext Map.empty (Map.fromList [("X", 1), ("Y", 0)]) Map.empty env noTheorems (mixfixKeywords env) True
     case runReader (runParserT (parseRType <* eof) "test" "X ⊆ Y") ctx of
       Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
       Right result -> result `shouldBeEqual` (RMacro "_⊆_" [RVar "X" 1 (initialPos "test"), RVar "Y" 0 (initialPos "test")] (initialPos "test"))
@@ -441,7 +457,7 @@ mixfixUnicodeSpec = describe "Unicode mixfix operations" $ do
 
     testParseExpr env vars input expected =
       let termVarMap = Map.fromList (zip vars (reverse [0 .. length vars - 1]))
-          ctx = ParseContext termVarMap Map.empty Map.empty env noTheorems (mixfixKeywords env)
+          ctx = ParseContext termVarMap Map.empty Map.empty env noTheorems (mixfixKeywords env) True
        in case runReader (runParserT (parseTerm <* eof) "test" input) ctx of
             Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
             Right result -> result `shouldBeEqual` expected

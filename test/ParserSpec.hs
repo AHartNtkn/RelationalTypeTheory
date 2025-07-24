@@ -32,7 +32,7 @@ testParse tVars rVars pVars env parser input expected =
   let termVarMap = Map.fromList (zip tVars (reverse [0 .. length tVars - 1]))
       relVarMap = Map.fromList (zip rVars (reverse [0 .. length rVars - 1]))
       proofVarMap = Map.fromList (zip pVars (reverse [0 .. length pVars - 1]))
-      ctx = ParseContext termVarMap relVarMap proofVarMap env noTheorems (mixfixKeywords env)
+      ctx = ParseContext termVarMap relVarMap proofVarMap env noTheorems (mixfixKeywords env) True
    in case runReader (runParserT (parser <* eof) "test" input) ctx of
         Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
         Right result -> result `shouldBeEqual` expected

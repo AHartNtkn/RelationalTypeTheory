@@ -55,15 +55,18 @@ data ParseContext = ParseContext
     proofVars :: Map String Int, -- proof variable name -> de Bruijn index
     macroEnv :: MacroEnvironment, -- full macro environment
     theoremEnv :: TheoremEnvironment, -- full theorem environment
-    kwdSet :: Set.Set String -- mixfix keywords (literal segments)
+    kwdSet :: Set.Set String, -- mixfix keywords (literal segments)
+    allowMixfix :: Bool -- flag to prevent left-recursion in generalMixfix
   }
   deriving (Show, Eq)
 
 instance HasMacroEnv ParseContext where
   getMacroEnv = macroEnv
+  getAllowMixfix = allowMixfix
+  setAllowMixfix b ctx = ctx { allowMixfix = b }
 
 emptyParseContext :: ParseContext
-emptyParseContext = ParseContext Map.empty Map.empty Map.empty noMacros noTheorems (mixfixKeywords noMacros)
+emptyParseContext = ParseContext Map.empty Map.empty Map.empty noMacros noTheorems (mixfixKeywords noMacros) True
 
 type Parser = ParsecT Void String (Reader ParseContext)
 
@@ -177,9 +180,9 @@ parseTermNoValidation = do
 parseTermAtom :: Parser Term
 parseTermAtom =
   parens parseTerm
-    <|> generalMixfix termSpec
     <|> parseLam
-    <|> parseTermVar
+    <|> generalMixfix termSpec     -- try first
+    <|> parseTermVar               -- fallback
 
 -- Validate that all macros are properly instantiated
 validateMacroInstantiation :: Term -> Parser ()
@@ -237,7 +240,7 @@ parseRTypeAtom =
   parseAll
     <|> try parseProm
     <|> try parseRMacro
-    <|> generalMixfix relSpec
+    <|> generalMixfix relSpec     -- try first
     <|> parseRVarOrApp
     <|> parens parseRType
 

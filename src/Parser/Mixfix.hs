@@ -9,11 +9,11 @@ module Parser.Mixfix
 where
 
 import qualified Control.Monad.Combinators.Expr as Expr
-import Control.Monad.Reader (MonadReader, ask)
+import Control.Monad.Reader (MonadReader, ask, local)
 import qualified Data.List as L
 import qualified Data.Map as M
 import Data.Ord (comparing)
-import Lib
+import Lib (MacroEnvironment(..), MacroBody(..), Fixity(..), MixfixPart(..), parseMixfixPattern, splitMixfix, holes)
 import Text.Megaparsec hiding (getSourcePos)
 
 -- | Everything that changes between terms vs. relations.
@@ -44,26 +44,55 @@ data MixfixSpec m expr = MixfixSpec
 generalMixfix :: (MonadReader ctx m, HasMacroEnv ctx, MonadParsec e s m) => MixfixSpec m expr -> m expr
 generalMixfix spec = do
   ctx <- ask
-  let env = getMacroEnv ctx
-      defs = macroDefinitions env
-      good name = maybe False (isRightBody spec . snd) (M.lookup name defs)
-      isPost n = parseMixfixPattern n == [Hole, Literal (last (splitMixfix n))]
-      isGen n = '_' `elem` n && holes n /= 2 && not (isPost n) && good n
-      cand = filter isGen (M.keys defs)
-      sorted = L.sortBy (comparing (negate . length . splitMixfix)) cand
-  choice $ map (try . parseName) sorted
+  -- Check if mixfix is allowed (to prevent left-recursion)
+  case getAllowMixfix ctx of
+    False -> empty  -- Skip mixfix parsing when disabled
+    True -> do
+      let env = getMacroEnv ctx
+          defs = macroDefinitions env
+          good name = maybe False (isRightBody spec . snd) (M.lookup name defs)
+          
+          pat n = parseMixfixPattern n
+          isPost n = pat n == [Hole, Literal (last (splitMixfix n))]
+          isGen n = '_' `elem` n && holes n /= 2 && not (isPost n) && good n
+          
+          cands = filter isGen (M.keys defs)
+          sorted = L.sortBy (comparing (negate . length . splitMixfix)) cands
+          
+      choice (map (try . parseName) sorted)
   where
     parseName n = do
-      let segs = splitMixfix n
-      pos <- (posParser spec)
-      args <- go segs []
-      pure $ mkMacroNode spec n (reverse args) pos
-    go [] acc = pure acc
-    go (l : ls) acc = symbolParser spec l *> (holeParser spec >>= \a -> go ls (a : acc))
+      pos <- posParser spec
+      -- Special handling for first hole to prevent left-recursion
+      args <- case parseMixfixPattern n of
+        Hole : rest -> do
+          -- Parse first hole with mixfix disabled
+          h <- local (disableMixfix) (holeParser spec)
+          others <- walkPattern rest []
+          pure (h : reverse others)
+        pat -> do
+          -- Pattern starts with literal, proceed normally
+          args' <- walkPattern pat []
+          pure (reverse args')
+      pure $ mkMacroNode spec n args pos
+    
+    walkPattern [] acc = pure acc
+    walkPattern (Hole : rest) acc = do
+      a <- holeParser spec
+      walkPattern rest (a : acc)
+    walkPattern (Literal lit : rest) acc = do
+      _ <- symbolParser spec lit
+      walkPattern rest acc
+    
+    -- Helper to disable mixfix in context
+    disableMixfix = setAllowMixfix False
 
 -- Helper typeclass to extract MacroEnvironment from context
 class HasMacroEnv ctx where
   getMacroEnv :: ctx -> MacroEnvironment
+  getAllowMixfix :: ctx -> Bool
+  getAllowMixfix _ = True  -- Default to true for backward compatibility
+  setAllowMixfix :: Bool -> ctx -> ctx
 
 ----------------------------------------------------------------------
 -- 1.2  Fixity‑table builder (prefix / postfix / infix)

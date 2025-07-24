@@ -168,6 +168,21 @@ Nor b1 b2 := Not (b1 || b2);
 ⊢ non_contradiction_false : (False && (Not False)) [Bool] False := (False && (Not False)) ⇃ false_is_bool ⇂ False;
 
 -- =============================================================================
+-- EQUIVALENCE RELATION PROPERTIES
+-- =============================================================================
+
+-- Bool is reflexive: every boolean value is equal to itself
+-- ⊢ bool_reflexivity (b d : Term) (p : b [Bool] d) : b [Bool] b := ???;
+--  b ⇃ (ΛX. λx:X. λy:X. ??? x y) ⇂ b;
+
+-- Bool is symmetric: if two booleans are equal, then they are equal in reverse order
+--⊢ bool_symmetry (x : Term) (y : Term) (p : x [Bool] y) : y [Bool] x := ???
+
+-- Bool is transitive: if x equals y and y equals z, then x equals z
+--⊢ bool_transitivity (x : Term) (y : Term) (z : Term) 
+--  (p : x [Bool] y) (q : y [Bool] z) : x [Bool] z := ???;
+
+-- =============================================================================
 -- NEGATION FUNCTION TYPING
 -- =============================================================================
 
@@ -191,3 +206,10 @@ Nor b1 b2 := Not (b1 || b2);
 ⊢ or_type : (λx. λy. x || y) [Bool → Bool → Bool] (λx. λy. x || y) := 
   λb1:Bool. λb2:Bool. ΛX. λx:X. λy:X. (b1{X} x (b2{X} x y));
 
+-- =============================================================================
+-- True not equal to false
+-- =============================================================================
+
+⊢ true_not_false (x : Term) (y : Term) (x' : Term) (y' : Term) (R : Rel)
+                 (p : True [Bool] False) (h1 : x [R] x') (h2 : y [R] y') : x [R] y' :=
+  x ⇃ p{R} h1 h2 ⇂ y';
