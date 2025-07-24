@@ -29,6 +29,7 @@ import Lib
 import Parser (parseFile, parseImportsOnly, runParserEmpty)
 import System.Directory (doesFileExist)
 import System.FilePath (normalise, takeDirectory, (</>))
+import Text.Megaparsec (errorBundlePretty)
 
 -- | Module system error types
 data ModuleLoadError
@@ -74,7 +75,7 @@ loadModuleFromFile registry filePath = do
     Left _ -> return $ Left (FileNotFound filePath)
     Right content -> do
       case runParserEmpty parseFile content of
-        Left parseErr -> return $ Left (ParseError filePath (show parseErr))
+        Left parseErr -> return $ Left (ParseError filePath (errorBundlePretty parseErr))
         Right declarations -> do
           -- Extract imports, exports, macros, and theorems
           let (imports, exports, macros, theorems) = partitionDeclarations declarations
@@ -286,7 +287,7 @@ buildCompleteImportGraph searchPathsArg entryFile = do
         Left _ -> return $ Left (FileNotFound filePath)
         Right content -> do
           case runParserEmpty parseImportsOnly content of
-            Left parseErr -> return $ Left (ParseError filePath (show parseErr))
+            Left parseErr -> return $ Left (ParseError filePath (errorBundlePretty parseErr))
             Right imports -> return $ Right imports
 
     resolveImportPaths :: [FilePath] -> FilePath -> [ImportDeclaration] -> IO (Either ModuleLoadError [FilePath])
@@ -373,7 +374,7 @@ parseModuleWithDependencies searchPathsArg entryFile = do
     Left err -> return $ Left err
     Right concatenatedContent -> do
       case runParserEmpty parseFile concatenatedContent of
-        Left parseErr -> return $ Left (ParseError entryFile (show parseErr))
+        Left parseErr -> return $ Left (ParseError entryFile (errorBundlePretty parseErr))
         Right declarations -> return $ Right declarations
 
 -- | Graph-based module loading that integrates with ModuleRegistry

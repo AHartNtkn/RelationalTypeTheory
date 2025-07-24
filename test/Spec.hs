@@ -19,6 +19,7 @@ import Test.Hspec
 import qualified TheoremApplicationSpec
 import qualified TheoremArgSpec
 import qualified TheoremArgValidationSpec
+import qualified TheoremReferenceParsingSpec
 import qualified TwoPhaseParsingSpec
 import qualified TypeOpsSpec
 
@@ -41,6 +42,7 @@ main = hspec $ do
   describe "Theorem Application" TheoremApplicationSpec.spec
   describe "Theorem Arguments" TheoremArgSpec.spec
   describe "Theorem Argument Validation" TheoremArgValidationSpec.spec
+  describe "Theorem Reference Parsing" TheoremReferenceParsingSpec.spec
   describe "PTheoremApp Proof Checking" PTheoremAppSpec.spec
   describe "Comprehensive Theorem Applications" ComprehensiveTheoremAppSpec.spec
   describe "Not Preserves Bool Bug" NotPreservesBoolBugSpec.spec

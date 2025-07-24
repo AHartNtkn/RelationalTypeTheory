@@ -96,6 +96,7 @@ test-suite reltt-haskell-test
       TheoremApplicationSpec
       TheoremArgSpec
       TheoremArgValidationSpec
+      TheoremReferenceParsingSpec
       TwoPhaseParsingSpec
       TypeOpsSpec
       Paths_reltt_haskell

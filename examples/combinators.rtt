@@ -2,6 +2,8 @@
 -- This file defines classical combinators (I, K, S, etc.) and proves their properties
 -- when viewed as relations in RelTT.
 
+import "demo.rtt";
+
 -- =============================================================================
 -- IDENTITY COMBINATOR
 -- =============================================================================
@@ -47,6 +49,14 @@ i := λx.x;
       (f x) ⇃
         (ρ{z.(f x), (f z)} p - (f x ⇃ ι⟨f x,i⟩ ⇂ f (i x)))
       ⇂ ((i f) y)
+    );
+
+⊢ i_substitution (R : Rel) (x : Term) (y : Term) (x' : Term) (y' : Term)
+                 (p : x [R] y) (ex : x [i] x') (et : y [i] y') : x' [R] y' :=
+    pi_left_id R x' y' (
+      pi_right_id (i ∘ R) x' y' (
+        ((i_symmetry x x' ex, p), et)
+      )
     );
 
 -- =============================================================================
@@ -100,3 +110,5 @@ w := λx.λy.x y y;
 
 ⊢ w_eval (x : Term) (y : Term) : (w x y) [i] (x y y) :=
     (w x y) ⇃ ι⟨x y y,i⟩ ⇂ (x y y);
+
+

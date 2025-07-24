@@ -4,6 +4,7 @@ import Context (emptyTypingContext, extendMacroEnvironment, extendProofContext, 
 import Control.Monad (when)
 import Errors
 import Lib
+import ModuleSystem (parseModuleWithDependencies, ModuleLoadError(..))
 import Parser
 import PrettyPrint
 import ProofChecker
@@ -77,20 +78,33 @@ checkTheoremInEnvironment macroDefs theoremDefs (TheoremDef _ bindings judgment 
   return ()
 checkTheoremInEnvironment _ _ _ = Left $ InternalError "Expected theorem declaration" (ErrorContext (initialPos "<check>") "check")
 
--- Parse-only mode (original behavior)
-parseOnlyMode :: String -> String -> IO ()
-parseOnlyMode filename content = do
-  case runParserWithFilename filename parseFile content of
-    Left err -> putStr (errorBundlePretty err)
+-- Parse-only mode (using import-aware parsing)
+parseOnlyMode :: String -> IO ()
+parseOnlyMode filename = do
+  result <- parseModuleWithDependencies ["."] filename
+  case result of
+    Left (FileNotFound path) -> putStrLn $ "File not found: " ++ path
+    Left (ParseError path err) -> putStrLn $ "Parse error in " ++ path ++ ": " ++ err
+    Left (CircularDependency cycle) -> putStrLn $ "Circular dependency detected: " ++ show cycle
+    Left (ImportResolutionError path err) -> putStrLn $ "Import resolution error in " ++ path ++ ": " ++ err
     Right decls -> mapM_ (putStrLn . prettyDeclaration) decls
 
--- Proof checking mode
-proofCheckMode :: String -> String -> Bool -> IO ()
-proofCheckMode filename content verbose = do
-  case runParserWithFilename filename parseFile content of
-    Left err -> do
-      putStrLn "Parse error:"
-      putStr (errorBundlePretty err)
+-- Proof checking mode (using import-aware parsing)
+proofCheckMode :: String -> Bool -> IO ()
+proofCheckMode filename verbose = do
+  result <- parseModuleWithDependencies ["."] filename
+  case result of
+    Left (FileNotFound path) -> do
+      putStrLn $ "File not found: " ++ path
+      exitFailure
+    Left (ParseError path err) -> do
+      putStrLn $ "Parse error in " ++ path ++ ": " ++ err
+      exitFailure
+    Left (CircularDependency cycle) -> do
+      putStrLn $ "Circular dependency detected: " ++ show cycle
+      exitFailure
+    Left (ImportResolutionError path err) -> do
+      putStrLn $ "Import resolution error in " ++ path ++ ": " ++ err
       exitFailure
     Right decls -> do
       let (macroDefs, theoremDefs) = extractDeclarations decls
@@ -130,8 +144,7 @@ main = do
       _ -> case optFile options of
         Nothing -> putStrLn "Error: File required for non-interactive mode"
         Just filename -> do
-          content <- readFile filename
           case optMode options of
-            ParseOnly -> parseOnlyMode filename content
-            ProofCheck -> proofCheckMode filename content False
-            Verbose -> proofCheckMode filename content True
+            ParseOnly -> parseOnlyMode filename
+            ProofCheck -> proofCheckMode filename False
+            Verbose -> proofCheckMode filename True
