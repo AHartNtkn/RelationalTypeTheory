@@ -5,10 +5,46 @@ module NotPreservesBoolBugSpec (spec) where
 import Context
 import Lib
 import Normalize (expandTermMacrosOneStep)
-import Parser
+import qualified RawParser as Raw
+import Elaborate
 import ProofChecker
 import Test.Hspec
-import Text.Megaparsec (initialPos)
+import Text.Megaparsec (initialPos, runParser, errorBundlePretty)
+import qualified Data.Map as Map
+
+-- Helper functions for two-phase parsing
+parseFileWithTwoPhase :: String -> Either String [Declaration]
+parseFileWithTwoPhase content = do
+  rawDecls <- case runParser Raw.parseFile "test" content of
+    Left err -> Left (errorBundlePretty err)
+    Right raw -> Right raw
+  let ctx = emptyElaborateContext Map.empty noMacros noTheorems
+  case elaborateDeclarationsWithAccumulation ctx rawDecls of
+    Left err -> Left (show err)
+    Right decls -> Right decls
+
+-- Helper function to elaborate declarations while threading the environment
+elaborateDeclarationsWithAccumulation :: ElaborateContext -> [Raw.RawDeclaration] -> Either ElaborateError [Declaration]
+elaborateDeclarationsWithAccumulation _ [] = Right []
+elaborateDeclarationsWithAccumulation ctx (rawDecl:rest) = do
+  decl <- elaborateDeclaration ctx rawDecl
+  let updatedCtx = updateContextWithDeclaration ctx decl
+  restDecls <- elaborateDeclarationsWithAccumulation updatedCtx rest
+  return (decl : restDecls)
+
+-- Update context with newly elaborated declaration
+updateContextWithDeclaration :: ElaborateContext -> Declaration -> ElaborateContext
+updateContextWithDeclaration ctx (MacroDef name params body) =
+  let newMacroEnv = extendMacroEnvironment name params body defaultFixity (macroEnv ctx)
+  in ctx { macroEnv = newMacroEnv }
+updateContextWithDeclaration ctx (FixityDecl fixity name) =
+  let currentMacroEnv = macroEnv ctx
+      newMacroEnv = currentMacroEnv { macroFixities = Map.insert name fixity (macroFixities currentMacroEnv) }
+  in ctx { macroEnv = newMacroEnv }
+updateContextWithDeclaration ctx (TheoremDef name bindings judgment proof) =
+  let newTheoremEnv = extendTheoremEnvironment name bindings judgment proof (theoremEnv ctx)
+  in ctx { theoremEnv = newTheoremEnv }
+updateContextWithDeclaration ctx _ = ctx  -- Other declarations don't affect context
 
 spec :: Spec
 spec = do
@@ -27,7 +63,7 @@ parseAndRunBoolRttContentSpec = describe "Parse and run bool.rtt content" $ do
               "  ΛX. λx:X. λy:X. (p{X} y x);"
             ]
 
-    case runParserWithFilename "test.rtt" parseFile boolRttContent of
+    case parseFileWithTwoPhase boolRttContent of
       Left parseErr -> expectationFailure $ "Parse failed: " ++ show parseErr
       Right decls -> do
         -- Extract macro definitions and theorem

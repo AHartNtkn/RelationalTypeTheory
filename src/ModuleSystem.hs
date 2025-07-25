@@ -26,7 +26,9 @@ import Data.List (intercalate)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Lib
-import Parser (parseFile, parseImportsOnly, runParserEmpty)
+import qualified RawParser as Raw
+import Elaborate
+import Text.Megaparsec (runParser)
 import System.Directory (doesFileExist)
 import System.FilePath (normalise, takeDirectory, (</>))
 import Text.Megaparsec (errorBundlePretty)
@@ -49,6 +51,54 @@ data ModuleRegistry = ModuleRegistry
 
 -- | Dependency graph representation
 type DependencyGraph = Map.Map ModulePath [ModulePath]
+
+-- Helper functions for two-phase parsing
+parseFileWithElaboration :: String -> Either String [Declaration]
+parseFileWithElaboration content = do
+  rawDecls <- case runParser Raw.parseFile "" content of
+    Left err -> Left (errorBundlePretty err)
+    Right raw -> Right raw
+  let ctx = emptyElaborateContext Map.empty noMacros noTheorems
+  case elaborateDeclarationsWithAccumulation ctx rawDecls of
+    Left err -> Left (show err)
+    Right decls -> Right decls
+
+-- Helper function to elaborate declarations while threading the environment  
+elaborateDeclarationsWithAccumulation :: ElaborateContext -> [Raw.RawDeclaration] -> Either ElaborateError [Declaration]
+elaborateDeclarationsWithAccumulation _ [] = Right []
+elaborateDeclarationsWithAccumulation ctx (rawDecl:rest) = do
+  decl <- elaborateDeclaration ctx rawDecl
+  let updatedCtx = updateContextWithDeclaration ctx decl
+  restDecls <- elaborateDeclarationsWithAccumulation updatedCtx rest
+  return (decl : restDecls)
+
+-- Update context with newly elaborated declaration
+updateContextWithDeclaration :: ElaborateContext -> Declaration -> ElaborateContext
+updateContextWithDeclaration ctx (MacroDef name params body) =
+  let newMacroEnv = extendMacroEnvironment name params body defaultFixity (macroEnv ctx)
+  in ctx { macroEnv = newMacroEnv }
+updateContextWithDeclaration ctx (FixityDecl fixity name) =
+  let currentMacroEnv = macroEnv ctx
+      newMacroEnv = currentMacroEnv { macroFixities = Map.insert name fixity (macroFixities currentMacroEnv) }
+  in ctx { macroEnv = newMacroEnv }
+updateContextWithDeclaration ctx (TheoremDef name bindings judgment proof) =
+  let newTheoremEnv = extendTheoremEnvironment name bindings judgment proof (theoremEnv ctx)
+  in ctx { theoremEnv = newTheoremEnv }
+updateContextWithDeclaration ctx _ = ctx  -- Other declarations don't affect context
+
+parseImportsOnlyWithElaboration :: String -> Either String [ImportDeclaration]
+parseImportsOnlyWithElaboration content = do
+  -- First parse the full file to get raw declarations
+  rawDecls <- case runParser Raw.parseFile "" content of
+    Left err -> Left (errorBundlePretty err)
+    Right raw -> Right raw
+  -- Filter and elaborate import declarations
+  let rawImports = [imp | Raw.RawImportDecl imp <- rawDecls]
+  Right $ map elaborateRawImport rawImports
+  where
+    elaborateRawImport (Raw.RawImportModule path) = ImportModule path
+    elaborateRawImport (Raw.RawImportModuleAs path alias) = ImportModuleAs path alias
+    elaborateRawImport (Raw.RawImportOnly path names) = ImportOnly path names
 
 -- | Create empty module registry with default search paths
 emptyModuleRegistry :: ModuleRegistry
@@ -74,23 +124,23 @@ loadModuleFromFile registry filePath = do
   case result of
     Left _ -> return $ Left (FileNotFound filePath)
     Right content -> do
-      case runParserEmpty parseFile content of
-        Left parseErr -> return $ Left (ParseError filePath (errorBundlePretty parseErr))
+      case parseFileWithElaboration content of
+        Left parseErr -> return $ Left (ParseError filePath parseErr)
         Right declarations -> do
           -- Extract imports, exports, macros, and theorems
           let (imports, exports, macros, theorems) = partitionDeclarations declarations
 
           -- Build environments
-          let macroEnv = buildMacroEnvironment macros
-              theoremEnv = buildTheoremEnvironment theorems
+          let macroEnvironment = buildMacroEnvironment macros
+              theoremEnvironment = buildTheoremEnvironment theorems
               exportList = extractExportList exports declarations
 
           let moduleInfo =
                 ModuleInfo
                   { modulePath = filePath,
                     moduleAlias = Nothing,
-                    loadedMacros = macroEnv,
-                    loadedTheorems = theoremEnv,
+                    loadedMacros = macroEnvironment,
+                    loadedTheorems = theoremEnvironment,
                     exportedSymbols = exportList,
                     importDeclarations = imports
                   }
@@ -123,10 +173,11 @@ partitionDeclarations = foldr classify ([], [], [], [])
 
 -- | Build macro environment from macro declarations
 buildMacroEnvironment :: [Declaration] -> MacroEnvironment
-buildMacroEnvironment decls = foldr addMacro noMacros decls
+buildMacroEnvironment decls = foldr addToEnv noMacros decls
   where
-    addMacro (MacroDef name params body) env = extendMacroEnvironment name params body defaultFixity env
-    addMacro _ env = env
+    addToEnv (MacroDef name params body) env = extendMacroEnvironment name params body defaultFixity env
+    addToEnv (FixityDecl fixity name) env = env { macroFixities = Map.insert name fixity (macroFixities env) }
+    addToEnv _ env = env
 
 -- | Build theorem environment from theorem declarations
 buildTheoremEnvironment :: [Declaration] -> TheoremEnvironment
@@ -286,8 +337,8 @@ buildCompleteImportGraph searchPathsArg entryFile = do
       case result of
         Left _ -> return $ Left (FileNotFound filePath)
         Right content -> do
-          case runParserEmpty parseImportsOnly content of
-            Left parseErr -> return $ Left (ParseError filePath (errorBundlePretty parseErr))
+          case parseImportsOnlyWithElaboration content of
+            Left parseErr -> return $ Left (ParseError filePath parseErr)
             Right imports -> return $ Right imports
 
     resolveImportPaths :: [FilePath] -> FilePath -> [ImportDeclaration] -> IO (Either ModuleLoadError [FilePath])
@@ -373,8 +424,8 @@ parseModuleWithDependencies searchPathsArg entryFile = do
   case contentResult of
     Left err -> return $ Left err
     Right concatenatedContent -> do
-      case runParserEmpty parseFile concatenatedContent of
-        Left parseErr -> return $ Left (ParseError entryFile (errorBundlePretty parseErr))
+      case parseFileWithElaboration concatenatedContent of
+        Left parseErr -> return $ Left (ParseError entryFile parseErr)
         Right declarations -> return $ Right declarations
 
 -- | Graph-based module loading that integrates with ModuleRegistry
@@ -389,8 +440,8 @@ loadModuleWithDependenciesIntegrated registry entryFile = do
       let (imports, exports, macros, theorems) = partitionDeclarations allDeclarations
 
       -- Build environments from all loaded content
-      let macroEnv = buildMacroEnvironment macros
-          theoremEnv = buildTheoremEnvironment theorems
+      let macroEnvironment = buildMacroEnvironment macros
+          theoremEnvironment = buildTheoremEnvironment theorems
           exportList = extractExportList exports allDeclarations
 
       -- Create ModuleInfo for the entry file
@@ -398,8 +449,8 @@ loadModuleWithDependenciesIntegrated registry entryFile = do
             ModuleInfo
               { modulePath = entryFile,
                 moduleAlias = Nothing,
-                loadedMacros = macroEnv,
-                loadedTheorems = theoremEnv,
+                loadedMacros = macroEnvironment,
+                loadedTheorems = theoremEnvironment,
                 exportedSymbols = exportList,
                 importDeclarations = imports
               }

@@ -25,7 +25,8 @@ source-repository head
 library
   exposed-modules:
       Lib
-      Parser
+      RawParser
+      Elaborate
       Normalize
       TypeOps
       Shifting
@@ -36,7 +37,6 @@ library
       PrettyPrint
       ModuleSystem
   other-modules:
-      Parser.Mixfix
       Paths_reltt_haskell
   autogen-modules:
       Paths_reltt_haskell
@@ -81,6 +81,7 @@ test-suite reltt-haskell-test
   other-modules:
       ComprehensiveTheoremAppSpec
       ContextSpec
+      ElaborateSpec
       ErrorsSpec
       IntegrationSpec
       MixfixSpec
@@ -90,6 +91,7 @@ test-suite reltt-haskell-test
       PrettyPrintSpec
       ProofCheckerSpec
       PTheoremAppSpec
+      RawParserSpec
       REPLSpec
       TermOpsSpec
       TestHelpers

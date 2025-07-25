@@ -14,14 +14,18 @@ module TestHelpers
     shouldBeEqualProof,
     shouldBeEqualDeclaration,
     buildContextFromBindings,
+    testParseTermFailure,
   )
 where
 
 import Context
 import Control.Monad (unless)
+import qualified Data.Map as Map
+import Elaborate
 import Lib
+import qualified RawParser as Raw
 import Test.Hspec
-import Text.Megaparsec (initialPos)
+import Text.Megaparsec (initialPos, eof, runParser, errorBundlePretty)
 
 -- Helper functions for position-insensitive equality
 equalTerm :: Term -> Term -> Bool
@@ -156,3 +160,16 @@ buildContextFromBindings bindings = buildContext emptyTypingContext bindings
         ProofBinding name judgment ->
           let newCtx = extendProofContext name judgment ctx
            in buildContext newCtx rest
+
+-- Helper for testing term elaboration failures with specific error
+testParseTermFailure :: [String] -> [String] -> [String] -> MacroEnvironment -> String -> ElaborateError -> Expectation
+testParseTermFailure tVars rVars pVars testMacroEnv input expectedError =
+  let termVarMap = Map.fromList (zip tVars (reverse [0 .. length tVars - 1]))
+      relVarMap = Map.fromList (zip rVars (reverse [0 .. length rVars - 1]))
+      proofVarMap = Map.fromList (zip pVars (reverse [0 .. length pVars - 1]))
+      ctx = (emptyElaborateContext Map.empty testMacroEnv noTheorems) { termVars = termVarMap, relVars = relVarMap, proofVars = proofVarMap }
+   in case runParser (Raw.parseTerm <* eof) "test" input of
+        Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+        Right rawTerm -> case elaborateTerm ctx rawTerm of
+          Left err -> err `shouldBe` expectedError
+          Right result -> expectationFailure $ "Expected elaboration failure " ++ show expectedError ++ ", but got: " ++ show result

@@ -45,7 +45,8 @@ library:
   - -Wno-unused-matches
   exposed-modules:
   - Lib
-  - Parser
+  - RawParser
+  - Elaborate
   - Normalize
   - TypeOps
   - Shifting

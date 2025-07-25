@@ -14,11 +14,12 @@ import qualified Data.Map as Map
 import Errors
 import Lib
 import ModuleSystem (ModuleLoadError (..), ModuleRegistry, emptyModuleRegistry, loadModuleWithDependenciesIntegrated)
-import Parser
+import qualified RawParser as Raw
+import Elaborate
 import PrettyPrint (prettyDeclaration, prettyError, prettyExportDeclaration, prettyImportDeclaration, prettyRType, prettyRelJudgment, prettyTerm)
 import ProofChecker
 import System.IO (hFlush, hSetEncoding, stdin, stdout, utf8)
-import Text.Megaparsec (initialPos)
+import Text.Megaparsec (initialPos, runParser)
 import TypeOps
 
 -- REPL State holds the current session state
@@ -46,6 +47,47 @@ data REPLCommand
   | ShowHistory
   | ParseDeclaration String
   deriving (Show, Eq)
+
+-- Helper functions for two-phase parsing
+parseProofWithEnv :: MacroEnvironment -> TheoremEnvironment -> String -> Either String Proof
+parseProofWithEnv macroEnvironment theoremEnvironment input = do
+  rawProof <- case runParser Raw.parseProof "" input of
+    Left err -> Left (show err)
+    Right raw -> Right raw
+  let ctx = emptyElaborateContext Map.empty macroEnvironment theoremEnvironment
+  case elaborateProof ctx rawProof of
+    Left err -> Left (show err)
+    Right proof -> Right proof
+
+parseRelJudgmentWithEnv :: MacroEnvironment -> TheoremEnvironment -> String -> Either String RelJudgment
+parseRelJudgmentWithEnv macroEnvironment theoremEnvironment input = do
+  rawJudgment <- case runParser Raw.parseRelJudgment "" input of
+    Left err -> Left (show err)
+    Right raw -> Right raw
+  let ctx = emptyElaborateContext Map.empty macroEnvironment theoremEnvironment
+  case elaborateRelJudgment ctx rawJudgment of
+    Left err -> Left (show err)
+    Right judgment -> Right judgment
+
+parseRTypeWithEnv :: MacroEnvironment -> TheoremEnvironment -> String -> Either String RType
+parseRTypeWithEnv macroEnvironment theoremEnvironment input = do
+  rawRType <- case runParser Raw.parseRType "" input of
+    Left err -> Left (show err)
+    Right raw -> Right raw
+  let ctx = emptyElaborateContext Map.empty macroEnvironment theoremEnvironment
+  case elaborateRType ctx rawRType of
+    Left err -> Left (show err)
+    Right rtype -> Right rtype
+
+parseDeclarationWithEnv :: MacroEnvironment -> TheoremEnvironment -> String -> Either String Declaration
+parseDeclarationWithEnv macroEnvironment theoremEnvironment input = do
+  rawDecl <- case runParser Raw.parseDeclaration "" input of
+    Left err -> Left (show err)
+    Right raw -> Right raw
+  let ctx = emptyElaborateContext Map.empty macroEnvironment theoremEnvironment
+  case elaborateDeclaration ctx rawDecl of
+    Left err -> Left (show err)
+    Right decl -> Right decl
 
 -- Initial empty REPL state
 initialREPLState :: REPLState
@@ -133,27 +175,27 @@ executeREPLCommand cmd = case cmd of
         return $ "Successfully loaded " ++ filename ++ " with all dependencies using graph-based loading"
   CheckProof proofStr judgmentStr -> do
     currentState <- get
-    case runParserWithMacroEnv (replMacroEnv currentState) parseProof proofStr of
-      Left err -> return $ "Parse error in proof: " ++ show err
+    case parseProofWithEnv (replMacroEnv currentState) (replTheoremEnv currentState) proofStr of
+      Left err -> return $ "Parse error in proof: " ++ err
       Right proof -> do
-        case runParserWithMacroEnv (replMacroEnv currentState) parseRelJudgment judgmentStr of
-          Left err -> return $ "Parse error in judgment: " ++ show err
+        case parseRelJudgmentWithEnv (replMacroEnv currentState) (replTheoremEnv currentState) judgmentStr of
+          Left err -> return $ "Parse error in judgment: " ++ err
           Right judgment -> do
             case checkProof (replContext currentState) (replMacroEnv currentState) (replTheoremEnv currentState) proof judgment of
               Left err -> return $ "Proof checking failed: " ++ prettyError err
               Right _ -> return $ "Proof is valid for judgment: " ++ prettyRelJudgment judgment
   InferProof proofStr -> do
     currentState <- get
-    case runParserWithMacroEnv (replMacroEnv currentState) parseProof proofStr of
-      Left err -> return $ "Parse error: " ++ show err
+    case parseProofWithEnv (replMacroEnv currentState) (replTheoremEnv currentState) proofStr of
+      Left err -> return $ "Parse error: " ++ err
       Right proof -> do
         case inferProofType (replContext currentState) (replMacroEnv currentState) (replTheoremEnv currentState) proof of
           Left err -> return $ "Type inference failed: " ++ prettyError err
           Right result -> return $ "Inferred judgment: " ++ prettyRelJudgment (resultJudgment result)
   ExpandMacro macroStr -> do
     currentState <- get
-    case runParserWithMacroEnv (replMacroEnv currentState) parseRType macroStr of
-      Left err -> return $ "Parse error: " ++ show err
+    case parseRTypeWithEnv (replMacroEnv currentState) (replTheoremEnv currentState) macroStr of
+      Left err -> return $ "Parse error: " ++ err
       Right rtype -> do
         case expandMacros (replMacroEnv currentState) rtype of
           Left err -> return $ "Expansion error: " ++ prettyError err
@@ -192,8 +234,8 @@ executeREPLCommand cmd = case cmd of
       else return $ unlines $ zipWith (\i command -> show (i :: Integer) ++ ": " ++ command) [1 ..] (reverse history)
   ParseDeclaration declStr -> do
     currentState <- get
-    case runParserWithMacroEnv (replMacroEnv currentState) parseDeclaration declStr of
-      Left err -> return $ "Parse error: " ++ show err
+    case parseDeclarationWithEnv (replMacroEnv currentState) (replTheoremEnv currentState) declStr of
+      Left err -> return $ "Parse error: " ++ err
       Right decl -> do
         let newDecls = replDeclarations currentState ++ [decl]
         case buildMacroEnvironmentFromDeclarations newDecls of
@@ -223,12 +265,13 @@ executeREPLCommand cmd = case cmd of
 -- Build macro environment from declarations (helper function)
 buildMacroEnvironmentFromDeclarations :: [Declaration] -> Either RelTTError MacroEnvironment
 buildMacroEnvironmentFromDeclarations decls = do
-  let env = foldr addMacro noMacros decls
+  let env = foldr addToEnv noMacros decls
   return env
   where
-    addMacro (MacroDef name params body) env =
+    addToEnv (MacroDef name params body) env =
       extendMacroEnvironment name params body defaultFixity env
-    addMacro _ env = env
+    addToEnv (FixityDecl fixity name) env = env { macroFixities = Map.insert name fixity (macroFixities env) }
+    addToEnv _ env = env
 
 -- Build context from bindings (helper function)
 buildContextFromBindings :: [Binding] -> TypingContext

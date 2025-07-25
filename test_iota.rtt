@@ -1,0 +1,1 @@
+⊢ test_iota (x : Term) (y : Term) : x [x→x] x := ι<x, y>;

@@ -3,16 +3,63 @@
 module IntegrationSpec (spec) where
 
 import Context
+import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Errors
 import Lib
 import Normalize
-import Parser
+import qualified RawParser as Raw
+import Elaborate
 import ProofChecker
 import Test.Hspec
 import TestHelpers
 import Text.Megaparsec (initialPos)
 import TypeOps
+import Text.Megaparsec (runParser, errorBundlePretty)
+
+-- Helper functions for two-phase parsing
+parseFileWithTwoPhase :: String -> Either String [Declaration]
+parseFileWithTwoPhase content = do
+  rawDecls <- case runParser Raw.parseFile "test" content of
+    Left err -> Left (errorBundlePretty err)
+    Right raw -> Right raw
+  let ctx = emptyElaborateContext Map.empty noMacros noTheorems
+  case elaborateDeclarationsWithAccumulation ctx rawDecls of
+    Left err -> Left (show err)
+    Right decls -> Right decls
+
+parseDeclarationWithTwoPhase :: String -> Either String Declaration
+parseDeclarationWithTwoPhase content = do
+  rawDecl <- case runParser Raw.parseDeclaration "test" content of
+    Left err -> Left (errorBundlePretty err)
+    Right raw -> Right raw
+  let ctx = emptyElaborateContext Map.empty noMacros noTheorems
+  case elaborateDeclaration ctx rawDecl of
+    Left err -> Left (show err)
+    Right decl -> Right decl
+
+-- Helper function to elaborate declarations while threading the environment
+elaborateDeclarationsWithAccumulation :: ElaborateContext -> [Raw.RawDeclaration] -> Either ElaborateError [Declaration]
+elaborateDeclarationsWithAccumulation _ [] = Right []
+elaborateDeclarationsWithAccumulation ctx (rawDecl:rest) = do
+  decl <- elaborateDeclaration ctx rawDecl
+  let updatedCtx = updateContextWithDeclaration ctx decl
+  restDecls <- elaborateDeclarationsWithAccumulation updatedCtx rest
+  return (decl : restDecls)
+
+-- Update context with newly elaborated declaration
+updateContextWithDeclaration :: ElaborateContext -> Declaration -> ElaborateContext
+updateContextWithDeclaration ctx (MacroDef name params body) =
+  let newMacroEnv = extendMacroEnvironment name params body defaultFixity (macroEnv ctx)
+  in ctx { macroEnv = newMacroEnv }
+updateContextWithDeclaration ctx (FixityDecl fixity name) =
+  let currentMacroEnv = macroEnv ctx
+      newMacroEnv = currentMacroEnv { macroFixities = Map.insert name fixity (macroFixities currentMacroEnv) }
+  in ctx { macroEnv = newMacroEnv }
+updateContextWithDeclaration ctx (TheoremDef name bindings judgment proof) =
+  let newTheoremEnv = extendTheoremEnvironment name bindings judgment proof (theoremEnv ctx)
+  in ctx { theoremEnv = newTheoremEnv }
+updateContextWithDeclaration ctx _ = ctx  -- Other declarations don't affect context
 
 ip :: SourcePos
 ip = (initialPos "test")
@@ -466,7 +513,7 @@ proofTermExamplesSpec = describe "proof term examples" $ do
             [ "⊢ iotaRule (a: Term) (f: Term): a [f] (f a) := ι⟨a, f⟩;"
             ]
 
-    case runParserEmpty parseFile fileContent of
+    case parseFileWithTwoPhase fileContent of
       Right decls -> do
         let (_, theoremDefs) = extractDeclarations decls
         length theoremDefs `shouldBe` 1
@@ -543,7 +590,7 @@ basicPipelineSpec = describe "basic pipeline tests" $ do
               "⊢ reflexivity (t: Term): t[Id](Id t) := ι⟨t, Id⟩;"
             ]
 
-    case runParserEmpty parseFile fileContent of
+    case parseFileWithTwoPhase fileContent of
       Right decls -> do
         let (macroDefs, theoremDefs) = extractDeclarations decls
         length macroDefs `shouldBe` 1
@@ -572,7 +619,7 @@ basicPipelineSpec = describe "basic pipeline tests" $ do
               "⊢ transitivity (R: Rel) (S: Rel) (x: Term) (y: Term) (z: Term) (p: x[R]y) (q: y[S]z): x[Comp R S]z := (p, q);"
             ]
 
-    case runParserEmpty parseFile fileContent of
+    case parseFileWithTwoPhase fileContent of
       Right decls -> do
         let (macroDefs, theoremDefs) = extractDeclarations decls
         case buildMacroEnvironmentFromDeclarations macroDefs of
@@ -605,7 +652,7 @@ errorHandlingPipelineSpec = describe "error handling pipeline tests" $ do
               "⊢ theorem: t[Id]t := ι⟨t,t⟩;"
             ]
 
-    case runParserEmpty parseFile invalidContent of
+    case parseFileWithTwoPhase invalidContent of
       Left _ -> return () -- Expected parse failure
       Right _ -> expectationFailure "Expected parse error for invalid syntax"
 
@@ -615,7 +662,7 @@ errorHandlingPipelineSpec = describe "error handling pipeline tests" $ do
             [ "⊢ invalidProof (R: Rel) (x: Term) (y: Term): x[R]y := ι⟨x,y⟩;" -- Wrong proof for judgment
             ]
 
-    case runParserEmpty parseFile fileContent of
+    case parseFileWithTwoPhase fileContent of
       Right decls -> do
         let (_, theoremDefs) = extractDeclarations decls
         case theoremDefs of
@@ -677,7 +724,7 @@ complexFileProcessingSpec = describe "complex file processing" $ do
               "⊢ symmetry (R: Rel) (x: Term) (y: Term) (p: x[R]y): y[Sym R]x := ∪ᵢ p;"
             ]
 
-    case runParserEmpty parseFile fileContent of
+    case parseFileWithTwoPhase fileContent of
       Right decls -> do
         let (macroDefs, theoremDefs) = extractDeclarations decls
         length macroDefs `shouldBe` 2
@@ -698,7 +745,7 @@ complexFileProcessingSpec = describe "complex file processing" $ do
               "⊢ example (R: Rel) (S: Rel) (x: Term) (y: Term) (p: x[Extended R S]y): x[Extended R S]y := p;"
             ]
 
-    case runParserEmpty parseFile fileContent of
+    case parseFileWithTwoPhase fileContent of
       Right decls -> do
         let (macroDefs, theoremDefs) = extractDeclarations decls
         case buildMacroEnvironmentFromDeclarations macroDefs of
@@ -738,7 +785,7 @@ buildMacroEnvironmentFromDeclarations decls = do
 -- | Parse file content and check a specific theorem
 parseAndCheckTheorem :: String -> String -> Either String ProofCheckResult
 parseAndCheckTheorem fileContent theoremName =
-  case runParserEmpty parseFile fileContent of
+  case parseFileWithTwoPhase fileContent of
     Left parseErr -> Left $ "Parse error: " ++ show parseErr
     Right decls -> do
       let (macroDefs, theoremDefs) = extractDeclarations decls
@@ -912,7 +959,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
     -- This should FAIL but currently passes due to variable shadowing bug
     -- The theorem binding 'x' and the pi-bound 'x' are different variables
     let input = "⊢ shadowing_bug_test (R : Rel) (S : Rel) (a : Term) (b : Term) (x : Term) (p : a [R ∘ S] b) : a [R] x := π p - x.u.v.u;"
-    case runParserEmpty parseFile input of
+    case parseFileWithTwoPhase input of
       Right [TheoremDef _ bindings judgment proof] -> do
         -- Build context from bindings
         let ctx = buildContextFromBindings bindings
@@ -927,7 +974,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
     -- Same test but with 'y' instead of shadowed 'x' to show AST differences
     -- This should also FAIL because the conclusion 'a [R] x' doesn't match what pi elimination produces
     let input = "⊢ pi_type_error_test (R : Rel) (S : Rel) (a : Term) (b : Term) (x : Term) (p : a [R ∘ S] b) : a [R] x := π p - y.u.v.u;"
-    case runParserEmpty parseFile input of
+    case parseFileWithTwoPhase input of
       Right [TheoremDef _ bindings judgment proof] -> do
         -- Build context from bindings
         let ctx = buildContextFromBindings bindings
@@ -941,7 +988,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
   it "correctly shifts indices in pi elimination - term variables" $ do
     -- Test that term variable indices are shifted correctly
     let input = "⊢ pi_shift_term (R : Rel) (S : Rel) (t : Term) (p : t [R ∘ S] t) : t [R] t := π p - x.u.v.ι⟨t,t⟩;"
-    case runParserEmpty parseFile input of
+    case parseFileWithTwoPhase input of
       Right [TheoremDef _ bindings judgment proof] -> do
         let ctx = buildContextFromBindings bindings
         -- This should fail because after shifting, the 't' in the conclusion should have index 1, not 0
@@ -953,7 +1000,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
   it "correctly shifts indices in lambda abstraction (proof level)" $ do
     -- Test that λ (proof lambda) shifts proof variable indices correctly
     let input = "⊢ lambda_shift_test (R : Rel) (a : Term) (q : a [R] a) : (λx.a) [R → R] (λx'.a) := λp:R.q;"
-    case runParserEmpty parseFile input of
+    case parseFileWithTwoPhase input of
       Right [TheoremDef _ bindings judgment proof] -> do
         let ctx = buildContextFromBindings bindings
         -- The 'q' inside the lambda body should have its index shifted when 'p' is bound
@@ -965,7 +1012,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
   it "verifies complex index shifting with nested binders" $ do
     -- Test multiple nested binders to ensure cumulative shifting works
     let input = "⊢ nested_shift (R : Rel) (S : Rel) (T : Rel) (a : Term) (p : a [R ∘ S ∘ T] a) : a [∀X. R → X → T] a := Λ X.λu:R.λv:X.π p - x.r.s.π s - y.t.u'.ι⟨a,a⟩;"
-    case runParserEmpty parseFile input of
+    case parseFileWithTwoPhase input of
       Right [TheoremDef _ bindings judgment proof] -> do
         let ctx = buildContextFromBindings bindings
         -- This tests cumulative shifting through multiple binders
@@ -979,7 +1026,7 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integratio
   it "parse and check theorem with unbound relation in quantifier" $ do
     -- Test Method 2: Parse theorem declaration and check it
     let theoremText = "⊢ bug_test (S : Rel) (a : Term) (b : Term) (p : a [∀X.S] b) : a [S] b := p{S};"
-    case runParserEmpty parseDeclaration theoremText of
+    case parseDeclarationWithTwoPhase theoremText of
       Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr
       Right (TheoremDef _ bindings judgment proof) -> do
         let ctx = buildContextFromBindings bindings
@@ -1005,7 +1052,7 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integratio
               "    (p : a [∀X.X] b) : a [R] b := p{R};"
             ]
 
-    case runParserEmpty parseFile fileContent of
+    case parseFileWithTwoPhase fileContent of
       Left parseErr -> expectationFailure $ "File should parse: " ++ show parseErr
       Right decls -> do
         -- Build environments
@@ -1018,7 +1065,7 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integratio
   it "nested quantifier substitution shows index corruption clearly" $ do
     -- Test the case that clearly demonstrates the index shifting bug
     let theoremText = "⊢ nested_bug (R : Rel) (S : Rel) (T : Rel) (a : Term) (b : Term) (p : a [∀X.∀Y.X ∘ T] b) : a [R ∘ T] b := (p{R}){S};"
-    case runParserEmpty parseDeclaration theoremText of
+    case parseDeclarationWithTwoPhase theoremText of
       Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr
       Right (TheoremDef _ bindings judgment proof) -> do
         let ctx = buildContextFromBindings bindings
@@ -1033,7 +1080,7 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integratio
     -- Test the failing forall_commute case from demo.rtt
     -- This involves both type lambdas (ΛY. ΛX.) and type applications (p{X}{Y})
     let theoremText = "⊢ forall_commute_test (a : Term) (b : Term) (R : Rel) (p : a [∀X.∀Y.R] b) : a [∀Y.∀X.R] b := ΛY. ΛX. (p{X}){Y};"
-    case runParserEmpty parseDeclaration theoremText of
+    case parseDeclarationWithTwoPhase theoremText of
       Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr
       Right (TheoremDef _ bindings judgment proof) -> do
         let ctx = buildContextFromBindings bindings

@@ -1,0 +1,5 @@
+-- Test file demonstrating the theorem reference bug fix
+-- This should parse correctly with the new two-phase parser
+
+test_proof p := use_proof p (identity q);
+complex_proof x y z := complex_proof (nested (identity x) y) z;

@@ -4,15 +4,17 @@
 
 import qualified ComprehensiveTheoremAppSpec
 import qualified ContextSpec
+import qualified ElaborateSpec
 import qualified ErrorsSpec
 import qualified IntegrationSpec
 import qualified MixfixSpec
 import qualified NormalizeSpec
 import qualified NotPreservesBoolBugSpec
 import qualified PTheoremAppSpec
-import qualified ParserSpec
+import qualified ParserSpec  
 import qualified PrettyPrintSpec
 import qualified ProofCheckerSpec
+import qualified RawParserSpec
 import qualified REPLSpec
 import qualified TermOpsSpec
 import Test.Hspec
@@ -25,8 +27,10 @@ import qualified TypeOpsSpec
 
 main :: IO ()
 main = hspec $ do
-  -- Parser tests
+  -- Parser tests (converted to new parser)
   describe "Parser Tests" ParserSpec.spec
+  describe "Raw Parser Tests" RawParserSpec.spec
+  describe "Elaborate Tests" ElaborateSpec.spec
   describe "Mixfix Operators" MixfixSpec.spec
 
   -- Core infrastructure tests
