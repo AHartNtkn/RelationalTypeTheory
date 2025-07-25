@@ -70,7 +70,7 @@ emptyParseContext = ParseContext Map.empty Map.empty Map.empty noMacros noTheore
 
 type Parser = ParsecT Void String (Reader ParseContext)
 
--- Smart application for terms - handles accumulating arguments for partial application
+-- Smart application for terms - handles accumulating arguments for macro application
 smartApp :: Parser (Term -> Term -> Term)
 smartApp = do
   ctx <- ask
@@ -196,9 +196,48 @@ validateMacroInstantiation term = do
           _ -> return ()
       checkTerm (Lam _ body _) = checkTerm body
       checkTerm (App t1 t2 _) = checkTerm t1 >> checkTerm t2
-      checkTerm (TMacro _ args _) = mapM_ checkTerm args
+      checkTerm (TMacro name args _) = do
+        -- Check macro arity
+        case Map.lookup name (macroDefinitions (macroEnv ctx)) of
+          Just (params, _) -> do
+            let expectedArity = length params
+                actualArity = length args
+            if actualArity < expectedArity
+              then fail $ "Macro '" ++ name ++ "' expects " ++ show expectedArity ++ " arguments but got " ++ show actualArity
+              else mapM_ checkTerm args
+          Nothing -> mapM_ checkTerm args
       checkTerm _ = return ()
   checkTerm term
+
+-- Validate that all relational macros are properly instantiated
+validateRMacroInstantiation :: RType -> Parser ()
+validateRMacroInstantiation rtype = do
+  ctx <- ask
+  let checkRType (RVar name (-1) _) =
+        case Map.lookup name (macroDefinitions (macroEnv ctx)) of
+          Just (params, _)
+            | not (null params) ->
+                fail $ "Macro '" ++ name ++ "' expects " ++ show (length params) ++ " arguments but got 0"
+          _ -> return ()
+      checkRType (All _ body _) = checkRType body
+      checkRType (Arr t1 t2 _) = checkRType t1 >> checkRType t2
+      checkRType (Comp t1 t2 _) = checkRType t1 >> checkRType t2
+      checkRType (Conv t _) = checkRType t
+      checkRType (RMacro name args _) = do
+        -- Check macro arity
+        case Map.lookup name (macroDefinitions (macroEnv ctx)) of
+          Just (params, _) -> do
+            let expectedArity = length params
+                actualArity = length args
+            if actualArity < expectedArity
+              then fail $ "Macro '" ++ name ++ "' expects " ++ show expectedArity ++ " arguments but got " ++ show actualArity
+              else if actualArity > expectedArity
+                then fail $ "Macro '" ++ name ++ "' expects " ++ show expectedArity ++ " arguments but got " ++ show actualArity
+                else mapM_ checkRType args
+          Nothing -> mapM_ checkRType args
+      checkRType (Prom term _) = validateMacroInstantiation term
+      checkRType _ = return ()
+  checkRType rtype
 
 parseTermVar :: Parser Term
 parseTermVar = do
@@ -233,7 +272,9 @@ parseRType :: Parser RType
 parseRType = do
   ctx <- ask
   let ops = buildMixfixOps relSpec (macroEnv ctx)
-  makeExprParser parseRTypeAtom ops
+  rtype <- makeExprParser parseRTypeAtom ops
+  validateRMacroInstantiation rtype
+  return rtype
 
 parseRTypeAtom :: Parser RType
 parseRTypeAtom =

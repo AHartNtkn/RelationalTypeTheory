@@ -323,7 +323,7 @@ spec = do
               executeREPLCommand (ExpandMacro "TestMacro")
           )
           initialREPLState
-      result `shouldContain` "Expansion error:"
+      result `shouldContain` "Macro 'TestMacro' expects 2 arguments but got 0"
 
     it "recovers from errors and continues operation" $ do
       let operations =

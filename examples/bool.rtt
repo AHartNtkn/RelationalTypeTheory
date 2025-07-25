@@ -40,7 +40,7 @@ Iff b1 b2 := (λt. λf. b1 (b2 t f) (b2 f t));
 -- =============================================================================
 
 -- If-then-else for booleans
-IfThenElse b x y := b x y;
+if_then_else_ b x y := b x y;
 
 -- NAND (not and)
 Nand b1 b2 := Not (b1 && b2);
@@ -140,10 +140,10 @@ Nor b1 b2 := Not (b1 || b2);
 -- =============================================================================
 
 -- If True then True else False is True
-⊢ if_true_then_true_else_false : (IfThenElse True True False) [Bool] True := (IfThenElse True True False) ⇃ true_is_bool ⇂ True;
+⊢ if_true_then_true_else_false : (if True then True else False) [Bool] True := (if True then True else False) ⇃ true_is_bool ⇂ True;
 
 -- If False then True else False is False
-⊢ if_false_then_true_else_false : (IfThenElse False True False) [Bool] False := (IfThenElse False True False) ⇃ false_is_bool ⇂ False;
+⊢ if_false_then_true_else_false : (if False then True else False) [Bool] False := (if False then True else False) ⇃ false_is_bool ⇂ False;
 
 -- =============================================================================
 -- PROVEN THEOREMS - DERIVED FUNCTION PROPERTIES

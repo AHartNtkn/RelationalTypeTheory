@@ -130,10 +130,10 @@ termMacroParserSpec = describe "Term macro parser (TMacro)" $ do
     case runReader (runParserT (parseTerm <* eof) "test" "compose f g x") ctx of
       Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
       Right result -> result `shouldBeEqual` (TMacro "compose" [Var "f" 2 (initialPos "test"), Var "g" 1 (initialPos "test"), Var "x" 0 (initialPos "test")] (initialPos "test"))
-    let ctx2 = emptyParseContext {macroEnv = env, termVars = Map.fromList [("g", 1), ("h", 1), ("y", 0)]}
+    let ctx2 = emptyParseContext {macroEnv = env, termVars = Map.fromList [("g", 2), ("h", 1), ("y", 0)]}
     case runReader (runParserT (parseTerm <* eof) "test" "compose (λx. x) g (h y)") ctx2 of
       Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
-      Right result -> result `shouldBeEqual` (TMacro "compose" [Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"), Var "g" 1 (initialPos "test"), App (Var "h" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")] (initialPos "test"))
+      Right result -> result `shouldBeEqual` (TMacro "compose" [Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"), Var "g" 2 (initialPos "test"), App (Var "h" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")] (initialPos "test"))
 
   it "parses nested term macro applications" $ do
     let env = createTermMacroEnv [("f", ["x"]), ("g", ["y"])]
@@ -206,13 +206,14 @@ contextAwareMacroParserSpec = describe "Context-aware macro detection" $ do
     testParse ["x", "y"] [] [] env parseTerm "(f x) (g y)" (App (TMacro "f" [Var "x" 1 (initialPos "test")] (initialPos "test")) (TMacro "g" [Var "y" 0 (initialPos "test")] (initialPos "test")) (initialPos "test"))
     testParse [] [] [] env parseTerm "λz. f z" (Lam "z" (TMacro "f" [Var "z" 0 (initialPos "test")] (initialPos "test")) (initialPos "test"))
 
-  it "handles partial macro applications" $ do
+  it "rejects partial macro applications" $ do
     let env = createTermMacroEnv [("f", ["x", "y"])]
-    -- When macro expects 2 args but gets 1, it should still be TMacro
+    -- When macro expects 2 args but gets 1, it should error
     let ctx = emptyParseContext {macroEnv = env, termVars = Map.fromList [("x", 0)]}
     case runReader (runParserT (parseTerm <* eof) "test" "f x") ctx of
-      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
-      Right result -> result `shouldBeEqual` (TMacro "f" [Var "x" 0 (initialPos "test")] (initialPos "test"))
+      Left err -> errorBundlePretty err `shouldContain` "Macro 'f' expects 2 arguments but got 1"
+      Right result -> expectationFailure $ "Expected parse error for under-applied macro, but got: " ++ show result
+    -- Full application should still work
     let ctx2 = emptyParseContext {macroEnv = env, termVars = Map.fromList [("x", 1), ("y", 0)]}
     case runReader (runParserT (parseTerm <* eof) "test" "f x y") ctx2 of
       Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
@@ -323,17 +324,13 @@ advancedTermMacroScenarioSpec = describe "Advanced term macro scenarios" $ do
       "λf. λx. bind (f x) (λf. f)"
       (Lam "f" (Lam "x" (TMacro "bind" [App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"), Lam "f" (Var "f" 0 (initialPos "test")) (initialPos "test")] (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
-  it "handles TMacro arity edge cases" $ do
+  it "rejects TMacro arity edge cases" $ do
     let env = createTermMacroEnv [("binary", ["x", "y"]), ("ternary", ["x", "y", "z"])]
-    -- Under-application (partial application)
-    testParse
-      ["x", "y", "z"]
-      []
-      []
-      env
-      parseTerm
-      "binary x"
-      (TMacro "binary" [Var "x" 2 (initialPos "test")] (initialPos "test"))
+    -- Under-application (partial application) should error
+    let ctx = emptyParseContext {macroEnv = env, termVars = Map.fromList [("x", 2), ("y", 1), ("z", 0)]}
+    case runReader (runParserT (parseTerm <* eof) "test" "binary x") ctx of
+      Left err -> errorBundlePretty err `shouldContain` "Macro 'binary' expects 2 arguments but got 1"
+      Right result -> expectationFailure $ "Expected parse error for under-applied macro, but got: " ++ show result
 
     -- Exact application
     testParse
