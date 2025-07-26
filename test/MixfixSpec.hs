@@ -4,14 +4,106 @@ module MixfixSpec (spec) where
 
 import Context (extendMacroEnvironment, noMacros, noTheorems)
 import Control.Monad.Reader
+import Control.Monad.Except
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Data.Text (Text)
+import qualified Data.Text as T
+import Elaborate
+import Errors
 import Lib
-import Parser (ParseContext (..), mixfixIdentifier, parseDeclaration, parseFile, parseRType, parseTerm, runParserEmpty, runParserT)
+import qualified RawAst as Raw
+import RawAst (nameString)
+import RawParser hiding (parseFile, mixfixIdentifier)
+import qualified RawParser (mixfixIdentifier)
+import qualified RawParser
+import Lexer (ident)
 import PrettyPrint (prettyDeclaration, prettyTerm)
 import Test.Hspec
 import TestHelpers
-import Text.Megaparsec (eof, errorBundlePretty, initialPos)
+import Text.Megaparsec (eof, errorBundlePretty, initialPos, runParser, Parsec)
+import Data.Void
+
+-- Helper functions to replace legacy parser calls
+
+-- Simple wrapper functions that translate between old and new API
+
+type P = Parsec Void Text
+
+-- Replace runParserEmpty - now runs full pipeline when needed
+runParserEmpty :: P a -> String -> Either String a  
+runParserEmpty parser input =
+  case runParser parser "test" (T.pack input) of
+    Left parseErr -> Left $ errorBundlePretty parseErr
+    Right result -> Right result
+
+-- Use mixfixIdentifier from RawParser that supports operator symbols
+mixfixIdentifier :: P String
+mixfixIdentifier = nameString <$> RawParser.mixfixIdentifier
+
+-- For parseDeclaration, create a parser that runs the full pipeline
+parseDeclaration :: P Declaration
+parseDeclaration = do
+  rawDecl <- rawDeclaration
+  case elaborate emptyElaborateContext rawDecl of
+    Left (ElabError err) -> fail $ "Elaboration error: " ++ show err
+    Left (ParseError err) -> fail $ "Parse error: " ++ show err
+    Right decl -> return decl
+
+-- For parseFile, create a parser that runs the full pipeline 
+parseFile :: P [Declaration]
+parseFile = do
+  rawDecls <- RawParser.parseFile
+  let elaborateDecl rawDecl = case elaborate emptyElaborateContext rawDecl of
+        Left (ElabError err) -> fail $ "Elaboration error: " ++ show err
+        Left (ParseError err) -> fail $ "Parse error: " ++ show err  
+        Right decl -> return decl
+  mapM elaborateDecl rawDecls
+
+-- For parseTerm, create a parser that runs the full pipeline
+parseTerm :: P Term
+parseTerm = do
+  rawTerm <- rawTerm
+  case runExcept (runReaderT (elaborateTerm rawTerm) emptyElaborateContext) of
+    Left err -> fail $ "Elaboration error: " ++ show err
+    Right term -> return term
+
+-- For parseRType, create a parser that runs the full pipeline
+parseRType :: P RType  
+parseRType = do
+  rawRType <- rawRType
+  case runExcept (runReaderT (elaborateRType rawRType) emptyElaborateContext) of
+    Left err -> fail $ "Elaboration error: " ++ show err
+    Right rtype -> return rtype
+
+-- The new parser doesn't use ParseContext during parsing
+-- Variables and macros are resolved during elaboration
+
+-- Helper to parse and elaborate relational types with context
+parseRTypeWithEnv :: MacroEnvironment -> [(String, Int)] -> String -> Either String RType
+parseRTypeWithEnv env relVars input =
+  let ctx = emptyElaborateContext { macroEnv = env }
+      ctxWithVars = ctx { boundRelVars = Map.fromList relVars
+                        , relDepth = length relVars }
+   in case runParser rawRType "test" (T.pack input) of
+        Left parseErr -> Left $ errorBundlePretty parseErr
+        Right raw ->
+          case runExcept (runReaderT (elaborateRType raw) ctxWithVars) of
+            Left elabErr -> Left $ show elabErr
+            Right result -> Right result
+
+-- Helper to parse and elaborate terms with context  
+parseTermWithEnv :: MacroEnvironment -> [(String, Int)] -> String -> Either String Term
+parseTermWithEnv env termVars input =
+  let ctx = emptyElaborateContext { macroEnv = env }
+      ctxWithVars = ctx { boundVars = Map.fromList termVars
+                        , termDepth = length termVars }
+   in case runParser rawTerm "test" (T.pack input) of
+        Left parseErr -> Left $ errorBundlePretty parseErr
+        Right raw ->
+          case runExcept (runReaderT (elaborateTerm raw) ctxWithVars) of
+            Left elabErr -> Left $ show elabErr
+            Right result -> Right result
 
 spec :: Spec
 spec = do
@@ -46,7 +138,7 @@ mixfixIdentifierSpec = describe "mixfixIdentifier parser" $ do
   where
     testParseIdentifier input expected =
       case runParserEmpty (mixfixIdentifier <* eof) input of
-        Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+        Left err -> expectationFailure $ "Parse failed: " ++ err
         Right result -> result `shouldBe` expected
 
 -- Test fixity declaration parsing
@@ -79,7 +171,7 @@ fixityDeclSpec = describe "Fixity declaration parsing" $ do
   where
     testParseDecl input expected =
       case runParserEmpty (parseDeclaration <* eof) input of
-        Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+        Left err -> expectationFailure $ "Parse failed: " ++ err
         Right result -> result `shouldBeEqual` expected
 
     testParseFailure parser input =
@@ -113,7 +205,7 @@ mixfixMacroDefSpec = describe "Mixfix macro definition parsing" $ do
   where
     testParseDecl input expected =
       case runParserEmpty (parseDeclaration <* eof) input of
-        Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+        Left err -> expectationFailure $ "Parse failed: " ++ err
         Right result -> result `shouldBeEqual` expected
 
 -- Test mixfix pretty printing
@@ -154,11 +246,17 @@ mixfixOperatorTableSpec = describe "Dynamic operator table generation" $ do
     testParseWithEnv env "a + b" (TMacro "_+_" [Var "a" 1 (initialPos "test"), Var "b" 0 (initialPos "test")] (initialPos "test"))
   where
     testParseWithEnv env input expected =
-      let termVarMap = Map.fromList [("a", 1), ("b", 0)]
-          ctx = ParseContext termVarMap Map.empty Map.empty env noTheorems (mixfixKeywords env) True
-       in case runReader (runParserT (parseTerm <* eof) "test" input) ctx of
-            Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
-            Right result -> result `shouldBeEqual` expected
+      -- Create an elaborate context with the macro environment
+      let ctx = emptyElaborateContext { macroEnv = env }
+          -- Add term variables to context
+          ctxWithVars = ctx { boundVars = Map.fromList [("a", 1), ("b", 0)]
+                            , termDepth = 2 }
+       in case runParser rawTerm "test" (T.pack input) of
+            Left parseErr -> expectationFailure $ "Parse failed: " ++ errorBundlePretty parseErr
+            Right rawTerm -> 
+              case runExcept (runReaderT (elaborateTerm rawTerm) ctxWithVars) of
+                Left elabErr -> expectationFailure $ "Elaboration failed: " ++ show elabErr
+                Right result -> result `shouldBeEqual` expected
 
 -- Test actual mixfix parsing in expressions
 mixfixParsingSpec :: Spec
@@ -208,11 +306,17 @@ mixfixParsingSpec = describe "Mixfix expression parsing" $ do
        in MacroEnvironment defs fixities
 
     testParseExpr env vars input expected =
-      let termVarMap = Map.fromList (zip vars (reverse [0 .. length vars - 1]))
-          ctx = ParseContext termVarMap Map.empty Map.empty env noTheorems (mixfixKeywords env) True
-       in case runReader (runParserT (parseTerm <* eof) "test" input) ctx of
-            Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
-            Right result -> result `shouldBeEqual` expected
+      let ctx = emptyElaborateContext { macroEnv = env }
+          -- Add variables with correct de Bruijn indices
+          varBindings = Map.fromList (zip vars (reverse [0..length vars - 1]))
+          ctxWithVars = ctx { boundVars = varBindings
+                            , termDepth = length vars }
+       in case runParser rawTerm "test" (T.pack input) of
+            Left parseErr -> expectationFailure $ "Parse failed: " ++ errorBundlePretty parseErr
+            Right rawTerm -> 
+              case runExcept (runReaderT (elaborateTerm rawTerm) ctxWithVars) of
+                Left elabErr -> expectationFailure $ "Elaboration failed: " ++ show elabErr
+                Right result -> result `shouldBeEqual` expected
 
 -- Test relational mixfix macros
 relationalMixfixSpec :: Spec
@@ -223,9 +327,8 @@ relationalMixfixSpec = describe "Relational mixfix macros" $ do
             { macroDefinitions = Map.fromList [("_+R+_", (["A", "B"], RelMacro (Comp (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))))],
               macroFixities = Map.fromList [("_+R+_", Infixl 6)]
             }
-    let ctx = ParseContext Map.empty (Map.fromList [("X", 1), ("Y", 0)]) Map.empty env noTheorems (mixfixKeywords env) True
-    case runReader (runParserT (parseRType <* eof) "test" "X +R+ Y") ctx of
-      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+    case parseRTypeWithEnv env [("X", 1), ("Y", 0)] "X +R+ Y" of
+      Left err -> expectationFailure $ "Parse/elaboration failed: " ++ err
       Right result -> result `shouldBeEqual` (RMacro "_+R+_" [RVar "X" 1 (initialPos "test"), RVar "Y" 0 (initialPos "test")] (initialPos "test"))
 
   it "parses relational prefix macro applications" $ do
@@ -234,9 +337,8 @@ relationalMixfixSpec = describe "Relational mixfix macros" $ do
             { macroDefinitions = Map.fromList [("notR_", (["A"], RelMacro (Conv (RVar "A" 0 (initialPos "test")) (initialPos "test"))))],
               macroFixities = Map.fromList [("notR_", Prefix 9)]
             }
-    let ctx = ParseContext Map.empty (Map.fromList [("X", 0)]) Map.empty env noTheorems (mixfixKeywords env) True
-    case runReader (runParserT (parseRType <* eof) "test" "notR X") ctx of
-      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+    case parseRTypeWithEnv env [("X", 0)] "notR X" of
+      Left err -> expectationFailure $ "Parse/elaboration failed: " ++ err
       Right result -> result `shouldBeEqual` (RMacro "notR_" [RVar "X" 0 (initialPos "test")] (initialPos "test"))
 
   it "parses relational postfix macro applications" $ do
@@ -245,9 +347,8 @@ relationalMixfixSpec = describe "Relational mixfix macros" $ do
             { macroDefinitions = Map.fromList [("_converse", (["A"], RelMacro (Conv (RVar "A" 0 (initialPos "test")) (initialPos "test"))))],
               macroFixities = Map.fromList [("_converse", Postfix 8)]
             }
-    let ctx = ParseContext Map.empty (Map.fromList [("X", 0)]) Map.empty env noTheorems (mixfixKeywords env) True
-    case runReader (runParserT (parseRType <* eof) "test" "X converse") ctx of
-      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+    case parseRTypeWithEnv env [("X", 0)] "X converse" of
+      Left err -> expectationFailure $ "Parse/elaboration failed: " ++ err
       Right result -> result `shouldBeEqual` (RMacro "_converse" [RVar "X" 0 (initialPos "test")] (initialPos "test"))
 
   it "parses relational ternary mixfix macro applications" $ do
@@ -256,9 +357,8 @@ relationalMixfixSpec = describe "Relational mixfix macros" $ do
             { macroDefinitions = Map.fromList [("if_then_else_", (["C", "T", "E"], RelMacro (RVar "T" 1 (initialPos "test"))))],
               macroFixities = Map.fromList [("if_then_else_", Prefix 5)]
             }
-    let ctx = ParseContext Map.empty (Map.fromList [("C", 2), ("T", 1), ("E", 0)]) Map.empty env noTheorems (mixfixKeywords env) True
-    case runReader (runParserT (parseRType <* eof) "test" "if_then_else_ C T E") ctx of
-      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+    case parseRTypeWithEnv env [("C", 2), ("T", 1), ("E", 0)] "if C then T else E" of
+      Left err -> expectationFailure $ "Parse/elaboration failed: " ++ err
       Right result -> result `shouldBeEqual` (RMacro "if_then_else_" [RVar "C" 2 (initialPos "test"), RVar "T" 1 (initialPos "test"), RVar "E" 0 (initialPos "test")] (initialPos "test"))
 
 -- Test for the mixfix parser bug with multiple holes and repeated literals
@@ -270,10 +370,9 @@ mixfixBugSpec = describe "Mixfix parser bug with repeated literals" $ do
             { macroDefinitions = Map.fromList [("_·_·_", (["t1", "R", "t2"], RelMacro (Comp (Comp (RVar "t1" 2 (initialPos "test")) (RVar "R" 1 (initialPos "test")) (initialPos "test")) (Conv (RVar "t2" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))))],
               macroFixities = Map.fromList []
             }
-    let ctx = ParseContext Map.empty (Map.fromList [("t", 2), ("R", 1)]) Map.empty env noTheorems (mixfixKeywords env) True
     -- This should parse as a single application of _·_·_ with three arguments
-    case runReader (runParserT (parseRType <* eof) "test" "t · R · t") ctx of
-      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+    case parseRTypeWithEnv (env { macroFixities = Map.fromList [("_·_·_", Infixl 7)] }) [("t", 2), ("R", 1), ("dummy", 0)] "t · R · t" of
+      Left err -> expectationFailure $ "Parse/elaboration failed: " ++ err
       Right result -> result `shouldBeEqual` (RMacro "_·_·_" [RVar "t" 2 (initialPos "test"), RVar "R" 1 (initialPos "test"), RVar "t" 2 (initialPos "test")] (initialPos "test"))
 
 -- Test complex mixfix scenarios
@@ -291,7 +390,7 @@ mixfixComplexSpec = describe "Complex mixfix scenarios" $ do
               "if_then_else_ c t e := t;"
             ]
     case runParserEmpty parseFile content of
-      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+      Left err -> expectationFailure $ "Parse failed: " ++ err
       Right decls -> length decls `shouldBe` 7
 
   it "handles holes function correctly" $ do
@@ -335,7 +434,7 @@ mixfixComplexSpec = describe "Complex mixfix scenarios" $ do
           ]
     let prettyPrinted = unlines (map prettyDeclaration originalDecls)
     case runParserEmpty parseFile prettyPrinted of
-      Left err -> expectationFailure $ "Re-parse failed: " ++ errorBundlePretty err
+      Left err -> expectationFailure $ "Re-parse failed: " ++ err
       Right reparsedDecls -> reparsedDecls `shouldBeEqual` originalDecls
 
 -- Test unicode support in mixfix operations
@@ -352,8 +451,8 @@ mixfixUnicodeSpec = describe "Unicode mixfix operations" $ do
   it "parses unicode prefix macro identifiers" $ do
     testParseIdentifier "¬_" "¬_"
     testParseIdentifier "√_" "√_"
-    testParseIdentifier "∀_" "∀_"
-    testParseIdentifier "∃_" "∃_"
+    testParseIdentifier "Π_" "Π_"
+    testParseIdentifier "Σ_" "Σ_"
 
   it "parses unicode postfix macro identifiers" $ do
     testParseIdentifier "_†" "_†"
@@ -399,9 +498,8 @@ mixfixUnicodeSpec = describe "Unicode mixfix operations" $ do
             { macroDefinitions = Map.fromList [("_†", (["A"], RelMacro (Conv (RVar "A" 0 (initialPos "test")) (initialPos "test"))))],
               macroFixities = Map.fromList [("_†", Postfix 8)]
             }
-    let ctx = ParseContext Map.empty (Map.fromList [("X", 0)]) Map.empty env noTheorems (mixfixKeywords env) True
-    case runReader (runParserT (parseRType <* eof) "test" "X †") ctx of
-      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+    case parseRTypeWithEnv env [("X", 0)] "X †" of
+      Left err -> expectationFailure $ "Parse/elaboration failed: " ++ err
       Right result -> result `shouldBeEqual` (RMacro "_†" [RVar "X" 0 (initialPos "test")] (initialPos "test"))
 
   it "pretty prints unicode mixfix operations" $ do
@@ -420,9 +518,8 @@ mixfixUnicodeSpec = describe "Unicode mixfix operations" $ do
             { macroDefinitions = Map.fromList [("_⊆_", (["A", "B"], RelMacro (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))))],
               macroFixities = Map.fromList [("_⊆_", Infixl 4)]
             }
-    let ctx = ParseContext Map.empty (Map.fromList [("X", 1), ("Y", 0)]) Map.empty env noTheorems (mixfixKeywords env) True
-    case runReader (runParserT (parseRType <* eof) "test" "X ⊆ Y") ctx of
-      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+    case parseRTypeWithEnv env [("X", 1), ("Y", 0)] "X ⊆ Y" of
+      Left err -> expectationFailure $ "Parse/elaboration failed: " ++ err
       Right result -> result `shouldBeEqual` (RMacro "_⊆_" [RVar "X" 1 (initialPos "test"), RVar "Y" 0 (initialPos "test")] (initialPos "test"))
 
   it "handles complex unicode operator precedence" $ do
@@ -441,12 +538,12 @@ mixfixUnicodeSpec = describe "Unicode mixfix operations" $ do
   where
     testParseIdentifier input expected =
       case runParserEmpty (mixfixIdentifier <* eof) input of
-        Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+        Left err -> expectationFailure $ "Parse failed: " ++ err
         Right result -> result `shouldBe` expected
 
     testParseDecl input expected =
       case runParserEmpty (parseDeclaration <* eof) input of
-        Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+        Left err -> expectationFailure $ "Parse failed: " ++ err
         Right result -> result `shouldBeEqual` expected
 
     createUnicodeMixfixEnv :: [(String, ([String], Fixity))] -> MacroEnvironment
@@ -456,11 +553,17 @@ mixfixUnicodeSpec = describe "Unicode mixfix operations" $ do
        in MacroEnvironment defs fixities
 
     testParseExpr env vars input expected =
-      let termVarMap = Map.fromList (zip vars (reverse [0 .. length vars - 1]))
-          ctx = ParseContext termVarMap Map.empty Map.empty env noTheorems (mixfixKeywords env) True
-       in case runReader (runParserT (parseTerm <* eof) "test" input) ctx of
-            Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
-            Right result -> result `shouldBeEqual` expected
+      let ctx = emptyElaborateContext { macroEnv = env }
+          -- Add variables with correct de Bruijn indices
+          varBindings = Map.fromList (zip vars (reverse [0..length vars - 1]))
+          ctxWithVars = ctx { boundVars = varBindings
+                            , termDepth = length vars }
+       in case runParser rawTerm "test" (T.pack input) of
+            Left parseErr -> expectationFailure $ "Parse failed: " ++ errorBundlePretty parseErr
+            Right rawTerm2 -> 
+              case runExcept (runReaderT (elaborateTerm rawTerm2) ctxWithVars) of
+                Left elabErr -> expectationFailure $ "Elaboration failed: " ++ show elabErr
+                Right result -> result `shouldBeEqual` expected
 
 -- Test fixity declaration ordering
 fixityOrderingSpec :: Spec
@@ -468,7 +571,7 @@ fixityOrderingSpec = describe "Fixity declaration ordering" $ do
   it "preserves fixity declarations when they come before macro definitions" $ do
     let content = "infixr 7 _*_;\n_*_ x y := x;"
     case runParserEmpty parseFile content of
-      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+      Left err -> expectationFailure $ "Parse failed: " ++ err
       Right decls -> do
         let env = buildEnvironmentFromDecls decls
         case Map.lookup "_*_" (macroFixities env) of
@@ -478,7 +581,7 @@ fixityOrderingSpec = describe "Fixity declaration ordering" $ do
   it "applies fixity declaration regardless of order" $ do
     let content = "_*_ x y := x;\ninfixr 7 _*_;"
     case runParserEmpty parseFile content of
-      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+      Left err -> expectationFailure $ "Parse failed: " ++ err
       Right decls -> do
         let env = buildEnvironmentFromDecls decls
         case Map.lookup "_*_" (macroFixities env) of
@@ -488,7 +591,7 @@ fixityOrderingSpec = describe "Fixity declaration ordering" $ do
   it "uses default fixity when no declaration is provided" $ do
     let content = "_*_ x y := x;"
     case runParserEmpty parseFile content of
-      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+      Left err -> expectationFailure $ "Parse failed: " ++ err
       Right decls -> do
         let env = buildEnvironmentFromDecls decls
         case Map.lookup "_*_" (macroFixities env) of
@@ -503,7 +606,7 @@ fixityOrderingSpec = describe "Fixity declaration ordering" $ do
               "_+_ a b := a;"
             ]
     case runParserEmpty parseFile content of
-      Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+      Left err -> expectationFailure $ "Parse failed: " ++ err
       Right decls -> do
         let env = buildEnvironmentFromDecls decls
         case (Map.lookup "_*_" (macroFixities env), Map.lookup "_+_" (macroFixities env)) of

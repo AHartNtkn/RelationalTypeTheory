@@ -97,7 +97,7 @@ variableLookupSpec = describe "variable lookup" $ do
     let env = noMacros
         params = ["A", "B"]
         body = RelMacro (Comp (RVar "A" 0 (initialPos "test")) (RVar "B" 1 (initialPos "test")) (initialPos "test"))
-        env' = extendMacroEnvironment "Pair" params body defaultFixity env
+        env' = extendMacroEnvironment "Pair" params body (defaultFixity "TEST") env
     case lookupMacro "Pair" env' of
       Right (ps, b) -> do
         ps `shouldBe` params
@@ -169,7 +169,7 @@ integrationSpec = describe "context integration" $ do
   it "combines typing context with environments" $ do
     let typingCtx = extendTermContext "x" (RMacro "Int" [] (initialPos "test")) emptyTypingContext
         typeEnv = extendTypeEnvironment "X" (RMacro "String" [] (initialPos "test")) emptyTypeEnvironment
-        macroEnv = extendMacroEnvironment "Id" [] (RelMacro (RMacro "Identity" [] (initialPos "test"))) defaultFixity noMacros
+        macroEnv = extendMacroEnvironment "Id" [] (RelMacro (RMacro "Identity" [] (initialPos "test"))) (defaultFixity "TEST") noMacros
     -- Test that all three contexts can coexist
     case (lookupTerm "x" typingCtx, lookupTypeVar "X" typeEnv, lookupMacro "Id" macroEnv) of
       (Right _, Right _, Right _) -> return ()
@@ -265,7 +265,7 @@ contextStressTestSpec = describe "context operations stress testing" $ do
           let macroName = "Macro" ++ show n
               params = ["A" ++ show n, "B" ++ show n]
               body = RelMacro (Comp (RVar ("A" ++ show n) 0 (initialPos "test")) (RVar ("B" ++ show n) 1 (initialPos "test")) (initialPos "test"))
-           in buildMacroEnv (n - 1) (extendMacroEnvironment macroName params body defaultFixity env)
+           in buildMacroEnv (n - 1) (extendMacroEnvironment macroName params body (defaultFixity "TEST") env)
         largeMacroEnv = buildMacroEnv 100 noMacros
     -- Test lookup performance and correctness
     case (lookupMacro "Macro1" largeMacroEnv, lookupMacro "Macro50" largeMacroEnv, lookupMacro "Macro100" largeMacroEnv) of

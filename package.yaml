@@ -27,6 +27,7 @@ dependencies:
 - containers
 - filepath
 - directory
+- text
 
 ghc-options:
 - -Wall
@@ -45,7 +46,12 @@ library:
   - -Wno-unused-matches
   exposed-modules:
   - Lib
-  - Parser
+  - Parser.Legacy
+  - Lexer
+  - RawAst  
+  - RawParser
+  - Elaborate
+  - Mixfix
   - Normalize
   - TypeOps
   - Shifting

@@ -4,7 +4,7 @@ import Context (emptyTypingContext, extendTheoremEnvironment, noMacros, noTheore
 import Control.Monad.Reader (runReader)
 import qualified Data.Map as Map
 import Lib
-import Parser (ParseContext (..), emptyParseContext, parseFile, parseProof, runParserEmpty, runParserT)
+import Parser.Legacy (ParseContext (..), emptyParseContext, parseFile, parseProof, runParserEmpty, runParserT)
 import ProofChecker (checkProof)
 import Test.Hspec
 import TestHelpers

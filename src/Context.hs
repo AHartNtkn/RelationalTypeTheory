@@ -1,13 +1,10 @@
 module Context
   ( emptyTypingContext,
     emptyTypeEnvironment,
-    noMacros,
-    noTheorems,
     extendTermContext,
     extendRelContext,
     extendProofContext,
     extendTypeEnvironment,
-    extendMacroEnvironment,
     extendTheoremEnvironment,
     lookupTerm,
     lookupRel,
@@ -24,6 +21,10 @@ module Context
     freeVarsInTerm,
     freshVar,
     freshVarPair,
+    -- Re-export from Lib to avoid conflicts
+    noMacros,
+    noTheorems,
+    extendMacroEnvironment,
   )
 where
 
@@ -34,6 +35,9 @@ import Lib
 import Shifting (shiftTerm, shiftTermsInRType)
 import Text.Megaparsec (initialPos)
 
+-- Re-export these from Lib to avoid duplication
+import Lib (noMacros, noTheorems, extendMacroEnvironment)
+
 -- | Create an empty typing context
 emptyTypingContext :: TypingContext
 emptyTypingContext = TypingContext Map.empty Map.empty Map.empty 0
@@ -42,13 +46,6 @@ emptyTypingContext = TypingContext Map.empty Map.empty Map.empty 0
 emptyTypeEnvironment :: TypeEnvironment
 emptyTypeEnvironment = TypeEnvironment Map.empty
 
--- | Create an empty macro environment
-noMacros :: MacroEnvironment
-noMacros = MacroEnvironment Map.empty Map.empty
-
--- | Create an empty theorem environment
-noTheorems :: TheoremEnvironment
-noTheorems = TheoremEnvironment Map.empty
 
 -- | Extend context with a term binding
 extendTermContext :: String -> RType -> TypingContext -> TypingContext
@@ -81,13 +78,6 @@ extendTypeEnvironment :: String -> RType -> TypeEnvironment -> TypeEnvironment
 extendTypeEnvironment name ty env =
   env {typeVarBindings = Map.insert name ty (typeVarBindings env)}
 
--- | Extend macro environment with a macro definition
-extendMacroEnvironment :: String -> [String] -> MacroBody -> Fixity -> MacroEnvironment -> MacroEnvironment
-extendMacroEnvironment name params body fixity env =
-  env
-    { macroDefinitions = Map.insert name (params, body) (macroDefinitions env),
-      macroFixities = Map.insert name fixity (macroFixities env)
-    }
 
 -- | Extend theorem environment with a theorem definition
 extendTheoremEnvironment :: String -> [Binding] -> RelJudgment -> Proof -> TheoremEnvironment -> TheoremEnvironment

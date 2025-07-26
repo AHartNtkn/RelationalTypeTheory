@@ -14,7 +14,7 @@ import qualified Data.Map as Map
 import Errors
 import Lib
 import ModuleSystem (ModuleLoadError (..), ModuleRegistry, emptyModuleRegistry, loadModuleWithDependenciesIntegrated)
-import Parser
+import Parser.Legacy
 import PrettyPrint (prettyDeclaration, prettyError, prettyExportDeclaration, prettyImportDeclaration, prettyRType, prettyRelJudgment, prettyTerm)
 import ProofChecker
 import System.IO (hFlush, hSetEncoding, stdin, stdout, utf8)
@@ -227,7 +227,7 @@ buildMacroEnvironmentFromDeclarations decls = do
   return env
   where
     addMacro (MacroDef name params body) env =
-      extendMacroEnvironment name params body defaultFixity env
+      extendMacroEnvironment name params body (defaultFixity name) env
     addMacro _ env = env
 
 -- Build context from bindings (helper function)

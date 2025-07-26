@@ -1,4 +1,4 @@
-module Parser
+module Parser.Legacy
   ( parseTerm,
     parseRType,
     parseProof,
@@ -768,7 +768,7 @@ parseDeclarationsWithContext acc = do
                    in ctx {macroEnv = newEnv, kwdSet = mixfixKeywords newEnv}
                 else -- Regular macro: add without fixity (use dummy fixity that won't be used)
 
-                  let newEnv = extendMacroEnvironment name args body defaultFixity (macroEnv ctx)
+                  let newEnv = extendMacroEnvironment name args body (defaultFixity name) (macroEnv ctx)
                    in ctx {macroEnv = newEnv, kwdSet = mixfixKeywords newEnv}
         local addMacro $ parseDeclarationsWithContext (decl : acc)
       TheoremDef name bindings judgment proof -> do

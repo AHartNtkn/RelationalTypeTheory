@@ -26,7 +26,7 @@ import Data.List (intercalate)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Lib
-import Parser (parseFile, parseImportsOnly, runParserEmpty)
+import Parser.Legacy (parseFile, parseImportsOnly, runParserEmpty)
 import System.Directory (doesFileExist)
 import System.FilePath (normalise, takeDirectory, (</>))
 import Text.Megaparsec (errorBundlePretty)
@@ -125,7 +125,7 @@ partitionDeclarations = foldr classify ([], [], [], [])
 buildMacroEnvironment :: [Declaration] -> MacroEnvironment
 buildMacroEnvironment decls = foldr addMacro noMacros decls
   where
-    addMacro (MacroDef name params body) env = extendMacroEnvironment name params body defaultFixity env
+    addMacro (MacroDef name params body) env = extendMacroEnvironment name params body (defaultFixity name) env
     addMacro _ env = env
 
 -- | Build theorem environment from theorem declarations

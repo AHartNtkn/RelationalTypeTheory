@@ -6,7 +6,7 @@ import Context
 import qualified Data.Map as Map
 import Errors
 import Lib
-import Parser (parseDeclaration, runParserEmpty)
+import Parser.Legacy (parseDeclaration, runParserEmpty)
 import ProofChecker
 import Test.Hspec
 import TestHelpers (buildContextFromBindings)
@@ -233,7 +233,7 @@ typeApplicationSpec = describe "type applications (TyApp)" $ do
         -- Define macro C := ∀X. X → X → X (like Bool)
         pos = initialPos "test"
         quantifiedMacro = RelMacro $ All "X" (Arr (RVar "X" 0 pos) (Arr (RVar "X" 0 pos) (RVar "X" 0 pos) pos) pos) pos
-        macroEnv = extendMacroEnvironment "C" [] quantifiedMacro defaultFixity noMacros
+        macroEnv = extendMacroEnvironment "C" [] quantifiedMacro (defaultFixity "TEST") noMacros
 
         -- Proof variable p : b [C] b
         macroJudgment = RelJudgment (Var "b" 0 (initialPos "test")) (RMacro "C" [] (initialPos "test")) (Var "b" 0 (initialPos "test"))

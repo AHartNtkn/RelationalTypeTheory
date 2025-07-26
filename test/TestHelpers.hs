@@ -14,14 +14,20 @@ module TestHelpers
     shouldBeEqualProof,
     shouldBeEqualDeclaration,
     buildContextFromBindings,
+    parseFileDeclarations,
+    buildEnvironmentsFromDeclarations,
   )
 where
 
 import Context
 import Control.Monad (unless)
+import qualified Data.Text as T
+import Elaborate
 import Lib
+import qualified RawAst as Raw
+import RawParser (parseFile)
 import Test.Hspec
-import Text.Megaparsec (initialPos)
+import Text.Megaparsec (initialPos, runParser, errorBundlePretty)
 
 -- Helper functions for position-insensitive equality
 equalTerm :: Term -> Term -> Bool
@@ -156,3 +162,43 @@ buildContextFromBindings bindings = buildContext emptyTypingContext bindings
         ProofBinding name judgment ->
           let newCtx = extendProofContext name judgment ctx
            in buildContext newCtx rest
+
+-- | Parse file content using new parser pipeline
+parseFileDeclarations :: String -> Either String [Declaration]
+parseFileDeclarations content = 
+  case runParser parseFile "test" (T.pack content) of
+    Left parseErr -> Left $ "Parse error: " ++ errorBundlePretty parseErr
+    Right rawDecls -> elaborateDeclarationsSequentially emptyElaborateContext rawDecls []
+  where
+    elaborateDeclarationsSequentially :: ElaborateContext -> [Raw.RawDeclaration] -> [Declaration] -> Either String [Declaration]
+    elaborateDeclarationsSequentially _ [] acc = Right (reverse acc)
+    elaborateDeclarationsSequentially ctx (rawDecl:remaining) acc = do
+      case elaborate ctx rawDecl of
+        Left (ElabError err) -> Left $ "Elaboration error: " ++ show err
+        Left (ParseError err) -> Left $ "Parse error: " ++ show err
+        Right decl -> do
+          -- Update context with the newly elaborated declaration
+          let newCtx = updateContextWithDeclaration decl ctx
+          elaborateDeclarationsSequentially newCtx remaining (decl:acc)
+    
+    updateContextWithDeclaration :: Declaration -> ElaborateContext -> ElaborateContext
+    updateContextWithDeclaration (MacroDef name params body) ctx =
+      let newMacroEnv = extendMacroEnvironment name params body (defaultFixity "TEST") (macroEnv ctx)
+      in ctx { macroEnv = newMacroEnv }
+    updateContextWithDeclaration (TheoremDef name bindings judgment proof) ctx =
+      let newTheoremEnv = extendTheoremEnvironment name bindings judgment proof (theoremEnv ctx)
+      in ctx { theoremEnv = newTheoremEnv }
+    updateContextWithDeclaration _ ctx = ctx  -- Other declaration types don't affect elaboration context
+
+-- | Build macro and theorem environments from parsed declarations
+buildEnvironmentsFromDeclarations :: [Declaration] -> (MacroEnvironment, TheoremEnvironment)
+buildEnvironmentsFromDeclarations decls = 
+  let macros = [(name, params, body) | MacroDef name params body <- decls]
+      theorems = [(name, bindings, judgment, proof) | TheoremDef name bindings judgment proof <- decls]
+      macroEnv = foldl (\env (name, params, body) -> 
+                         extendMacroEnvironment name params body (defaultFixity "TEST") env) 
+                       noMacros macros
+      theoremEnv = foldl (\env (name, bindings, judgment, proof) -> 
+                           extendTheoremEnvironment name bindings judgment proof env) 
+                         noTheorems theorems
+  in (macroEnv, theoremEnv)

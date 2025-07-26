@@ -5,7 +5,7 @@ import Control.Monad.Reader (runReader)
 import qualified Data.Map as Map
 import Errors
 import Lib
-import Parser (ParseContext (..), emptyParseContext, parseRType, relVars, runParserT)
+import Parser.Legacy (ParseContext (..), emptyParseContext, parseRType, relVars, runParserT)
 import PrettyPrint
 import Test.Hspec
 import TestHelpers
@@ -138,7 +138,7 @@ spec = do
       it "pretty prints relational macros with promoted terms" $ do
         let original = RMacro "Lift" [Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")] (initialPos "test")
             prettyResult = prettyRType original
-            liftEnv = extendMacroEnvironment "Lift" ["A"] (RelMacro (RVar "A" 0 (initialPos "test"))) defaultFixity noMacros
+            liftEnv = extendMacroEnvironment "Lift" ["A"] (RelMacro (RVar "A" 0 (initialPos "test"))) (defaultFixity "TEST") noMacros
             ctx = emptyParseContext {macroEnv = liftEnv, kwdSet = mixfixKeywords liftEnv}
         -- Test that the pretty-printed result parses back to exactly the same AST
         case runReader (runParserT parseRType "" prettyResult) ctx of

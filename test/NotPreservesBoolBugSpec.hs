@@ -5,9 +5,9 @@ module NotPreservesBoolBugSpec (spec) where
 import Context
 import Lib
 import Normalize (expandTermMacrosOneStep)
-import Parser
 import ProofChecker
 import Test.Hspec
+import TestHelpers
 import Text.Megaparsec (initialPos)
 
 spec :: Spec
@@ -27,34 +27,22 @@ parseAndRunBoolRttContentSpec = describe "Parse and run bool.rtt content" $ do
               "  ΛX. λx:X. λy:X. (p{X} y x);"
             ]
 
-    case runParserWithFilename "test.rtt" parseFile boolRttContent of
-      Left parseErr -> expectationFailure $ "Parse failed: " ++ show parseErr
+    case parseFileDeclarations boolRttContent of
+      Left parseErr -> expectationFailure $ "Parse failed: " ++ parseErr
       Right decls -> do
         -- Extract macro definitions and theorem
-        let macros = [d | d@(MacroDef _ _ _) <- decls]
-            theorems = [d | d@(TheoremDef _ _ _ _) <- decls]
+        let theorems = [d | d@(TheoremDef _ _ _ _) <- decls]
+            (macroEnv, theoremEnv) = buildEnvironmentsFromDeclarations decls
 
-        case (buildMacroEnvironmentFromDecls macros, theorems) of
-          (Right macrEnv, [TheoremDef _ bindings judgment proof]) -> do
+        case theorems of
+          [TheoremDef _ bindings judgment proof] -> do
             let ctx = buildContextFromBindings bindings
-            case checkProof ctx macrEnv noTheorems proof judgment of
+            case checkProof ctx macroEnv theoremEnv proof judgment of
               Left err ->
                 expectationFailure $ "Proof checking failed: " ++ show err
               Right _ ->
                 return () -- Success: The proof type checks correctly
           _ -> expectationFailure "Failed to extract theorem from parsed content"
-  where
-    buildMacroEnvironmentFromDecls [] = Right noMacros
-    buildMacroEnvironmentFromDecls ((MacroDef name params body) : rest) = do
-      env <- buildMacroEnvironmentFromDecls rest
-      return $ extendMacroEnvironment name params body defaultFixity env
-    buildMacroEnvironmentFromDecls (_ : rest) = buildMacroEnvironmentFromDecls rest
-
-    buildContextFromBindings = foldl addBinding emptyTypingContext
-      where
-        addBinding ctx (TermBinding name) = extendTermContext name (RMacro "Type" [] (initialPos "<builtin>")) ctx
-        addBinding ctx (RelBinding name) = extendRelContext name ctx
-        addBinding ctx (ProofBinding name judgment) = extendProofContext name judgment ctx
 
 -- Approach 2: Extract and test just the judgment comparison
 extractAndTestJudgmentComparisonSpec :: Spec
@@ -66,12 +54,12 @@ extractAndTestJudgmentComparisonSpec = describe "Judgment comparison focus" $ do
             "Not"
             ["b"]
             (TermMacro $ Lam "t" (Lam "f" (App (App (Var "b" 0 pos) (Var "f" 0 pos) pos) (Var "t" 1 pos) pos) pos) pos)
-            defaultFixity
+            (defaultFixity "TEST")
             $ extendMacroEnvironment
               "Bool"
               []
               (RelMacro $ All "X" (Arr (RVar "X" 0 pos) (Arr (RVar "X" 0 pos) (RVar "X" 0 pos) pos) pos) pos)
-              defaultFixity
+              (defaultFixity "TEST")
               noMacros
 
         -- Expected judgment (with macro)

@@ -1,6 +1,6 @@
 module TheoremApplicationSpec (spec) where
 
-import Parser (parseFile, runParserEmpty)
+import Parser.Legacy (parseFile, runParserEmpty)
 import Test.Hspec
 
 -- Test the fundamental theorem application bug

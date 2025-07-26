@@ -1,21 +1,34 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, LambdaCase #-}
 
 module IntegrationSpec (spec) where
 
 import Context
 import qualified Data.Set as Set
+import Data.Text (Text)
+import qualified Data.Text as T
+import Elaborate
 import Errors
 import Lib
 import Normalize
-import Parser
 import ProofChecker
+import qualified RawAst as Raw
+import RawParser
 import Test.Hspec
 import TestHelpers
-import Text.Megaparsec (initialPos)
+import Text.Megaparsec (initialPos, runParser, errorBundlePretty)
 import TypeOps
 
 ip :: SourcePos
 ip = (initialPos "test")
+
+parseDeclaration :: String -> Either String Declaration  
+parseDeclaration content =
+  case runParser rawDeclaration "test" (T.pack content) of
+    Left parseErr -> Left $ "Parse error: " ++ errorBundlePretty parseErr
+    Right rawDecl -> case elaborate emptyElaborateContext rawDecl of
+      Left (ElabError err) -> Left $ "Elaboration error: " ++ show err
+      Left (ParseError err) -> Left $ "Parse error: " ++ show err
+      Right decl -> Right decl
 
 -- Helper functions for tests that don't use macros
 normalizeTermBetaEta :: Term -> Either RelTTError NormalizationResult
@@ -56,7 +69,7 @@ endToEndWorkflowSpec = describe "end-to-end workflows" $ do
 
   it "expands macros and normalizes promoted terms" $ do
     -- Set up macro environment
-    let env = extendMacroEnvironment "Id" [] (RelMacro (Prom (Lam "x" (Var "x" 0 ip) ip) ip)) defaultFixity noMacros
+    let env = extendMacroEnvironment "Id" [] (RelMacro (Prom (Lam "x" (Var "x" 0 ip) ip) ip)) (defaultFixity "TEST") noMacros
 
     -- Create a type with macro and promoted term
     let macroType = RMacro "Id" [] ip
@@ -89,9 +102,9 @@ macroIntegrationSpec = describe "macro system integration" $ do
   it "handles nested macro definitions and usage" $ do
     -- Build a macro environment with dependencies
     let env0 = noMacros
-        env1 = extendMacroEnvironment "Id" [] (RelMacro (Prom (Lam "x" (Var "x" 0 ip) ip) ip)) defaultFixity env0
-        env2 = extendMacroEnvironment "Const" ["A"] (RelMacro (Arr (RVar "A" 0 ip) (Arr (RMacro "Any" [] ip) (RVar "A" 0 ip) ip) ip)) defaultFixity env1
-        env3 = extendMacroEnvironment "Apply" ["F", "A"] (RelMacro (Comp (RVar "F" 1 ip) (RVar "A" 0 ip) ip)) defaultFixity env2
+        env1 = extendMacroEnvironment "Id" [] (RelMacro (Prom (Lam "x" (Var "x" 0 ip) ip) ip)) (defaultFixity "TEST") env0
+        env2 = extendMacroEnvironment "Const" ["A"] (RelMacro (Arr (RVar "A" 0 ip) (Arr (RMacro "Any" [] ip) (RVar "A" 0 ip) ip) ip)) (defaultFixity "TEST") env1
+        env3 = extendMacroEnvironment "Apply" ["F", "A"] (RelMacro (Comp (RVar "F" 1 ip) (RVar "A" 0 ip) ip)) (defaultFixity "TEST") env2
 
     -- Test macro expansion chain
     let complexMacro = RMacro "Apply" [RMacro "Id" [] ip, RMacro "Const" [RMacro "Int" [] ip] ip] ip
@@ -105,8 +118,8 @@ macroIntegrationSpec = describe "macro system integration" $ do
   it "optimizes macro equality checking" $ do
     -- Create macro environment with two macros that expand to the same thing but have different names
     let env =
-          extendMacroEnvironment "List" ["T"] (RelMacro (Arr (RVar "T" 0 ip) (RMacro "Container" [] ip) ip)) defaultFixity $
-            extendMacroEnvironment "Array" ["T"] (RelMacro (Arr (RVar "T" 0 ip) (RMacro "Container" [] ip) ip)) defaultFixity noMacros
+          extendMacroEnvironment "List" ["T"] (RelMacro (Arr (RVar "T" 0 ip) (RMacro "Container" [] ip) ip)) (defaultFixity "TEST") $
+            extendMacroEnvironment "Array" ["T"] (RelMacro (Arr (RVar "T" 0 ip) (RMacro "Container" [] ip) ip)) (defaultFixity "TEST") noMacros
 
         -- Identical macros (should not require expansion - optimization applies)
         identicalMacro1 = RMacro "List" [RMacro "Int" [] ip] ip
@@ -137,7 +150,7 @@ realExamplesSpec :: Spec
 realExamplesSpec = describe "realistic RelTT examples" $ do
   it "handles identity relation macro" $ do
     -- Identity relation: Id ≔ (λx. x)^
-    let env = extendMacroEnvironment "Id" [] (RelMacro (Prom (Lam "x" (Var "x" 0 ip) ip) ip)) defaultFixity noMacros
+    let env = extendMacroEnvironment "Id" [] (RelMacro (Prom (Lam "x" (Var "x" 0 ip) ip) ip)) (defaultFixity "TEST") noMacros
         idType = RMacro "Id" [] ip
 
     -- Expand and verify
@@ -150,7 +163,7 @@ realExamplesSpec = describe "realistic RelTT examples" $ do
 
   it "handles composition macro" $ do
     -- Composition: Comp R S ≔ R ∘ S
-    let env = extendMacroEnvironment "Comp" ["R", "S"] (RelMacro (Comp (RVar "R" 1 ip) (RVar "S" 0 ip) ip)) defaultFixity noMacros
+    let env = extendMacroEnvironment "Comp" ["R", "S"] (RelMacro (Comp (RVar "R" 1 ip) (RVar "S" 0 ip) ip)) (defaultFixity "TEST") noMacros
         compType = RMacro "Comp" [RMacro "F" [] ip, RMacro "G" [] ip] ip
 
     case expandMacros env compType of
@@ -162,7 +175,7 @@ realExamplesSpec = describe "realistic RelTT examples" $ do
 
   it "handles converse operations" $ do
     -- Symmetric relation: Sym R ≔ R˘
-    let env = extendMacroEnvironment "Sym" ["R"] (RelMacro (Conv (RVar "R" 0 ip) ip)) defaultFixity noMacros
+    let env = extendMacroEnvironment "Sym" ["R"] (RelMacro (Conv (RVar "R" 0 ip) ip)) (defaultFixity "TEST") noMacros
         symType = RMacro "Sym" [RMacro "Related" [] ip] ip
 
     case expandMacros env symType of
@@ -340,7 +353,7 @@ termPromotionExamplesSpec = describe "term promotion examples" $ do
     -- Id := (λx. x)^
     let idTerm = Lam "x" (Var "x" 0 ip) ip
         idMacro = Prom idTerm ip
-        env = extendMacroEnvironment "Id" [] (RelMacro idMacro) defaultFixity noMacros
+        env = extendMacroEnvironment "Id" [] (RelMacro idMacro) (defaultFixity "TEST") noMacros
 
     -- Test macro expansion
     case expandMacros env (RMacro "Id" [] ip) of
@@ -351,7 +364,7 @@ termPromotionExamplesSpec = describe "term promotion examples" $ do
     -- LambdaMacro A B := (λx. λy. x y)^
     let lambdaTerm = Lam "x" (Lam "y" (App (Var "x" 1 ip) (Var "y" 0 ip) ip) ip) ip
         lambdaMacro = Prom lambdaTerm ip
-        env = extendMacroEnvironment "LambdaMacro" ["A", "B"] (RelMacro lambdaMacro) defaultFixity noMacros
+        env = extendMacroEnvironment "LambdaMacro" ["A", "B"] (RelMacro lambdaMacro) (defaultFixity "TEST") noMacros
 
     -- Test parameterized macro expansion
     case expandMacros env (RMacro "LambdaMacro" [RMacro "Int" [] ip, RMacro "Bool" [] ip] ip) of
@@ -393,7 +406,7 @@ compositionExamplesSpec = describe "composition examples" $ do
     -- Corrected: Use RVar with proper de Bruijn indices for macro parameters
     -- RVar "R" 1 represents the first parameter, RVar "S" 0 represents the second parameter
     let doubleComp = Comp (RVar "R" 1 ip) (Comp (RVar "R" 1 ip) (RVar "S" 0 ip) ip) ip
-        env = extendMacroEnvironment "DoubleComp" ["R", "S"] (RelMacro doubleComp) defaultFixity noMacros
+        env = extendMacroEnvironment "DoubleComp" ["R", "S"] (RelMacro doubleComp) (defaultFixity "TEST") noMacros
 
     case expandMacros env (RMacro "DoubleComp" [RMacro "Eq" [] ip, RMacro "Lt" [] ip] ip) of
       Right result ->
@@ -431,7 +444,7 @@ converseExamplesSpec = describe "converse examples" $ do
 
   it "demonstrates symmetry macro Sym R := R˘" $ do
     let symMacro = Conv (RVar "R" 0 ip) ip
-        env = extendMacroEnvironment "Sym" ["R"] (RelMacro symMacro) defaultFixity noMacros
+        env = extendMacroEnvironment "Sym" ["R"] (RelMacro symMacro) (defaultFixity "TEST") noMacros
 
     case expandMacros env (RMacro "Sym" [RMacro "Equal" [] ip] ip) of
       Right result -> expandedType result `shouldBe` Conv (RMacro "Equal" [] ip) ip
@@ -463,12 +476,12 @@ proofTermExamplesSpec = describe "proof term examples" $ do
     -- End-to-end integration test: parse, type-check, and verify the literal typing rule
     let fileContent =
           unlines
-            [ "⊢ iotaRule (a: Term) (f: Term): a [f] (f a) := ι⟨a, f⟩;"
+            [ "⊢ iotaRule (a : term) (f : term): a [f] (f a) := ι⟨a, f⟩;"
             ]
 
-    case runParserEmpty parseFile fileContent of
+    case parseFileDeclarations fileContent of
       Right decls -> do
-        let (_, theoremDefs) = extractDeclarations decls
+        let theoremDefs = [d | d@(TheoremDef _ _ _ _) <- decls]
         length theoremDefs `shouldBe` 1
 
         case head theoremDefs of
@@ -493,7 +506,7 @@ proofTermExamplesSpec = describe "proof term examples" $ do
                     resultJudgment result `shouldBeEqual` judgment
                   Left err -> expectationFailure $ "Expected successful literal iota rule proof: " ++ show err
           other -> expectationFailure $ "Expected TheoremDef 'iotaRule' but got: " ++ show other
-      Left parseErr -> expectationFailure $ "Expected successful parsing: " ++ show parseErr
+      Left parseErr -> expectationFailure $ "Expected successful parsing: " ++ parseErr
 
   it "demonstrates transitivity via composition" $ do
     -- Build context: t[R]u, u[S]v ⊢ t[R∘S]v
@@ -539,60 +552,58 @@ basicPipelineSpec = describe "basic pipeline tests" $ do
   it "parses and checks simple macro with proof" $ do
     let fileContent =
           unlines
-            [ "Id := (λx. x) ;",
-              "⊢ reflexivity (t: Term): t[Id](Id t) := ι⟨t, Id⟩;"
+            [ "Id := λx. x;",
+              "⊢ reflexivity (t : term): t[Id](Id t) := ι⟨t, Id⟩;"
             ]
 
-    case runParserEmpty parseFile fileContent of
+    case parseFileDeclarations fileContent of
       Right decls -> do
-        let (macroDefs, theoremDefs) = extractDeclarations decls
+        let macroDefs = [d | d@(MacroDef _ _ _) <- decls]
+            theoremDefs = [d | d@(TheoremDef _ _ _ _) <- decls]
         length macroDefs `shouldBe` 1
         length theoremDefs `shouldBe` 1
 
         -- Build macro environment from parsed macros
-        case buildMacroEnvironmentFromDeclarations macroDefs of
-          Left err -> expectationFailure $ "Failed to build macro environment: " ++ show err
-          Right env -> do
-            -- Test the theorem proof checking
-            case theoremDefs of
-              [TheoremDef "reflexivity" bindings judgment proof] -> do
-                let ctx = buildContextFromBindings bindings
-                case checkProof ctx env noTheorems proof judgment of
-                  Right _ -> do
-                    -- Proof should establish the expected judgment
-                    return ()
-                  Left err -> expectationFailure $ "Proof checking failed: " ++ show err
-              _ -> expectationFailure "Expected single reflexivity theorem"
-      Left err -> expectationFailure $ "Parse failed: " ++ show err
+        let (newMacroEnv, newTheoremEnv) = buildEnvironmentsFromDeclarations decls
+        -- Test the theorem proof checking
+        case theoremDefs of
+          [TheoremDef "reflexivity" bindings judgment proof] -> do
+            let ctx = buildContextFromBindings bindings
+            case checkProof ctx newMacroEnv newTheoremEnv proof judgment of
+              Right _ -> do
+                -- Proof should establish the expected judgment
+                return ()
+              Left err -> expectationFailure $ "Proof checking failed: " ++ show err
+          _ -> expectationFailure "Expected single reflexivity theorem"
+      Left err -> expectationFailure $ "Parse failed: " ++ err
 
   it "validates macro environment integration" $ do
     let fileContent =
           unlines
             [ "Comp R S := R ∘ S;",
-              "⊢ transitivity (R: Rel) (S: Rel) (x: Term) (y: Term) (z: Term) (p: x[R]y) (q: y[S]z): x[Comp R S]z := (p, q);"
+              "⊢ transitivity (R : rel) (S : rel) (x : term) (y : term) (z : term) (p : x[R]y) (q : y[S]z): x[Comp R S]z := (p, q);"
             ]
 
-    case runParserEmpty parseFile fileContent of
+    case parseFileDeclarations fileContent of
       Right decls -> do
-        let (macroDefs, theoremDefs) = extractDeclarations decls
-        case buildMacroEnvironmentFromDeclarations macroDefs of
-          Left err -> expectationFailure $ "Failed to build macro environment: " ++ show err
-          Right env -> do
-            -- Verify macro expansion works
-            case expandMacros env (RMacro "Comp" [RVar "R" 1 ip, RVar "S" 0 ip] ip) of
-              Right result ->
-                expandedType result `shouldBeEqual` Comp (RVar "R" 1 ip) (RVar "S" 0 ip) ip
-              Left err -> expectationFailure $ "Macro expansion failed: " ++ show err
+        let macroDefs = [d | d@(MacroDef _ _ _) <- decls]
+            theoremDefs = [d | d@(TheoremDef _ _ _ _) <- decls]
+        let (newMacroEnv, _) = buildEnvironmentsFromDeclarations decls
+        -- Verify macro expansion works
+        case expandMacros newMacroEnv (RMacro "Comp" [RVar "R" 1 ip, RVar "S" 0 ip] ip) of
+          Right result ->
+            expandedType result `shouldBeEqual` Comp (RVar "R" 1 ip) (RVar "S" 0 ip) ip
+          Left err -> expectationFailure $ "Macro expansion failed: " ++ show err
 
-            -- Verify the theorem uses the macro correctly in its judgment
-            case theoremDefs of
-              [TheoremDef _ _ judgment _] -> do
-                let RelJudgment _ relType _ = judgment
-                case relType of
-                  RMacro "Comp" [RVar "R" 1 _, RVar "S" 0 _] _ -> return ()
-                  _ -> expectationFailure $ "Expected Comp macro in judgment, got: " ++ show relType
-              _ -> expectationFailure "Expected single theorem"
-      Left err -> expectationFailure $ "Parse failed: " ++ show err
+        -- Verify the theorem uses the macro correctly in its judgment
+        case theoremDefs of
+          [TheoremDef _ _ judgment _] -> do
+            let RelJudgment _ relType _ = judgment
+            case relType of
+              RMacro "Comp" [RVar "R" 1 _, RVar "S" 0 _] _ -> return ()
+              _ -> expectationFailure $ "Expected Comp macro in judgment, got: " ++ show relType
+          _ -> expectationFailure "Expected single theorem"
+      Left err -> expectationFailure $ "Parse failed: " ++ err
 
 -- | Test error handling across the pipeline
 errorHandlingPipelineSpec :: Spec
@@ -600,33 +611,33 @@ errorHandlingPipelineSpec = describe "error handling pipeline tests" $ do
   it "handles parse errors before proof checking" $ do
     let invalidContent =
           unlines
-            [ "Id := (λx. x) ;",
+            [ "Id := λx. x;",
               "Bad := R ∘ ∘ S;", -- Invalid syntax
               "⊢ theorem: t[Id]t := ι⟨t,t⟩;"
             ]
 
-    case runParserEmpty parseFile invalidContent of
+    case parseFileDeclarations invalidContent of
       Left _ -> return () -- Expected parse failure
       Right _ -> expectationFailure "Expected parse error for invalid syntax"
 
   it "handles proof checking errors on valid parsed content" $ do
     let fileContent =
           unlines
-            [ "⊢ invalidProof (R: Rel) (x: Term) (y: Term): x[R]y := ι⟨x,y⟩;" -- Wrong proof for judgment
+            [ "⊢ invalidProof (R : rel) (x : term) (y : term): x[R]y := ι⟨x,y⟩;" -- Wrong proof for judgment
             ]
 
-    case runParserEmpty parseFile fileContent of
+    case parseFileDeclarations fileContent of
       Right decls -> do
-        let (_, theoremDefs) = extractDeclarations decls
+        let theoremDefs = [d | d@(TheoremDef _ _ _ _) <- decls]
         case theoremDefs of
           [TheoremDef _ bindings judgment proof] -> do
             let ctx = buildContextFromBindings bindings
-                env = noMacros
-            case checkProof ctx env noTheorems proof judgment of
+                (newMacroEnv, newTheoremEnv) = buildEnvironmentsFromDeclarations decls
+            case checkProof ctx newMacroEnv newTheoremEnv proof judgment of
               Left _ -> return () -- Expected proof checking error
               Right _ -> expectationFailure "Expected proof checking to fail"
           _ -> expectationFailure "Expected single theorem"
-      Left err -> expectationFailure $ "Parse failed: " ++ show err
+      Left err -> expectationFailure $ "Parse failed: " ++ err
 
 -- | Test real RelTT examples through the pipeline
 realRelTTExamplesSpec :: Spec
@@ -634,36 +645,36 @@ realRelTTExamplesSpec = describe "real RelTT examples" $ do
   it "processes identity theorem end-to-end" $ do
     let fileContent =
           unlines
-            [ "Id := (λx. x) ;",
-              "⊢ identity (t: Term): t[Id](Id t) := ι⟨t, Id⟩;"
+            [ "Id := λx. x;",
+              "⊢ identity (t : term): t[Id](Id t) := ι⟨t, Id⟩;"
             ]
 
     case parseAndCheckTheorem fileContent "identity" of
       Right _ -> do
         -- Successfully parsed and proved the identity theorem
         return ()
-      Left err -> expectationFailure $ "Identity theorem failed: " ++ show err
+      Left err -> expectationFailure $ "Identity theorem failed: " ++ err
 
   it "processes composition theorem with macro" $ do
     let fileContent =
           unlines
             [ "Comp R S := R ∘ S;",
-              "⊢ transitivity (R: Rel) (S: Rel) (x: Term) (y: Term) (z: Term) (p: x[R]y) (q: y[S]z): x[Comp R S]z := (p, q);"
+              "⊢ transitivity (R : rel) (S : rel) (x : term) (y : term) (z : term) (p : x[R]y) (q : y[S]z): x[Comp R S]z := (p, q);"
             ]
 
     case parseAndCheckTheorem fileContent "transitivity" of
       Right _ -> return ()
-      Left err -> expectationFailure $ "Transitivity theorem failed: " ++ show err
+      Left err -> expectationFailure $ "Transitivity theorem failed: " ++ err
 
   it "processes converse theorem" $ do
     let fileContent =
           unlines
-            [ "⊢ symmetry (R: Rel) (x: Term) (y: Term) (p: x[R]y): y[R˘]x := ∪ᵢ p;"
+            [ "⊢ symmetry (R : rel) (x : term) (y : term) (p : x[R]y): y[R˘]x := ∪ᵢ p;"
             ]
 
     case parseAndCheckTheorem fileContent "symmetry" of
       Right _ -> return ()
-      Left err -> expectationFailure $ "Symmetry theorem failed: " ++ show err
+      Left err -> expectationFailure $ "Symmetry theorem failed: " ++ err
 
 -- | Test complex file processing
 complexFileProcessingSpec :: Spec
@@ -671,24 +682,23 @@ complexFileProcessingSpec = describe "complex file processing" $ do
   it "processes multi-theorem files" $ do
     let fileContent =
           unlines
-            [ "Id := (λx. x) ;",
-              "Sym R := R˘ ;",
+            [ "Id := λx. x;",
+              "Sym R := R˘;",
               "⊢ identity (t: Term): t[Id](Id t) := ι⟨t, Id⟩;",
               "⊢ symmetry (R: Rel) (x: Term) (y: Term) (p: x[R]y): y[Sym R]x := ∪ᵢ p;"
             ]
 
-    case runParserEmpty parseFile fileContent of
+    case parseFileDeclarations fileContent of
       Right decls -> do
-        let (macroDefs, theoremDefs) = extractDeclarations decls
+        let macroDefs = [d | d@(MacroDef _ _ _) <- decls]
+            theoremDefs = [d | d@(TheoremDef _ _ _ _) <- decls]
         length macroDefs `shouldBe` 2
         length theoremDefs `shouldBe` 2
 
-        case buildMacroEnvironmentFromDeclarations macroDefs of
-          Left err -> expectationFailure $ "Failed to build macro environment: " ++ show err
-          Right env -> do
-            -- Check each theorem individually
-            mapM_ (checkTheoremInEnvironment env) theoremDefs
-      Left err -> expectationFailure $ "Parse failed: " ++ show err
+        let (newMacroEnv, _) = buildEnvironmentsFromDeclarations decls
+        -- Check each theorem individually
+        mapM_ (checkTheoremInEnvironment newMacroEnv) theoremDefs
+      Left err -> expectationFailure $ "Parse failed: " ++ err
 
   it "handles dependent macros" $ do
     let fileContent =
@@ -698,62 +708,46 @@ complexFileProcessingSpec = describe "complex file processing" $ do
               "⊢ example (R: Rel) (S: Rel) (x: Term) (y: Term) (p: x[Extended R S]y): x[Extended R S]y := p;"
             ]
 
-    case runParserEmpty parseFile fileContent of
+    case parseFileDeclarations fileContent of
       Right decls -> do
-        let (macroDefs, theoremDefs) = extractDeclarations decls
-        case buildMacroEnvironmentFromDeclarations macroDefs of
-          Left err -> expectationFailure $ "Failed to build macro environment: " ++ show err
-          Right env -> do
-            -- Test that dependent macro expansion works
-            case expandMacros env (RMacro "Extended" [RMacro "A" [] ip, RMacro "B" [] ip] ip) of
-              Right result -> do
-                -- Should expand to (A ∘ A) ∘ B (Base A gets expanded too)
-                let expected = Comp (Comp (RMacro "A" [] ip) (RMacro "A" [] ip) ip) (RMacro "B" [] ip) ip
-                expandedType result `shouldBeEqual` expected
-              Left err -> expectationFailure $ "Dependent macro expansion failed: " ++ show err
+        let macroDefs = [d | d@(MacroDef _ _ _) <- decls]
+            theoremDefs = [d | d@(TheoremDef _ _ _ _) <- decls]
+        let (newMacroEnv, _) = buildEnvironmentsFromDeclarations decls
+        -- Test that dependent macro expansion works
+        case expandMacros newMacroEnv (RMacro "Extended" [RMacro "A" [] ip, RMacro "B" [] ip] ip) of
+          Right result -> do
+            -- Should expand to (A ∘ A) ∘ B (Base A gets expanded too)
+            let expected = Comp (Comp (RMacro "A" [] ip) (RMacro "A" [] ip) ip) (RMacro "B" [] ip) ip
+            expandedType result `shouldBeEqual` expected
+          Left err -> expectationFailure $ "Dependent macro expansion failed: " ++ show err
 
-            -- Verify theorem checking still works
-            mapM_ (checkTheoremInEnvironment env) theoremDefs
-      Left err -> expectationFailure $ "Parse failed: " ++ show err
+        -- Verify theorem checking still works
+        mapM_ (checkTheoremInEnvironment newMacroEnv) theoremDefs
+      Left err -> expectationFailure $ "Parse failed: " ++ err
 
 -- Helper functions for pipeline integration testing
 
--- | Extract macro and theorem declarations from a list of declarations
-extractDeclarations :: [Declaration] -> ([Declaration], [Declaration])
-extractDeclarations decls =
-  let macroDefs = [d | d@(MacroDef _ _ _) <- decls]
-      theoremDefs = [d | d@(TheoremDef _ _ _ _) <- decls]
-   in (macroDefs, theoremDefs)
-
--- | Build macro environment from parsed macro declarations with validation
-buildMacroEnvironmentFromDeclarations :: [Declaration] -> Either RelTTError MacroEnvironment
-buildMacroEnvironmentFromDeclarations decls = do
-  let env = foldr addMacro noMacros decls
-  return env
-  where
-    addMacro (MacroDef name params body) env =
-      extendMacroEnvironment name params body defaultFixity env
-    addMacro _ env = env
+-- Extract just macro declarations for compatibility
+extractMacroDeclarations :: [Declaration] -> [Declaration]
+extractMacroDeclarations = filter (\case MacroDef _ _ _ -> True; _ -> False)
 
 -- | Parse file content and check a specific theorem
 parseAndCheckTheorem :: String -> String -> Either String ProofCheckResult
 parseAndCheckTheorem fileContent theoremName =
-  case runParserEmpty parseFile fileContent of
-    Left parseErr -> Left $ "Parse error: " ++ show parseErr
+  case parseFileDeclarations fileContent of
+    Left parseErr -> Left parseErr
     Right decls -> do
-      let (macroDefs, theoremDefs) = extractDeclarations decls
-      env <- case buildMacroEnvironmentFromDeclarations macroDefs of
-        Right env -> Right env
-        Left err -> Left $ "Failed to build macro environment: " ++ show err
+      let (newMacroEnv, newTheoremEnv) = buildEnvironmentsFromDeclarations decls
+          theoremDefs = [d | d@(TheoremDef _ _ _ _) <- decls]
 
       case [t | t@(TheoremDef name _ _ _) <- theoremDefs, name == theoremName] of
         [TheoremDef _ bindings judgment proof] -> do
           let ctx = buildContextFromBindings bindings
-          case inferProofType ctx env noTheorems proof of
+          case inferProofType ctx newMacroEnv newTheoremEnv proof of
             Left proofErr -> Left $ "Proof error: " ++ show proofErr
             Right result ->
               -- Use macro-aware equality to check judgments
-              case relJudgmentEqual env (resultJudgment result) judgment of
+              case relJudgmentEqual newMacroEnv (resultJudgment result) judgment of
                 Right True -> Right result
                 Right False -> Left $ "Judgment mismatch: inferred " ++ show (resultJudgment result) ++ " vs expected " ++ show judgment
                 Left err -> Left $ "Equality check failed: " ++ show err
@@ -762,9 +756,9 @@ parseAndCheckTheorem fileContent theoremName =
 
 -- | Check a theorem in a given macro environment
 checkTheoremInEnvironment :: MacroEnvironment -> Declaration -> Expectation
-checkTheoremInEnvironment env (TheoremDef name bindings judgment proof) = do
+checkTheoremInEnvironment newMacroEnv (TheoremDef name bindings judgment proof) = do
   let ctx = buildContextFromBindings bindings
-  case checkProof ctx env noTheorems proof judgment of
+  case checkProof ctx newMacroEnv noTheorems proof judgment of
     Right _ -> return ()
     Left err -> expectationFailure $ "Theorem " ++ name ++ " failed: " ++ show err
 checkTheoremInEnvironment _ _ =
@@ -775,7 +769,7 @@ tmacroProofIntegrationSpec :: Spec
 tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
   it "handles TMacro expansion in iota proofs" $ do
     -- Test: ι⟨t, f x⟩ where f is a term macro
-    let env = extendMacroEnvironment "id" [] (TermMacro (Lam "x" (Var "x" 0 ip) ip)) defaultFixity noMacros
+    let env = extendMacroEnvironment "id" [] (TermMacro (Lam "x" (Var "x" 0 ip) ip)) (defaultFixity "TEST") noMacros
         termCtx =
           extendTermContext "t" (RMacro "A" [] ip) $
             extendTermContext "x" (RMacro "A" [] ip) emptyTypingContext
@@ -797,7 +791,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
 
   it "handles TMacro in proof term applications" $ do
     -- Test proof application where terms contain TMacros
-    let env = extendMacroEnvironment "const" ["a"] (TermMacro (Lam "x" (Var "a" 0 ip) ip)) defaultFixity noMacros
+    let env = extendMacroEnvironment "const" ["a"] (TermMacro (Lam "x" (Var "a" 0 ip) ip)) (defaultFixity "TEST") noMacros
         termCtx =
           extendTermContext "y" (RMacro "B" [] ip) $
             extendTermContext "x" (RMacro "A" [] ip) emptyTypingContext
@@ -827,8 +821,8 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
 
   it "handles nested TMacro applications in proofs" $ do
     -- Test deeply nested TMacro applications
-    let macroEnv1 = extendMacroEnvironment "id" [] (TermMacro (Lam "x" (Var "x" 0 ip) ip)) defaultFixity noMacros
-        macroEnv2 = extendMacroEnvironment "app" ["f", "x"] (TermMacro (App (Var "f" 1 ip) (Var "x" 0 ip) ip)) defaultFixity macroEnv1
+    let macroEnv1 = extendMacroEnvironment "id" [] (TermMacro (Lam "x" (Var "x" 0 ip) ip)) (defaultFixity "TEST") noMacros
+        macroEnv2 = extendMacroEnvironment "app" ["f", "x"] (TermMacro (App (Var "f" 1 ip) (Var "x" 0 ip) ip)) (defaultFixity "TEST") macroEnv1
 
         termCtx =
           extendTermContext "f" (RMacro "A→B" [] ip) $
@@ -863,7 +857,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
 
   it "handles TMacro in conversion proofs" $ do
     -- Test term conversion with TMacros
-    let env = extendMacroEnvironment "id" ["x"] (TermMacro (Var "x" 0 ip)) defaultFixity noMacros
+    let env = extendMacroEnvironment "id" ["x"] (TermMacro (Var "x" 0 ip)) (defaultFixity "TEST") noMacros
         termCtx = extendTermContext "t" (RMacro "A" [] ip) emptyTypingContext
 
         -- Create a proof that t ≡ t via identity
@@ -888,7 +882,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
 
   it "handles TMacro arity validation in proof context" $ do
     -- Test that TMacro arity is validated during proof checking
-    let env = extendMacroEnvironment "binary" ["x", "y"] (TermMacro (App (Var "x" 1 ip) (Var "y" 0 ip) ip)) defaultFixity noMacros
+    let env = extendMacroEnvironment "binary" ["x", "y"] (TermMacro (App (Var "x" 1 ip) (Var "y" 0 ip) ip)) (defaultFixity "TEST") noMacros
         termCtx = extendTermContext "a" (RMacro "A" [] ip) emptyTypingContext
 
         -- TMacro with wrong arity (expects 2 args, gets 1)
@@ -912,40 +906,43 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
     -- This should FAIL but currently passes due to variable shadowing bug
     -- The theorem binding 'x' and the pi-bound 'x' are different variables
     let input = "⊢ shadowing_bug_test (R : Rel) (S : Rel) (a : Term) (b : Term) (x : Term) (p : a [R ∘ S] b) : a [R] x := π p - x.u.v.u;"
-    case runParserEmpty parseFile input of
+    case parseFileDeclarations input of
       Right [TheoremDef _ bindings judgment proof] -> do
         -- Build context from bindings
         let ctx = buildContextFromBindings bindings
+            (newMacroEnv, newTheoremEnv) = (noMacros, noTheorems)
         -- This should fail type checking because the pi-bound x and parameter x are different
-        case checkProof ctx noMacros noTheorems proof judgment of
+        case checkProof ctx newMacroEnv newTheoremEnv proof judgment of
           Right _ -> expectationFailure "Expected type checking to fail due to variable shadowing, but it passed"
           Left _ -> return () -- Expected failure
       Right _ -> expectationFailure "Expected single theorem declaration"
-      Left err -> expectationFailure $ "Parse failed: " ++ show err
+      Left err -> expectationFailure $ "Parse failed: " ++ err
 
   it "detects pi elimination type error with different variable name" $ do
     -- Same test but with 'y' instead of shadowed 'x' to show AST differences
     -- This should also FAIL because the conclusion 'a [R] x' doesn't match what pi elimination produces
     let input = "⊢ pi_type_error_test (R : Rel) (S : Rel) (a : Term) (b : Term) (x : Term) (p : a [R ∘ S] b) : a [R] x := π p - y.u.v.u;"
-    case runParserEmpty parseFile input of
+    case parseFileDeclarations input of
       Right [TheoremDef _ bindings judgment proof] -> do
         -- Build context from bindings
         let ctx = buildContextFromBindings bindings
+            (newMacroEnv, newTheoremEnv) = (noMacros, noTheorems)
         -- This should fail type checking
-        case checkProof ctx noMacros noTheorems proof judgment of
+        case checkProof ctx newMacroEnv newTheoremEnv proof judgment of
           Right _ -> expectationFailure "Expected type checking to fail, but it passed"
           Left _ -> return () -- Expected failure
       Right _ -> expectationFailure "Expected single theorem declaration"
-      Left err -> expectationFailure $ "Parse failed: " ++ show err
+      Left err -> expectationFailure $ "Parse failed: " ++ err
 
   it "correctly shifts indices in pi elimination - term variables" $ do
     -- Test that term variable indices are shifted correctly
     let input = "⊢ pi_shift_term (R : Rel) (S : Rel) (t : Term) (p : t [R ∘ S] t) : t [R] t := π p - x.u.v.ι⟨t,t⟩;"
-    case runParserEmpty parseFile input of
+    case parseFileDeclarations input of
       Right [TheoremDef _ bindings judgment proof] -> do
         let ctx = buildContextFromBindings bindings
+            (newMacroEnv, newTheoremEnv) = (noMacros, noTheorems)
         -- This should fail because after shifting, the 't' in the conclusion should have index 1, not 0
-        case checkProof ctx noMacros noTheorems proof judgment of
+        case checkProof ctx newMacroEnv newTheoremEnv proof judgment of
           Right _ -> expectationFailure "Expected type checking to fail due to incorrect index shifting"
           Left _ -> return ()
       _ -> expectationFailure "Parse failed"
@@ -953,11 +950,12 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
   it "correctly shifts indices in lambda abstraction (proof level)" $ do
     -- Test that λ (proof lambda) shifts proof variable indices correctly
     let input = "⊢ lambda_shift_test (R : Rel) (a : Term) (q : a [R] a) : (λx.a) [R → R] (λx'.a) := λp:R.q;"
-    case runParserEmpty parseFile input of
+    case parseFileDeclarations input of
       Right [TheoremDef _ bindings judgment proof] -> do
         let ctx = buildContextFromBindings bindings
+            (newMacroEnv, newTheoremEnv) = (noMacros, noTheorems)
         -- The 'q' inside the lambda body should have its index shifted when 'p' is bound
-        case checkProof ctx noMacros noTheorems proof judgment of
+        case checkProof ctx newMacroEnv newTheoremEnv proof judgment of
           Right _ -> return () -- Expected to pass
           Left _ -> expectationFailure "Lambda abstraction should handle indices correctly"
       _ -> expectationFailure "Parse failed"
@@ -965,11 +963,12 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
   it "verifies complex index shifting with nested binders" $ do
     -- Test multiple nested binders to ensure cumulative shifting works
     let input = "⊢ nested_shift (R : Rel) (S : Rel) (T : Rel) (a : Term) (p : a [R ∘ S ∘ T] a) : a [∀X. R → X → T] a := Λ X.λu:R.λv:X.π p - x.r.s.π s - y.t.u'.ι⟨a,a⟩;"
-    case runParserEmpty parseFile input of
+    case parseFileDeclarations input of
       Right [TheoremDef _ bindings judgment proof] -> do
         let ctx = buildContextFromBindings bindings
+            (newMacroEnv, newTheoremEnv) = (noMacros, noTheorems)
         -- This tests cumulative shifting through multiple binders
-        case checkProof ctx noMacros noTheorems proof judgment of
+        case checkProof ctx newMacroEnv newTheoremEnv proof judgment of
           _ -> return () -- We mainly want to see the AST structure
       _ -> expectationFailure "Parse failed"
 
@@ -979,11 +978,12 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integratio
   it "parse and check theorem with unbound relation in quantifier" $ do
     -- Test Method 2: Parse theorem declaration and check it
     let theoremText = "⊢ bug_test (S : Rel) (a : Term) (b : Term) (p : a [∀X.S] b) : a [S] b := p{S};"
-    case runParserEmpty parseDeclaration theoremText of
-      Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr
+    case parseDeclaration theoremText of
+      Left parseErr -> expectationFailure $ "Parse should succeed: " ++ parseErr
       Right (TheoremDef _ bindings judgment proof) -> do
         let ctx = buildContextFromBindings bindings
-        case checkProof ctx noMacros noTheorems proof judgment of
+            (newMacroEnv, newTheoremEnv) = (noMacros, noTheorems)
+        case checkProof ctx newMacroEnv newTheoremEnv proof judgment of
           Right _ -> return () -- Should succeed
           Left err ->
             expectationFailure $
@@ -1005,12 +1005,11 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integratio
               "    (p : a [∀X.X] b) : a [R] b := p{R};"
             ]
 
-    case runParserEmpty parseFile fileContent of
-      Left parseErr -> expectationFailure $ "File should parse: " ++ show parseErr
+    case parseFileDeclarations fileContent of
+      Left parseErr -> expectationFailure $ "File should parse: " ++ parseErr
       Right decls -> do
         -- Build environments
-        let builtMacroEnv = buildMacroEnv decls
-            builtTheoremEnv = buildTheoremEnv decls
+        let (builtMacroEnv, builtTheoremEnv) = buildEnvironmentsFromDeclarations decls
 
         -- Check each theorem
         mapM_ (checkDeclForBugTest builtMacroEnv builtTheoremEnv) decls
@@ -1018,11 +1017,12 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integratio
   it "nested quantifier substitution shows index corruption clearly" $ do
     -- Test the case that clearly demonstrates the index shifting bug
     let theoremText = "⊢ nested_bug (R : Rel) (S : Rel) (T : Rel) (a : Term) (b : Term) (p : a [∀X.∀Y.X ∘ T] b) : a [R ∘ T] b := (p{R}){S};"
-    case runParserEmpty parseDeclaration theoremText of
-      Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr
+    case parseDeclaration theoremText of
+      Left parseErr -> expectationFailure $ "Parse should succeed: " ++ parseErr
       Right (TheoremDef _ bindings judgment proof) -> do
         let ctx = buildContextFromBindings bindings
-        case checkProof ctx noMacros noTheorems proof judgment of
+            (newMacroEnv, newTheoremEnv) = (noMacros, noTheorems)
+        case checkProof ctx newMacroEnv newTheoremEnv proof judgment of
           Right _ -> return () -- Should work when bug is fixed
           Left err ->
             expectationFailure $
@@ -1033,11 +1033,12 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integratio
     -- Test the failing forall_commute case from demo.rtt
     -- This involves both type lambdas (ΛY. ΛX.) and type applications (p{X}{Y})
     let theoremText = "⊢ forall_commute_test (a : Term) (b : Term) (R : Rel) (p : a [∀X.∀Y.R] b) : a [∀Y.∀X.R] b := ΛY. ΛX. (p{X}){Y};"
-    case runParserEmpty parseDeclaration theoremText of
-      Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr
+    case parseDeclaration theoremText of
+      Left parseErr -> expectationFailure $ "Parse should succeed: " ++ parseErr
       Right (TheoremDef _ bindings judgment proof) -> do
         let ctx = buildContextFromBindings bindings
-        case checkProof ctx noMacros noTheorems proof judgment of
+            (newMacroEnv, newTheoremEnv) = (noMacros, noTheorems)
+        case checkProof ctx newMacroEnv newTheoremEnv proof judgment of
           Right _ -> return () -- Should work when bug is fixed
           Left err ->
             expectationFailure $
@@ -1054,16 +1055,3 @@ checkDeclForBugTest localMacroEnv localTheoremEnv (TheoremDef _ bindings judgmen
     Right _ -> return ()
     Left err -> expectationFailure $ "Theorem should work: " ++ show err
 checkDeclForBugTest _ _ _ = return () -- Skip other declarations
-
-buildMacroEnv :: [Declaration] -> MacroEnvironment
-buildMacroEnv = foldr addMacro noMacros
-  where
-    addMacro (MacroDef name params body) env = extendMacroEnvironment name params body defaultFixity env
-    addMacro _ env = env
-
-buildTheoremEnv :: [Declaration] -> TheoremEnvironment
-buildTheoremEnv = foldr addTheorem noTheorems
-  where
-    addTheorem (TheoremDef name bindings judgment proof) env =
-      extendTheoremEnvironment name bindings judgment proof env
-    addTheorem _ env = env

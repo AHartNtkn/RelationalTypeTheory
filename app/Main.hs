@@ -5,7 +5,11 @@ import Control.Monad (when)
 import Errors
 import Lib
 import ModuleSystem (parseModuleWithDependencies, ModuleLoadError(..))
-import Parser
+import qualified Data.Text as T
+import Elaborate
+import qualified RawAst as Raw
+import RawParser
+import Text.Megaparsec (runParser, errorBundlePretty)
 import PrettyPrint
 import ProofChecker
 import qualified REPL
@@ -59,7 +63,7 @@ buildMacroEnvironmentFromDeclarations decls = do
   return env
   where
     addMacro (MacroDef name params body) env =
-      extendMacroEnvironment name params body defaultFixity env
+      extendMacroEnvironment name params body (defaultFixity name) env
     addMacro _ env = env
 
 -- Build theorem environment from declarations
@@ -78,16 +82,33 @@ checkTheoremInEnvironment macroDefs theoremDefs (TheoremDef _ bindings judgment 
   return ()
 checkTheoremInEnvironment _ _ _ = Left $ InternalError "Expected theorem declaration" (ErrorContext (initialPos "<check>") "check")
 
--- Parse-only mode (using import-aware parsing)
+-- Parse-only mode (using new parser pipeline)
 parseOnlyMode :: String -> IO ()
 parseOnlyMode filename = do
-  result <- parseModuleWithDependencies ["."] filename
-  case result of
-    Left (FileNotFound path) -> putStrLn $ "File not found: " ++ path
-    Left (ParseError path err) -> putStrLn $ "Parse error in " ++ path ++ ": " ++ err
-    Left (CircularDependency cycle) -> putStrLn $ "Circular dependency detected: " ++ show cycle
-    Left (ImportResolutionError path err) -> putStrLn $ "Import resolution error in " ++ path ++ ": " ++ err
-    Right decls -> mapM_ (putStrLn . prettyDeclaration) decls
+  content <- readFile filename
+  case runParser parseFile filename (T.pack content) of
+    Left parseErr -> putStrLn $ "Parse error: " ++ errorBundlePretty parseErr
+    Right rawDecls -> case elaborateDeclarationsSequentially emptyElaborateContext rawDecls [] of
+      Left elaborateErr -> putStrLn $ "Elaboration error: " ++ elaborateErr
+      Right decls -> mapM_ (putStrLn . prettyDeclaration) decls
+  where
+    elaborateDeclarationsSequentially :: ElaborateContext -> [Raw.RawDeclaration] -> [Declaration] -> Either String [Declaration]
+    elaborateDeclarationsSequentially _ [] acc = Right (reverse acc)
+    elaborateDeclarationsSequentially ctx (rawDecl:rest) acc = do
+      case elaborate ctx rawDecl of
+        Left (ElabError err) -> Left $ "Elaboration error: " ++ show err
+        Left (Elaborate.ParseError err) -> Left $ "Parse error: " ++ show err
+        Right decl -> do
+          let newCtx = updateContextWithDeclaration decl ctx
+          elaborateDeclarationsSequentially newCtx rest (decl:acc)
+    
+    updateContextWithDeclaration :: Declaration -> ElaborateContext -> ElaborateContext
+    updateContextWithDeclaration (MacroDef name params body) ctx =
+      let newMacroEnv = extendMacroEnvironment name params body (defaultFixity name) (macroEnv ctx)
+      in ctx { macroEnv = newMacroEnv }
+    updateContextWithDeclaration (TheoremDef name bindings judgment proof) ctx =
+      let newTheoremEnv = extendTheoremEnvironment name bindings judgment proof (theoremEnv ctx)
+      in ctx { theoremEnv = newTheoremEnv }
 
 -- Proof checking mode (using import-aware parsing)
 proofCheckMode :: String -> Bool -> IO ()
@@ -97,7 +118,7 @@ proofCheckMode filename verbose = do
     Left (FileNotFound path) -> do
       putStrLn $ "File not found: " ++ path
       exitFailure
-    Left (ParseError path err) -> do
+    Left (ModuleSystem.ParseError path err) -> do
       putStrLn $ "Parse error in " ++ path ++ ": " ++ err
       exitFailure
     Left (CircularDependency cycle) -> do

@@ -23,6 +23,9 @@ module Lib
     holes,
     defaultFixity,
     mixfixKeywords,
+    extendMacroEnvironment,
+    noMacros,
+    noTheorems,
     termPos,
     rtypePos,
     proofPos,
@@ -63,7 +66,7 @@ data Proof
   | Iota Term Term SourcePos
   | RhoElim String Term Term Proof Proof SourcePos
   | Pair Proof Proof SourcePos
-  | Pi Proof String String String Proof SourcePos
+  | Pi Proof String String String Proof SourcePos  -- π p - x.u.v.q (x:term, u,v:proofs)
   deriving (Show, Eq)
 
 data RelJudgment = RelJudgment Term RType Term -- t [R] t'
@@ -233,9 +236,13 @@ splitMixfix = map extractLiteral . filter isLiteral . parseMixfixPattern
     extractLiteral (Literal s) = s
     extractLiteral _ = error "extractLiteral called on non-literal"
 
--- | Default fixity for macros (preserves old behavior)
-defaultFixity :: Fixity
-defaultFixity = Prefix 9
+-- | Default fixity for macros based on hole count and position
+defaultFixity :: String -> Fixity
+defaultFixity name = case holes name of
+  2 -> Infixl 6   -- Haskell's default for binary infix
+  1 | head name == '_' -> Postfix 8
+    | last name == '_' -> Prefix  9
+  _ -> Prefix 9
 
 -- | Extract all mixfix keywords (literal segments) from macro definitions
 mixfixKeywords :: MacroEnvironment -> Set.Set String
@@ -246,3 +253,26 @@ mixfixKeywords env =
     . filter ('_' `elem`) -- Only process mixfix patterns (containing underscores)
     . Map.keys
     $ macroDefinitions env
+
+------------------------------------------------------------------
+-- | Insert / overwrite a macro together with its (possibly default)
+--   fixity.  Used by the elaborator **and** by the test helper in
+--   MixfixSpec.
+extendMacroEnvironment
+  :: String              -- ^ name  (mix‑fix or ordinary)
+  -> [String]            -- ^ parameters
+  -> MacroBody
+  -> Fixity              -- ^ chosen fixity
+  -> MacroEnvironment -> MacroEnvironment
+extendMacroEnvironment n ps body fix env =
+  env { macroDefinitions = Map.insert n (ps, body) (macroDefinitions env)
+      , macroFixities    = Map.insert n fix       (macroFixities    env)
+      }
+
+------------------------------------------------------------------
+-- | Empty environments used by tests.
+noMacros :: MacroEnvironment
+noMacros = MacroEnvironment Map.empty Map.empty
+
+noTheorems :: TheoremEnvironment
+noTheorems = TheoremEnvironment Map.empty
