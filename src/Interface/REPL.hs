@@ -1,4 +1,4 @@
-module REPL
+module Interface.REPL
   ( runREPL,
     REPLState (..),
     REPLCommand (..),
@@ -8,21 +8,75 @@ module REPL
   )
 where
 
-import Context (emptyTypingContext, extendProofContext, extendRelContext, extendTermContext, lookupMacro, lookupTerm)
+import Core.Context (emptyTypingContext, extendProofContext, extendRelContext, extendTermContext, lookupMacro, lookupTerm)
 import Control.Monad.State
 import qualified Data.Map as Map
-import Errors
-import Lib
-import Environment (noMacros, noTheorems, extendMacroEnvironment)
-import AST.Mixfix (defaultFixity)
-import ModuleSystem (ModuleRegistry, emptyModuleRegistry, loadModuleWithDependenciesIntegrated)
-import Parser.Legacy
-import PrettyPrint (prettyDeclaration, prettyError, prettyExportDeclaration, prettyImportDeclaration, prettyProof, prettyRType, prettyRelJudgment, prettyTerm)
-import ProofChecker
+import Core.Errors
+import Core.Syntax
+import Core.Environment (noMacros, noTheorems, extendMacroEnvironment)
+import Parser.Mixfix (defaultFixity)
+import Module.System (ModuleRegistry, emptyModuleRegistry, loadModuleWithDependenciesIntegrated)
+import Operations.Generic.PrettyPrint (prettyDefault)
+import Interface.PrettyPrint (prettyDeclaration, prettyError, prettyExportDeclaration, prettyImportDeclaration, prettyRelJudgment)
+import TypeCheck.Proof
 import System.IO (hFlush, hSetEncoding, stdin, stdout, utf8)
-import Text.Megaparsec (initialPos)
-import TypeOps
-import Generic.Expansion (ExpansionResult(..))
+import Text.Megaparsec (initialPos, parse, errorBundlePretty, Parsec)
+import Operations.Generic.Expansion (expandFully, ExpansionResult(..))
+-- Parser implementation using raw parser + elaboration
+import Parser.Elaborate (elaborateDeclaration, elaborateRType, elaborateProof, elaborateJudgment, emptyCtxWithBuiltins)
+import Parser.Raw (rawProof, rawRType, rawDeclaration, rawJudgment)
+import Data.Void (Void)
+import Parser.Context (ElaborateM)
+import Control.Monad.Reader (runReaderT)
+import Control.Monad.Except (runExcept)
+
+type Parser = Parsec Void String
+
+-- Helper to run ElaborateM monad with a context
+runElaborate :: ElaborateM a -> Either String a
+runElaborate action = 
+  case runExcept (runReaderT action emptyCtxWithBuiltins) of
+    Left err -> Left (show err)
+    Right result -> Right result
+
+-- Parser runner that handles macro environment context
+runParserWithMacroEnv :: MacroEnvironment -> Parser a -> String -> Either String a
+runParserWithMacroEnv _env parser input = 
+  case parse parser "<repl>" input of
+    Left err -> Left (errorBundlePretty err)
+    Right result -> Right result
+
+-- Parse and elaborate proof
+parseProof :: Parser Proof
+parseProof = do
+  rawP <- rawProof
+  case runElaborate (elaborateProof rawP) of
+    Right p -> return p
+    Left err -> fail err
+
+-- Parse and elaborate relational judgment
+parseRelJudgment :: Parser RelJudgment  
+parseRelJudgment = do
+  rawJ <- rawJudgment
+  case runElaborate (elaborateJudgment rawJ) of
+    Right j -> return j
+    Left err -> fail err
+
+-- Parse and elaborate RType
+parseRType :: Parser RType
+parseRType = do
+  rawR <- rawRType
+  case runElaborate (elaborateRType rawR) of
+    Right r -> return r
+    Left err -> fail err
+
+-- Parse and elaborate Declaration
+parseDeclaration :: Parser Declaration
+parseDeclaration = do
+  rawD <- rawDeclaration
+  case runElaborate (elaborateDeclaration rawD) of
+    Right d -> return d
+    Left err -> fail err
 
 -- REPL State holds the current session state
 data REPLState = REPLState
@@ -159,25 +213,25 @@ executeREPLCommand cmd = case cmd of
     case runParserWithMacroEnv (replMacroEnv currentState) parseRType macroStr of
       Left err -> return $ "Parse error: " ++ show err
       Right rtype -> do
-        case expandMacros (replMacroEnv currentState) rtype of
+        case expandFully (replMacroEnv currentState) rtype of
           Left err -> return $ "Expansion error: " ++ prettyError err
-          Right result -> return $ "Original: " ++ prettyRType rtype ++ "\nExpanded: " ++ prettyRType (expandedValue result)
+          Right result -> return $ "Original: " ++ prettyDefault rtype ++ "\nExpanded: " ++ prettyDefault (expandedValue result)
   ShowInfo name -> do
     currentState <- get
     let macroInfo = case lookupMacro name (replMacroEnv currentState) of
           Right (params, body) ->
             let paramStr = if null params then "" else " " ++ unwords params
                 bodyStr = case body of
-                  TermMacro term -> prettyTerm term
-                  RelMacro rtype -> prettyRType rtype
-                  ProofMacro proof -> prettyProof proof
+                  TermMacro term -> prettyDefault term
+                  RelMacro rtype -> prettyDefault rtype
+                  ProofMacro proof -> prettyDefault proof
                 fixityStr = case Map.lookup name (macroFixities (replMacroEnv currentState)) of
                   Nothing -> ""
                   Just fixity -> "\nFixity: " ++ show fixity
              in "Macro " ++ name ++ paramStr ++ " ≔ " ++ bodyStr ++ fixityStr
           Left _ -> "No macro named " ++ name
     let contextInfo = case lookupTerm name (replContext currentState) of
-          Right (_, rtype) -> "Term " ++ name ++ " : " ++ prettyRType rtype
+          Right (_, rtype) -> "Term " ++ name ++ " : " ++ prettyDefault rtype
           Left _ -> "No term named " ++ name
     return $ macroInfo ++ "\n" ++ contextInfo
   ListDeclarations -> do

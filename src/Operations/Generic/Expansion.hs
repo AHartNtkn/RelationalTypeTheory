@@ -7,7 +7,7 @@
 -- | Generic macro expansion infrastructure for all AST types.
 -- This module provides a unified interface for expanding macros in Terms and RTypes.
 
-module Generic.Expansion
+module Operations.Generic.Expansion
   ( -- * Typeclass
     ExpandAst(..)
     -- * Expansion modes
@@ -21,10 +21,10 @@ module Generic.Expansion
   ) where
 
 import qualified Data.Map as Map
-import Lib
-import Errors (RelTTError(..), ErrorContext(..))
+import Core.Syntax
+import Core.Errors (RelTTError(..), ErrorContext(..))
 import Text.Megaparsec (initialPos, SourcePos)
-import Generic.Macro (MacroAst(..), renameBinderVarsG, substituteArgsG)
+import Operations.Generic.Macro (MacroAst(..), renameBinderVarsG, substituteArgsG)
 
 --------------------------------------------------------------------------------
 -- | Expansion modes
@@ -190,11 +190,11 @@ instance ExpandAst RType where
       exp2 <- expandWithLimit env mode 1000 r2
       return $ Arr (expandedValue exp1) (expandedValue exp2) pos
     All name r pos -> do
-      exp <- expandWithLimit env mode 1000 r
-      return $ All name (expandedValue exp) pos
+      expResult <- expandWithLimit env mode 1000 r
+      return $ All name (expandedValue expResult) pos
     Conv r pos -> do
-      exp <- expandWithLimit env mode 1000 r
-      return $ Conv (expandedValue exp) pos
+      expResult <- expandWithLimit env mode 1000 r
+      return $ Conv (expandedValue expResult) pos
     Comp r1 r2 pos -> do
       exp1 <- expandWithLimit env mode 1000 r1
       exp2 <- expandWithLimit env mode 1000 r2
@@ -236,17 +236,17 @@ instance ExpandAst Proof where
       expandedBody <- expandWithLimit env mode 1000 body
       return $ TyLam name (expandedValue expandedBody) pos
     TyApp p rtype pos -> do
-      exp <- expandWithLimit env mode 1000 p
-      return $ TyApp (expandedValue exp) rtype pos
+      expResult <- expandWithLimit env mode 1000 p
+      return $ TyApp (expandedValue expResult) rtype pos
     ConvProof t1 p t2 pos -> do
-      exp <- expandWithLimit env mode 1000 p
-      return $ ConvProof t1 (expandedValue exp) t2 pos
+      expResult <- expandWithLimit env mode 1000 p
+      return $ ConvProof t1 (expandedValue expResult) t2 pos
     ConvIntro p pos -> do
-      exp <- expandWithLimit env mode 1000 p
-      return $ ConvIntro (expandedValue exp) pos
+      expResult <- expandWithLimit env mode 1000 p
+      return $ ConvIntro (expandedValue expResult) pos
     ConvElim p pos -> do
-      exp <- expandWithLimit env mode 1000 p
-      return $ ConvElim (expandedValue exp) pos
+      expResult <- expandWithLimit env mode 1000 p
+      return $ ConvElim (expandedValue expResult) pos
     RhoElim x t1 t2 p1 p2 pos -> do
       exp1 <- expandWithLimit env mode 1000 p1
       exp2 <- expandWithLimit env mode 1000 p2

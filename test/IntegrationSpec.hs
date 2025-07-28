@@ -726,7 +726,6 @@ complexFileProcessingSpec = describe "complex file processing" $ do
 
 -- Helper functions for pipeline integration testing
 
-
 -- | Parse file content and check a specific theorem
 parseAndCheckTheorem :: String -> String -> Either String ProofCheckResult
 parseAndCheckTheorem fileContent theoremName =

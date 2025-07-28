@@ -1,7 +1,9 @@
 {-# LANGUAGE OverloadedStrings, LambdaCase #-}
-module RawAst 
+-- | Raw (unelaborated) AST types
+-- This module contains the raw AST types as parsed from source,
+-- before elaboration into the typed AST.
+module Core.Raw 
   ( Name(..)
-  , Fixity(..)
   , RawTerm(..)
   , RawRType(..)
   , RawProof(..)
@@ -21,7 +23,7 @@ module RawAst
   ) where
 
 import Text.Megaparsec (SourcePos, initialPos)
-import Lib (Fixity(..))
+import Core.Syntax (Fixity(..))
 
 -- Raw (unresolved) identifiers - just strings, no de Bruijn indices
 newtype Name = Name String deriving (Show, Eq, Ord)
@@ -122,7 +124,6 @@ getValue (Positioned val _) = val
 
 dummyPos :: SourcePos
 dummyPos = initialPos ""
-
 
 class StripPos a where
   stripPos :: a -> a

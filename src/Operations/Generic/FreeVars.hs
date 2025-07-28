@@ -2,19 +2,15 @@
 
 -- | Generic free variable analysis infrastructure
 -- This consolidates the duplicated binder-aware logic across Term, RType, and Proof
-module Generic.FreeVars
+module Operations.Generic.FreeVars
   ( -- | Generic free variable analysis
     FreeVarsAst(..)
-  , freeVarsGeneric
-    -- | Concrete functions (re-exported for compatibility)
-  , freeVarsInTerm
-  , freeVarsInRType  
-  , freeVarsInProof
+  , freeVars
   ) where
 
 import qualified Data.Map as M
 import qualified Data.Set as S
-import Lib
+import Core.Syntax
 
 --------------------------------------------------------------------------------
 -- | Typeclass for AST nodes that support free variable analysis
@@ -32,13 +28,13 @@ class FreeVarsAst a where
 -- | Generic binder-aware free variable analysis
 --------------------------------------------------------------------------------
 
-freeVarsGeneric :: FreeVarsAst a => MacroEnvironment -> a -> S.Set String
-freeVarsGeneric env node = 
+freeVars :: FreeVarsAst a => MacroEnvironment -> a -> S.Set String
+freeVars env node = 
   case extractMacro node of
-    Nothing -> freeVarsCore freeVarsGeneric env node
+    Nothing -> freeVarsCore freeVars env node
     Just (macroName, args) ->
       case M.lookup macroName (macroDefinitions env) of
-        Nothing -> S.unions (map (freeVarsGeneric env) args)  -- conservative fallback
+        Nothing -> S.unions (map (freeVars env) args)  -- conservative fallback
         Just (sig, _) ->
           let -- Extract binder names from arguments
               binders :: M.Map Int String
@@ -49,17 +45,17 @@ freeVarsGeneric env node =
                 ]
               
               -- Analyze each argument considering binder dependencies
-              fvArg i pi arg
-                | pBinds pi = S.empty  -- binder parameters don't contribute free vars
+              fvArg i paramInfo arg
+                | pBinds paramInfo = S.empty  -- binder parameters don't contribute free vars
                 | otherwise =
                     let allowed = S.fromList
                           [ binderName 
-                          | depIndex <- pDeps pi
+                          | depIndex <- pDeps paramInfo
                           , Just binderName <- [M.lookup depIndex binders]
                           ]
-                    in S.difference (freeVarsGeneric env arg) allowed
+                    in S.difference (freeVars env arg) allowed
                     
-          in S.unions [fvArg i pi arg | (i, pi, arg) <- zip3 [0..] sig args]
+          in S.unions [fvArg i paramInfo arg | (i, paramInfo, arg) <- zip3 ([0..] :: [Int]) sig args]
 
 --------------------------------------------------------------------------------
 -- | Instances for the three AST categories  
@@ -91,7 +87,7 @@ instance FreeVarsAst RType where
     All x t _   -> S.delete x (recurse env t)
     Comp a b _  -> recurse env a `S.union` recurse env b
     Conv r _    -> recurse env r
-    Prom t _    -> freeVarsInTerm env t  -- delegate to term analysis
+    Prom t _    -> freeVars env t  -- delegate to term analysis
     RMacro _ _ _ -> error "RMacro should be handled by extractMacro"
 
 instance FreeVarsAst Proof where
@@ -106,31 +102,19 @@ instance FreeVarsAst Proof where
     PTheoremApp _ args _ -> S.unions (map goArg args)
       where
         goArg = \case
-          TermArg t  -> freeVarsInTerm env t
-          RelArg rt  -> freeVarsInRType env rt
+          TermArg t  -> freeVars env t
+          RelArg rt  -> freeVars env rt
           ProofArg p -> recurse env p
-    LamP x rt p _       -> S.delete x (freeVarsInRType env rt `S.union` recurse env p)
+    LamP x rt p _       -> S.delete x (freeVars env rt `S.union` recurse env p)
     AppP p1 p2 _        -> recurse env p1 `S.union` recurse env p2
-    TyApp p rt _        -> recurse env p `S.union` freeVarsInRType env rt
+    TyApp p rt _        -> recurse env p `S.union` freeVars env rt
     TyLam x p _         -> S.delete x (recurse env p)
-    ConvProof t1 p t2 _ -> freeVarsInTerm env t1 `S.union` recurse env p `S.union` freeVarsInTerm env t2
+    ConvProof t1 p t2 _ -> freeVars env t1 `S.union` recurse env p `S.union` freeVars env t2
     ConvIntro p _       -> recurse env p
     ConvElim p _        -> recurse env p
-    Iota t1 t2 _        -> freeVarsInTerm env t1 `S.union` freeVarsInTerm env t2
-    RhoElim x t1 t2 p1 p2 _ -> S.delete x (freeVarsInTerm env t1 `S.union` freeVarsInTerm env t2) `S.union` recurse env p1 `S.union` recurse env p2
+    Iota t1 t2 _        -> freeVars env t1 `S.union` freeVars env t2
+    RhoElim x t1 t2 p1 p2 _ -> S.delete x (freeVars env t1 `S.union` freeVars env t2) `S.union` recurse env p1 `S.union` recurse env p2
     Pi p1 x u v p2 _    -> recurse env p1 `S.union` S.delete x (S.delete u (S.delete v (recurse env p2)))
     Pair p1 p2 _        -> recurse env p1 `S.union` recurse env p2
     PMacro _ _ _         -> error "PMacro should be handled by extractMacro"
 
---------------------------------------------------------------------------------
--- | Concrete functions for backward compatibility
---------------------------------------------------------------------------------
-
-freeVarsInTerm :: MacroEnvironment -> Term -> S.Set String
-freeVarsInTerm = freeVarsGeneric
-
-freeVarsInRType :: MacroEnvironment -> RType -> S.Set String
-freeVarsInRType = freeVarsGeneric
-
-freeVarsInProof :: MacroEnvironment -> Proof -> S.Set String
-freeVarsInProof = freeVarsGeneric

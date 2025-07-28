@@ -1,6 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Errors
+module Core.Errors
   ( RelTTError (..),
     SourcePos,
     ErrorContext (..),
@@ -14,7 +14,7 @@ module Errors
 where
 
 import Control.Exception (IOException, catch)
-import Lib
+import Core.Syntax
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Megaparsec (SourcePos, sourceColumn, sourceLine, sourceName, unPos)
 
@@ -24,7 +24,6 @@ data ErrorContext = ErrorContext
     errorContext :: String -- Description of what was being done
   }
   deriving (Show, Eq)
-
 
 -- | Comprehensive error types for RelTT operations
 data RelTTError

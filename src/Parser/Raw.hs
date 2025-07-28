@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module RawParser 
+module Parser.Raw 
   ( rawTerm
   , rawRType  
   , rawProof
@@ -11,8 +11,9 @@ module RawParser
 
 import Data.Void
 import Control.Monad (when)
-import           Lexer
-import RawAst
+import           Parser.Lexer
+import Core.Raw
+import Core.Syntax (Fixity(..))
 import Text.Megaparsec
 -- application is now parsed explicitly, so we do not need Expr here
 import qualified Text.Megaparsec.Char.Lexer as L
@@ -148,7 +149,6 @@ rtypeAtom :: P RawRType
 rtypeAtom = rtypeSimpleAtom
 -- no rtypeTable needed
 
-
 -------------------------------------------------------------------------------
 -- Proof expressions
 -------------------------------------------------------------------------------
@@ -232,8 +232,6 @@ fixityDecl = label "fixity declaration" $ do
 
 identName :: P Name
 identName = Name <$> ident
-
-
 
 -- Import declaration parser
 rawImportDecl :: P RawDeclaration

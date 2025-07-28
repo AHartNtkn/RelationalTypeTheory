@@ -1,4 +1,4 @@
-module Lexer 
+module Parser.Lexer 
   ( sc
   , symbol
   , ident

@@ -1,4 +1,4 @@
-module ElaborateTypes
+module Parser.Context
   ( ElaborateM
   , ElaborateContext(..)
   ) where
@@ -7,8 +7,8 @@ import qualified Data.Map as Map
 import Control.Monad.Reader
 import Control.Monad.Except
 
-import Lib
-import Errors
+import Core.Syntax
+import Core.Errors
 
 -- | Context for elaboration - contains macro and theorem environments
 data ElaborateContext = ElaborateContext

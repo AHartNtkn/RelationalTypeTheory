@@ -1,20 +1,20 @@
 module Main (main) where
 
-import Context (emptyTypingContext, extendProofContext, extendRelContext, extendTermContext, extendTheoremEnvironment)
+import Core.Context (emptyTypingContext, extendProofContext, extendRelContext, extendTermContext, extendTheoremEnvironment)
 import Control.Monad (when)
-import Errors (formatError, RelTTError(..), ErrorContext(..))
-import Lib
-import Environment (noMacros, noTheorems, extendMacroEnvironment)
-import AST.Mixfix (defaultFixity)
-import ModuleSystem (parseModuleWithDependencies)
-import Elaborate
-import ElaborateTypes
-import qualified RawAst as Raw
-import RawParser
+import Core.Errors (formatError, RelTTError(..), ErrorContext(..))
+import Core.Syntax
+import Core.Environment (noMacros, noTheorems, extendMacroEnvironment)
+import Parser.Mixfix (defaultFixity)
+import Module.System (parseModuleWithDependencies)
+import Parser.Elaborate
+import Parser.Context
+import qualified Core.Raw as Raw
+import Parser.Raw
 import Text.Megaparsec (runParser, errorBundlePretty)
-import PrettyPrint
-import ProofChecker
-import qualified REPL
+import Interface.PrettyPrint
+import TypeCheck.Proof
+import qualified Interface.REPL as REPL
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import Text.Megaparsec (initialPos)

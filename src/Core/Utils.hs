@@ -1,5 +1,5 @@
 -- | Generic utility functions used throughout the RelTT system
-module Utils
+module Core.Utils
   ( updateAt
   ) where
 

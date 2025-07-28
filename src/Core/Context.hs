@@ -1,4 +1,4 @@
-module Context
+module Core.Context
   ( emptyTypingContext,
     emptyTypeEnvironment,
     extendTermContext,
@@ -25,13 +25,10 @@ where
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Errors
-import Lib
-import Environment (noMacros, noTheorems, extendMacroEnvironment)
-import Generic.FreeVars (freeVarsInTerm, freeVarsInRType)
-import Generic.Shift (shift, shiftTermsInRType)
+import Core.Errors
+import Core.Syntax
+import Operations.Generic.Shift (shift, shiftTermsInRType)
 import Text.Megaparsec (initialPos)
-
 
 -- | Create an empty typing context
 emptyTypingContext :: TypingContext
@@ -40,7 +37,6 @@ emptyTypingContext = TypingContext Map.empty Map.empty Map.empty 0
 -- | Create an empty type environment
 emptyTypeEnvironment :: TypeEnvironment
 emptyTypeEnvironment = TypeEnvironment Map.empty
-
 
 -- | Extend context with a term binding
 extendTermContext :: String -> RType -> TypingContext -> TypingContext
@@ -72,7 +68,6 @@ extendProofContext name judgment ctx =
 extendTypeEnvironment :: String -> RType -> TypeEnvironment -> TypeEnvironment
 extendTypeEnvironment name ty env =
   env {typeVarBindings = Map.insert name ty (typeVarBindings env)}
-
 
 -- | Extend theorem environment with a theorem definition
 extendTheoremEnvironment :: String -> [Binding] -> RelJudgment -> Proof -> TheoremEnvironment -> TheoremEnvironment
@@ -132,10 +127,10 @@ lookupTheorem name env =
 
 -- | Shift all de Bruijn indices in a context by a given amount
 shiftContext :: Int -> TypingContext -> TypingContext
-shiftContext shift ctx =
-  let shiftedTerms = Map.map (\(idx, ty) -> (idx + shift, ty)) (termBindings ctx)
-      shiftedRels = Map.map (+ shift) (relBindings ctx)
-      shiftedProofs = Map.map (\(idx, d, j) -> (idx + shift, d, j)) (proofBindings ctx)
+shiftContext shiftAmount ctx =
+  let shiftedTerms = Map.map (\(idx, ty) -> (idx + shiftAmount, ty)) (termBindings ctx)
+      shiftedRels = Map.map (+ shiftAmount) (relBindings ctx)
+      shiftedProofs = Map.map (\(idx, d, j) -> (idx + shiftAmount, d, j)) (proofBindings ctx)
    in TypingContext shiftedTerms shiftedRels shiftedProofs (gensymCounter ctx)
 
 -- | Check if a variable name is fresh (not bound) in the context
@@ -169,7 +164,6 @@ validateContext ctx = do
       if maxIndex >= contextSize ctx
         then Left $ InvalidDeBruijnIndex maxIndex (ErrorContext (initialPos "<context>") "context validation")
         else Right ()
-
 
 -- | Get all bound variable names in a typing context
 boundVarsInContext :: TypingContext -> Set.Set String

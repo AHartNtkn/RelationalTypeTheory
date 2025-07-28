@@ -24,38 +24,33 @@ source-repository head
 
 library
   exposed-modules:
-      Lib
-      Lexer
-      RawAst
-      RawParser
-      Elaborate
-      ElaborateTypes
-      Normalize
-      TypeOps
-      Context
-      Errors
-      ProofChecker
-      REPL
-      PrettyPrint
-      ModuleSystem
-      AST.Term
-      AST.RType
-      AST.Mixfix
-      AST.Macro
-      Generic.FreeVars
-      Generic.Macro
-      Generic.Mixfix
-      Generic.Shift
-      Generic.Substitution
-      Generic.Expansion
-      Environment
-      Builtins
-      Utils
-      Parser.Legacy
+      Core.Syntax
+      Core.Raw
+      Core.Context
+      Core.Environment
+      Core.Errors
+      Operations.Builtins
+      Operations.Generic.BetaEta
+      Operations.Generic.Equality
+      Operations.Generic.Expansion
+      Operations.Generic.FreeVars
+      Operations.Generic.Macro
+      Operations.Generic.Mixfix
+      Operations.Generic.Shift
+      Operations.Generic.Substitution
+      Parser.Lexer
+      Parser.Raw
+      Parser.Elaborate
+      Parser.Context
       Parser.Mixfix
+      TypeCheck.Proof
+      Interface.REPL
+      Interface.PrettyPrint
+      Module.System
+      Core.Utils
   other-modules:
-      Generic.BetaEta
-      Generic.Equality
+      Operations.Generic.PrettyPrint
+      Operations.Generic.Token
       Paths_reltt_haskell
   autogen-modules:
       Paths_reltt_haskell

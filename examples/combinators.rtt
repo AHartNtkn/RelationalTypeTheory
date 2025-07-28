@@ -111,4 +111,3 @@ w ≔ λ x . λ y . x y y;
 ⊢ w_eval (x : Term) (y : Term) : (w x y) [i] (x y y) ≔
     w x y ⇃ ι⟨ x y y , i ⟩ ⇂ x y y;
 
-

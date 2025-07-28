@@ -1,4 +1,4 @@
-module ProofChecker
+module TypeCheck.Proof
   ( checkProof,
     inferProofType,
     ProofCheckResult (..),
@@ -8,20 +8,19 @@ module ProofChecker
   )
 where
 
-import Context
+import Core.Context
 import qualified Data.Set as Set
-import Errors
-import Lib
-import Generic.FreeVars (freeVarsInTerm, freeVarsInRType)
-import Normalize (expandTermMacros)
-import Generic.BetaEta (betaEtaEquality)
-import Generic.Equality (alphaEquality)
-import Generic.Shift (ShiftAst(..), shift, shiftWithBoundsCheck, shiftTermsInRType, shiftTermsInRTypeWithBoundsCheck, shiftTermExcept, shiftRTypeExcept, shiftFreeRelVars)
-import Generic.Substitution (SubstAst(..), applyTheoremsSubsToTerm, applyTheoremSubsToRType, applyTheoremSubsToJudgment)
-import Elaborate (expandProofMacroOneStep)
-import TypeOps (expandMacrosWHNF, substituteTypeVar, typeEquality)
-import Generic.Expansion (ExpansionResult(..))
-
+import qualified Data.Map as Map
+import Core.Errors
+import Core.Syntax
+import Operations.Generic.FreeVars (freeVars)
+import Operations.Generic.Expansion (expandFully, ExpansionResult(..))
+import Operations.Generic.BetaEta (betaEtaEquality)
+import Operations.Generic.Equality (alphaEquality)
+import Operations.Generic.Shift (shift, shiftWithBoundsCheck, shiftTermsInRType, shiftTermsInRTypeWithBoundsCheck, shiftTermExcept, shiftRTypeExcept, shiftFreeRelVars)
+import Operations.Generic.Substitution (SubstAst(..), applyTheoremSubsToJudgment)
+import Operations.Generic.Macro (elabMacroAppG)
+import Operations.Generic.Expansion (expandWHNF)
 
 -- | Result of proof checking
 data ProofCheckResult = ProofCheckResult
@@ -125,7 +124,7 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
     case rtype1 of
       Arr argType resultType _ -> do
         -- Check that argument type matches
-        typesEqual <- typeEquality macroEnv argType rtype2
+        let typesEqual = alphaEquality macroEnv argType rtype2
         if typesEqual
           then do
             let resultTerm1 = App term1 term2 pos
@@ -141,12 +140,12 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
     let RelJudgment term1 rtype1 term1' = resultJudgment result1
 
     -- Expand macros in the type before checking if it's universally quantified
-    expandResult <- expandMacrosWHNF macroEnv rtype1
+    expandResult <- expandWHNF macroEnv rtype1
     let expandedRType = expandedValue expandResult
 
     case expandedRType of
       All varName bodyType _ -> do
-        let substitutedType = substituteTypeVar 0 rtype bodyType
+        let substitutedType = substIndex 0 rtype bodyType
             finalJudgment = RelJudgment term1 substitutedType term1'
         return $ ProofCheckResult finalJudgment ctx
       _ -> Left $ InvalidTypeApplication rtype1 (ErrorContext pos "type application")
@@ -273,10 +272,10 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
       Comp rtype1 rtype2 _ -> do
         -- Side condition (**): x ∉ FV(Γ, t₁, t₂, t, t', R, R', R'')
         let contextFreeVars = boundVarsInContext ctx
-            term1FreeVars = freeVarsInTerm macroEnv term1
-            term2FreeVars = freeVarsInTerm macroEnv term2
-            rtype1FreeVars = freeVarsInRType macroEnv rtype1
-            rtype2FreeVars = freeVarsInRType macroEnv rtype2
+            term1FreeVars = freeVars macroEnv term1
+            term2FreeVars = freeVars macroEnv term2
+            rtype1FreeVars = freeVars macroEnv rtype1
+            rtype2FreeVars = freeVars macroEnv rtype2
             allFreeVars = Set.unions [contextFreeVars, term1FreeVars, term2FreeVars, rtype1FreeVars, rtype2FreeVars]
 
         if Set.member varX allFreeVars
@@ -323,9 +322,14 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
 
   -- PMacro case - expand and recurse
   PMacro name args pos -> do
-    case expandProofMacroOneStep macroEnv name args pos of
-      Left elaborateErr -> Left $ InternalError ("Proof macro expansion failed: " ++ show elaborateErr) (ErrorContext pos "proof macro expansion")
-      Right expandedProof -> inferProofType ctx macroEnv theoremEnv expandedProof
+    case Map.lookup name (macroDefinitions macroEnv) of
+      Nothing -> Left $ UnknownMacro name (ErrorContext pos "proof macro lookup")
+      Just (sig, ProofMacro body) -> 
+        case elabMacroAppG macroEnv name sig body args of
+          Right expandedProof -> inferProofType ctx macroEnv theoremEnv expandedProof
+          Left err -> Left $ InternalError ("Proof macro expansion failed: " ++ show err) (ErrorContext pos "proof macro expansion")
+      Just (_, TermMacro _) -> Left $ InvalidMixfixPattern ("Term macro " ++ name ++ " used in proof context") (ErrorContext pos "proof macro application")
+      Just (_, RelMacro _) -> Left $ InvalidMixfixPattern ("Relational macro " ++ name ++ " used in proof context") (ErrorContext pos "proof macro application")
 
 -- Helper functions
 
@@ -333,9 +337,9 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
 normalizeJudgment :: MacroEnvironment -> RelJudgment -> Either RelTTError RelJudgment
 normalizeJudgment macroEnv (RelJudgment t1 rtype t2) = do
   -- Only expand macros, do NOT do beta-eta normalization
-  termResult1 <- expandTermMacros macroEnv t1
-  termResult2 <- expandTermMacros macroEnv t2
-  expandResult <- expandMacrosWHNF macroEnv rtype
+  termResult1 <- expandFully macroEnv t1
+  termResult2 <- expandFully macroEnv t2
+  expandResult <- expandWHNF macroEnv rtype
   return $ RelJudgment (expandedValue termResult1) (expandedValue expandResult) (expandedValue termResult2)
 
 -- | Check equality of relational judgments
@@ -346,10 +350,8 @@ relJudgmentEqual macroEnv (RelJudgment t1 r1 t1') (RelJudgment t2 r2 t2') = do
   -- Use syntactic equality (alpha equivalence) for terms, not β-η equivalence
   let termEq1 = alphaEquality macroEnv t1 t2
       termEq2 = alphaEquality macroEnv t1' t2'
-  typeEq <- typeEquality macroEnv r1 r2
+  let typeEq = alphaEquality macroEnv r1 r2
   return $ termEq1 && termEq2 && typeEq
-
-
 
 -- | Sequentially check theorem arguments, carrying the substitution that has
 --   already been established by earlier (term/rel/proof) arguments.

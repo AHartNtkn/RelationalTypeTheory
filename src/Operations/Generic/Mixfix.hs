@@ -4,12 +4,9 @@
 -- This module consolidates all the duplicated mixfix parsing logic across
 -- Terms, RTypes, and Proofs into a single, extensible implementation.
 
-module Generic.Mixfix
+module Operations.Generic.Mixfix
   ( -- | Typeclass for mixfix-capable AST nodes
     MixfixAst(..)
-    -- | Generic token operations  
-  , hasOperatorG
-  , flattenAppsG
     -- | Generic reduction passes
   , reduceLevelG
   , reducePrefixG
@@ -18,37 +15,30 @@ module Generic.Mixfix
     -- | Full processing pipeline
   , fullPassG
   , runLevelsG
+  , reparseG
     -- | Re-exported types and functions
-  , Tok(..)
   , Assoc(..)
   , fixM
   ) where
 
 import qualified Data.Map as Map
-import qualified Data.Set as S
 import qualified Data.IntMap as IntMap
-import Data.List (foldl', intercalate)
+import Data.List (intercalate)
 import Data.Maybe (fromMaybe)
 import Data.Foldable (asum)
-import Control.Monad (foldM, when)
 import Control.Monad.Reader
-import Control.Monad.Except
+import Control.Monad.Except (throwError)
 
-import Lib hiding (splitMixfix, mixfixKeywords)
-import RawAst
-import Errors
-import ElaborateTypes
-import AST.Mixfix (splitMixfix, mixfixKeywords)
-import Text.Megaparsec (SourcePos)
+import Core.Syntax
+import Core.Raw
+import Core.Errors
+import Parser.Context
+import Parser.Mixfix (splitMixfix, mixfixKeywords)
+import Operations.Generic.Token (ToTokenAst, toTok, Tok(..))
 
 --------------------------------------------------------------------------------
 -- | Types and data structures
 --------------------------------------------------------------------------------
-
--- | Token type for mixfix parsing
-data Tok a = TV a                        -- operand
-           | TOP String SourcePos          -- operator literal token
-  deriving (Show, Eq)
 
 -- | Associativity for operators
 data Assoc = ALeft | ARight | ANon deriving Eq
@@ -66,9 +56,7 @@ fixM f x = do
 -- | Typeclass for AST nodes that support mixfix operator processing  
 --------------------------------------------------------------------------------
 
-class MixfixAst a where
-  -- | Convert to token, detecting operators from keyword set
-  toTok :: S.Set String -> a -> Tok a
+class ToTokenAst a => MixfixAst a where
   -- | Flatten left-nested applications into a list
   flattenApps :: a -> [a]
   -- | Construct a macro application node
@@ -79,11 +67,6 @@ class MixfixAst a where
 --------------------------------------------------------------------------------
 
 instance MixfixAst RawTerm where
-  toTok ops t@(RTVar (Name nm) pos)
-    | nm `S.member` ops = TOP nm pos
-    | otherwise         = TV t
-  toTok _ t             = TV t
-
   flattenApps = go []
     where
       go acc (RTApp f x _) = go (x:acc) f
@@ -92,11 +75,6 @@ instance MixfixAst RawTerm where
   makeMacro name args pos = RTMacro name args pos
 
 instance MixfixAst RawRType where
-  toTok ops r@(RRVar (Name nm) pos)
-    | nm `S.member` ops = TOP nm pos
-    | otherwise         = TV r
-  toTok _ r             = TV r
-
   flattenApps = go []
     where
       go acc (RRApp f x _)  = go (x:acc) f
@@ -106,11 +84,6 @@ instance MixfixAst RawRType where
   makeMacro name args pos = RRMacro name args pos
 
 instance MixfixAst RawProof where
-  toTok ops p@(RPVar (Name nm) pos)
-    | nm `S.member` ops = TOP nm pos
-    | otherwise         = TV p
-  toTok _ p             = TV p
-
   flattenApps = go []
     where
       go acc (RPApp f x _) = go (x:acc) f
@@ -197,17 +170,6 @@ matchClosed (mName, lits) toks0 = go lits toks0 [] Nothing
 --------------------------------------------------------------------------------
 -- | Generic helper functions
 --------------------------------------------------------------------------------
-
--- | Check if there are any operator tokens in the list
-hasOperatorG :: [Tok a] -> Bool
-hasOperatorG = any isOp
-  where
-    isOp (TOP _ _) = True
-    isOp _        = False
-
--- | Generic application flattening
-flattenAppsG :: MixfixAst a => a -> [a]
-flattenAppsG = flattenApps
 
 --------------------------------------------------------------------------------
 -- | Generic reduction passes
@@ -300,4 +262,17 @@ fullPassG k toks = do
 runLevelsG :: (MixfixAst a, Eq a) => [Int] -> [Tok a] -> ElaborateM [Tok a]
 runLevelsG ks toks = foldM (\acc k -> fixM (fullPassG k) acc) toks ks
 
+-- | Generic reparsing function that handles mixfix operators for any AST type
+reparseG :: (MixfixAst a, Eq a, Show a) => (a -> ElaborateM b) -> SourcePos -> [a] -> ElaborateM b
+reparseG elaborateFunc pos rawList = do
+  ctx <- ask
+  let ops = mixfixKeywords (macroEnv ctx)
+      toks0 = map (toTok ops) rawList
+      precs = reverse (IntMap.keys (precTable (macroEnv ctx)))
+  toks1 <- runLevelsG precs toks0
+  case toks1 of
+    [TV raw] -> elaborateFunc raw
+    _ -> throwError $ InvalidMixfixPattern 
+           ("cannot resolve operators in reparseG - toks0=" ++ show toks0 ++ ", toks1=" ++ show toks1) 
+           (ErrorContext pos "variable lookup")
 

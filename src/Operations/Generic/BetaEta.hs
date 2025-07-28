@@ -10,7 +10,7 @@
 -- - η-equivalence: λx.f x ≡ f when x ∉ FV(f) (eta reduction)
 -- - Used ONLY in ConvProof - all other comparisons use alpha-equivalence
 
-module Generic.BetaEta
+module Operations.Generic.BetaEta
   ( -- * β-η equivalence
     betaEtaEquality
   , normalizeForBetaEta
@@ -18,12 +18,12 @@ module Generic.BetaEta
   , BetaEtaMode(..)
   ) where
 
-import qualified Data.Set as Set
-import Lib (Term(..), MacroEnvironment)
-import Generic.Equality (alphaEquality) 
-import Generic.Expansion (expandFully, ExpansionResult(..))
-import Generic.Substitution (SubstAst(..))
-import Errors (RelTTError(..))
+import Core.Syntax (Term(..), MacroEnvironment)
+import Operations.Generic.Equality (alphaEquality) 
+import Operations.Generic.Expansion (expandFully, ExpansionResult(..))
+import Operations.Generic.Substitution (SubstAst(..))
+import Operations.Generic.Shift (ShiftAst(..), shiftAboveWithBoundsCheck)
+import Core.Errors (RelTTError(..))
 
 --------------------------------------------------------------------------------
 -- | Normalization modes for β-η equivalence
@@ -98,7 +98,7 @@ etaReduce term = case term of
   Lam name (App f (Var varName varIdx _) _) pos 
     | varIdx == 0 && not (occursFree 0 f) -> 
         -- η-reduce: λx.f x → f (shift f down by 1)
-        case shiftDown 1 f of
+        case shiftAboveWithBoundsCheck 0 (-1) f of
           Just reduced -> reduced
           Nothing -> term  -- Failed to shift, keep original
   _ -> term
@@ -111,24 +111,3 @@ occursFree targetIdx term = case term of
   App t1 t2 _ -> occursFree targetIdx t1 || occursFree targetIdx t2
   TMacro _ args _ -> any (occursFree targetIdx) args
 
--- | Shift de Bruijn indices down (used in η-reduction)
-shiftDown :: Int -> Term -> Maybe Term
-shiftDown amount term = shiftDownAbove 0 amount term
-
--- | Shift indices above cutoff down by amount
-shiftDownAbove :: Int -> Int -> Term -> Maybe Term
-shiftDownAbove cutoff amount term = case term of
-  Var name idx pos
-    | idx >= cutoff + amount -> Just $ Var name (idx - amount) pos
-    | idx >= cutoff -> Nothing  -- Would go negative
-    | otherwise -> Just term
-  Lam name body pos -> do
-    shiftedBody <- shiftDownAbove (cutoff + 1) amount body
-    return $ Lam name shiftedBody pos
-  App t1 t2 pos -> do
-    shiftedT1 <- shiftDownAbove cutoff amount t1
-    shiftedT2 <- shiftDownAbove cutoff amount t2
-    return $ App shiftedT1 shiftedT2 pos
-  TMacro name args pos -> do
-    shiftedArgs <- mapM (shiftDownAbove cutoff amount) args
-    return $ TMacro name shiftedArgs pos

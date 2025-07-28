@@ -52,7 +52,6 @@ parseRTypeWithEnv env relVars input =
             Left elabErr -> Left $ show elabErr
             Right result -> Right result
 
-
 spec :: Spec
 spec = do
   mixfixIdentifierSpec

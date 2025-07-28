@@ -1,7 +1,7 @@
 -- | Built-in macros and fixities for the RelTT language
 -- This module contains all the built-in syntactic sugar macros that provide
 -- convenient notation for common RelTT constructs.
-module Builtins
+module Operations.Builtins
   ( builtinFixities
   , builtinMacroBodies
   , macroEnvWithBuiltins
@@ -9,10 +9,10 @@ module Builtins
 
 import Data.List (foldl')
 import Data.Maybe (fromMaybe)
-import Lib
-import Environment (extendMacroEnvironment, noMacros)
-import AST.Mixfix (defaultFixity)
-import RawAst (dummyPos)
+import Core.Syntax
+import Core.Environment (extendMacroEnvironment, noMacros)
+import Parser.Mixfix (defaultFixity)
+import Core.Raw (dummyPos)
 
 -- | Authoritative fixities for the built‑in macros
 builtinFixities :: [(String,Fixity)]

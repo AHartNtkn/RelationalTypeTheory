@@ -136,7 +136,6 @@ testParseDeclarationFailure input =
     Left _ -> return () -- Expected failure
     Right result -> expectationFailure $ "Expected parse failure, but got: " ++ show result
 
-
 termParserSpec :: Spec
 termParserSpec = describe "Term parser" $ do
   it "parses variables" $ do

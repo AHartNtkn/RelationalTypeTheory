@@ -11,7 +11,7 @@ import Test.Hspec
 import Text.Megaparsec (initialPos)
 import TypeOps
 import Generic.Expansion (ExpansionResult(..))
-import Generic.FreeVars (freeVarsInRType)
+import Generic.FreeVars (freeVars)
 
 spec :: Spec
 spec = do
@@ -397,9 +397,9 @@ typeOpsErrorEdgeCasesSpec = describe "type operations error edge cases" $ do
   it "handles free variable preservation in complex substitutions" $ do
     -- Ensure free variables are correctly preserved during complex substitutions
     let complexType = Comp (All "X" (Comp (RVar "X" 0 (initialPos "test")) (RVar "Free1" (-1) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Conv (RVar "Free2" (-1) (initialPos "test")) (initialPos "test")) (initialPos "test")
-        beforeVars = freeVarsInRType noMacros complexType
+        beforeVars = freeVars noMacros complexType
         afterType = substituteTypeVar 0 (RMacro "Something" [] (initialPos "test")) complexType
-        afterVars = freeVarsInRType noMacros afterType
+        afterVars = freeVars noMacros afterType
     beforeVars `shouldBe` afterVars -- Free vars should be preserved
   it "handles error propagation through complex type operations" $ do
     -- Test that errors bubble up correctly through nested operations

@@ -1,4 +1,4 @@
-module ModuleSystem
+module Module.System
   ( loadModule,
     resolveImports,
     ModuleRegistry,
@@ -18,22 +18,22 @@ module ModuleSystem
   )
 where
 
-import Context (extendTheoremEnvironment)
+import Core.Context (extendTheoremEnvironment)
 import Control.Exception (IOException, catch)
 import Data.Either (partitionEithers)
 import Data.List (intercalate)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Lib
-import RawParser (parseFile)
+import Core.Syntax
+import Parser.Raw (parseFile)
 import Text.Megaparsec (runParser)
-import Elaborate (elaborateDeclarations, emptyCtxWithBuiltins)
+import Parser.Elaborate (elaborateDeclarations, emptyCtxWithBuiltins)
 import System.Directory (doesFileExist)
 import System.FilePath (normalise, takeDirectory, (</>))
 import Text.Megaparsec (errorBundlePretty, initialPos)
-import Environment (noMacros, noTheorems, extendMacroEnvironment)
-import AST.Mixfix (defaultFixity)
-import Errors (RelTTError(..), ErrorContext(..))
+import Core.Environment (noMacros, noTheorems, extendMacroEnvironment)
+import Parser.Mixfix (defaultFixity)
+import Core.Errors (RelTTError(..), ErrorContext(..))
 
 -- | Module system error types (now using unified RelTTError)
 type ModuleLoadError = RelTTError

@@ -13,20 +13,17 @@
 -- - Binder names are completely ignored in all constructs
 -- - Macro arguments may contain binders and need careful handling
 
-module Generic.Equality
+module Operations.Generic.Equality
   ( -- * Typeclass
     EqualityAst(..)
     -- * Generic operations
   , alphaEquality
-  , structuralEquality
   ) where
 
 import qualified Data.Map as Map
-import Lib (Term(..), RType(..), Proof(..), TheoremArg(..), MacroEnvironment(..), MacroBody(..))
-import Generic.Expansion (ExpandAst(..), getMacroApp, mkMacroApp, isRightBody, bodyToAst)
-import Generic.Macro (renameBinderVarsG, substituteArgsG)
-import Errors (RelTTError(..), ErrorContext(..))
-import Text.Megaparsec (SourcePos, initialPos)
+import Core.Syntax (Term(..), RType(..), Proof(..), TheoremArg(..), MacroEnvironment(..))
+import Operations.Generic.Expansion (ExpandAst(..), getMacroApp, isRightBody, bodyToAst)
+import Operations.Generic.Macro (renameBinderVarsG, substituteArgsG)
 
 --------------------------------------------------------------------------------
 -- | Core typeclass for lazy equality checking
@@ -100,24 +97,10 @@ expandOneMacro env ast =
                       substituted = substituteArgsG paramInfo args renamedBody
                   in Just substituted
 
--- | Structural equality without any macro expansion
-structuralEquality :: EqualityAst a => a -> a -> Bool
-structuralEquality = structuralEq
-
--- | Helper for alpha-equivalence of terms that may contain binders
--- This should be used for all term comparisons in proof checking
-alphaEqTerms :: Term -> Term -> Bool
-alphaEqTerms t1 t2 = structuralEq t1 t2
-
--- | Helper for alpha-equivalence of RTypes that may contain binders  
--- This should be used for all RType comparisons
-alphaEqRTypes :: RType -> RType -> Bool
-alphaEqRTypes r1 r2 = structuralEq r1 r2
-
 -- | Alpha-equivalence for theorem arguments (which may contain binders)
 alphaEqTheoremArgs :: (TheoremArg, TheoremArg) -> Bool  
-alphaEqTheoremArgs (TermArg t1, TermArg t2) = alphaEqTerms t1 t2
-alphaEqTheoremArgs (RelArg r1, RelArg r2) = alphaEqRTypes r1 r2
+alphaEqTheoremArgs (TermArg t1, TermArg t2) = structuralEq t1 t2
+alphaEqTheoremArgs (RelArg r1, RelArg r2) = structuralEq r1 r2
 alphaEqTheoremArgs (ProofArg p1, ProofArg p2) = structuralEq p1 p2
 alphaEqTheoremArgs _ = False  -- Different constructor types
 

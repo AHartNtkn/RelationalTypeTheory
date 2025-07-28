@@ -4,7 +4,7 @@
 -- | Generic substitution infrastructure for all AST types.
 -- This module unifies substitution operations across Term, RType, and Proof.
 
-module Generic.Substitution
+module Operations.Generic.Substitution
   ( -- * Typeclasses
     SubstAst(..)
     -- * Generic operations
@@ -15,9 +15,9 @@ module Generic.Substitution
   , applyTheoremSubsToJudgment
   ) where
 
-import Lib (Term(..), RType(..), Proof(..), TheoremArg(..), RelJudgment(..), Binding(..))
-import Generic.Shift (ShiftAst(..), shift)
-import Errors (RelTTError(..))
+import Core.Syntax (Term(..), RType(..), Proof(..), TheoremArg(..), RelJudgment(..), Binding(..))
+import Operations.Generic.Shift (ShiftAst(..), shift)
+import Core.Errors (RelTTError(..))
 
 --------------------------------------------------------------------------------
 -- | Core typeclass for de Bruijn index substitution
@@ -43,7 +43,6 @@ substMultiple ((idx, repl):rest) body =
     adjustIndices removed = map $ \(i, r) -> 
       if i > removed then (i - 1, r) else (i, r)
 
-
 --------------------------------------------------------------------------------
 -- | Instance for Term
 --------------------------------------------------------------------------------
@@ -62,7 +61,6 @@ instance SubstAst Term where
           App (go depth t1) (go depth t2) pos
         TMacro name args pos ->
           TMacro name (map (go depth) args) pos
-
 
 --------------------------------------------------------------------------------
 -- | Instance for RType
@@ -89,7 +87,6 @@ instance SubstAst RType where
         Prom term pos ->
           -- Promoted terms are not affected by relation substitution
           Prom term pos
-
 
 --------------------------------------------------------------------------------
 -- | Instance for Proof

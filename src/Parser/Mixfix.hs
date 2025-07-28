@@ -1,147 +1,70 @@
-{-# LANGUAGE RankNTypes #-}
-
+-- | Mixfix pattern parsing and analysis utilities
+-- This module handles the parsing and analysis of mixfix operators,
+-- extracting holes, literals, and determining default fixities.
 module Parser.Mixfix
-  ( MixfixSpec (..),
-    generalMixfix,
-    buildMixfixOps,
-    HasMacroEnv (..),
-    MixfixPart(..)
-  )
-where
+  ( MixfixPart(..)
+  , parseMixfixPattern
+  , splitMixfix
+  , holes
+  , defaultFixity
+  , mixfixKeywords
+  ) where
 
-import qualified Control.Monad.Combinators.Expr as Expr
-import Control.Monad.Reader (MonadReader, ask, local)
-import qualified Data.List as L
-import qualified Data.Map as M
-import Data.Ord (comparing)
-import Debug.Trace
-import Lib (MacroEnvironment(..), MacroBody(..), Fixity(..))
-import AST.Mixfix (MixfixPart(..), parseMixfixPattern, splitMixfix, holes)
-import Text.Megaparsec hiding (getSourcePos)
+import qualified Data.Map as Map
+import qualified Data.Set as Set
+import Core.Syntax (MacroEnvironment(..), Fixity(..))
 
--- | Everything that changes between terms vs. relations.
-data MixfixSpec m expr = MixfixSpec
-  { -- | how to parse an argument
-    holeParser :: m expr,
-    -- | constructor  (TMacro / RMacro)
-    mkMacroNode ::
-      String ->
-      [expr] ->
-      SourcePos ->
-      expr,
-    -- | TermMacro ?  RelMacro ?
-    isRightBody :: MacroBody -> Bool,
-    -- | fixed, non‑macro ops
-    extraOps :: [[Expr.Operator m expr]],
-    -- | term‑only 'smart application'
-    smartAppOp :: Maybe [Expr.Operator m expr],
-    -- | lexeme parser
-    symbolParser :: String -> m String,
-    -- | position parser
-    posParser :: m SourcePos
-  }
+-- | Principled representation of mixfix pattern parts
+data MixfixPart = Hole | Literal String
+  deriving (Show, Eq)
 
-----------------------------------------------------------------------
--- 1.1  Generic "≥3‑hole / prefix / postfix" parser
-----------------------------------------------------------------------
-generalMixfix :: (MonadReader ctx m, HasMacroEnv ctx, MonadParsec e s m) => MixfixSpec m expr -> m expr
-generalMixfix spec = do
-  ctx <- ask
-  -- Check if mixfix is allowed (to prevent left-recursion)
-  case getAllowMixfix ctx of
-    False -> empty  -- Skip mixfix parsing when disabled
-    True -> do
-      let env = getMacroEnv ctx
-          defs = macroDefinitions env
-          good name = maybe False (isRightBody spec . snd) (M.lookup name defs)
-          
-          pat n = parseMixfixPattern n
-          isPost n = pat n == [Hole, Literal (last (splitMixfix n))]
-          isGen n = '_' `elem` n && holes n /= 2 && not (isPost n) && good n
-          
-          cands = filter isGen (M.keys defs)
-          sorted = L.sortBy (comparing (negate . length . splitMixfix)) cands
-          
-      choice (map (try . parseName) sorted)
+-- | Parse a mixfix identifier into its constituent parts
+-- "_+_" -> [Hole, Literal "+", Hole]
+-- "if_then_else_" -> [Literal "if", Hole, Literal "then", Hole, Literal "else", Hole]
+-- "not_" -> [Literal "not", Hole]
+-- "_!" -> [Hole, Literal "!"]
+-- "regular" -> [Literal "regular"]
+parseMixfixPattern :: String -> [MixfixPart]
+parseMixfixPattern = go
   where
-    parseName n = do
-      pos <- posParser spec
-      -- Special handling for first hole to prevent left-recursion
-      args <- case parseMixfixPattern n of
-        Hole : rest -> do
-          -- Parse first hole with mixfix disabled
-          h <- local (disableMixfix) (holeParser spec)
-          others <- walkPattern rest []
-          pure (h : reverse others)
-        pat -> do
-          -- Pattern starts with literal, proceed normally
-          args' <- walkPattern pat []
-          pure (reverse args')
-      pure $ mkMacroNode spec n args pos
-    
-    walkPattern [] acc = pure acc
-    walkPattern (Hole : rest) acc = do
-      a <- holeParser spec
-      walkPattern rest (a : acc)
-    walkPattern (Literal lit : rest) acc = do
-      _ <- symbolParser spec lit
-      walkPattern rest acc
-    
-    -- Helper to disable mixfix in context
-    disableMixfix = setAllowMixfix False
+    go [] = []
+    go ('_' : rest) = Hole : go rest
+    go str =
+      let (literal, rest) = span (/= '_') str
+       in if null literal
+            then go rest
+            else Literal literal : go rest
 
--- Helper typeclass to extract MacroEnvironment from context
-class HasMacroEnv ctx where
-  getMacroEnv :: ctx -> MacroEnvironment
-  getAllowMixfix :: ctx -> Bool
-  getAllowMixfix _ = True  -- Default to true for backward compatibility
-  setAllowMixfix :: Bool -> ctx -> ctx
-
-----------------------------------------------------------------------
--- 1.2  Fixity‑table builder (prefix / postfix / infix)
-----------------------------------------------------------------------
-buildMixfixOps :: (Monad m) => MixfixSpec m expr -> MacroEnvironment -> [[Expr.Operator m expr]]
-buildMixfixOps spec env =
-  map bucket [9, 8 .. 0]
-    ++ maybe [] id (smartAppOp spec)
-    : []
-    ++ extraOps spec
+-- | Count the number of holes in a mixfix pattern
+holes :: String -> Int
+holes = length . filter isHole . parseMixfixPattern
   where
-    table = M.toList (macroFixities env)
-    bucket lvl =
-      [ op
-        | (name, fx) <- table,
-          getLvl fx == lvl,
-          '_' `elem` name, -- Only actual mixfix macros (with underscores) - check this first
-          length (splitMixfix name) == 1, -- Only simple single-segment operators
-          name `M.member` macroDefinitions env, -- Skip if macro definition doesn't exist
-          trace ("DEBUG MIXFIX: Checking " ++ name ++ " for body type") True,
-          isRightBody spec (snd (macroDefinitions env M.! name)),
-          trace ("DEBUG MIXFIX: " ++ name ++ " passed isRightBody check") True,
-          op <- fixityToOp name fx
-      ]
-    getLvl (Lib.Infixl n) = n
-    getLvl (Lib.Infixr n) = n
-    getLvl (Lib.InfixN n) = n
-    getLvl (Lib.Prefix n) = n
-    getLvl (Lib.Postfix n) = n
-    getLvl (Lib.Closed n) = n
-    fixityToOp n (Lib.Infixl _) = [Expr.InfixL (bin n)]
-    fixityToOp n (Lib.Infixr _) = [Expr.InfixR (bin n)]
-    fixityToOp n (Lib.InfixN _) = [Expr.InfixN (bin n)]
-    fixityToOp n (Lib.Prefix _) = [Expr.Prefix (pre n)]
-    fixityToOp n (Lib.Postfix _) = [Expr.Postfix (post n)]
-    fixityToOp n (Lib.Closed _) = [] -- Closed patterns handled by generalMixfix, not buildMixfixOps
-    bin n = do
-      pos <- (posParser spec)
-      _ <- symbolParser spec (extractLit n)
-      pure $ \x y -> mkMacroNode spec n [x, y] pos
-    pre n = do
-      pos <- (posParser spec)
-      _ <- symbolParser spec (head (splitMixfix n))
-      pure $ \y -> mkMacroNode spec n [y] pos
-    post n = do
-      pos <- (posParser spec)
-      _ <- symbolParser spec (last (splitMixfix n))
-      pure $ \x -> mkMacroNode spec n [x] pos
-    extractLit n = head (splitMixfix n) -- For binary infix: "_+_" -> "+"
+    isHole Hole = True
+    isHole _ = False
+
+-- | Extract just the literal parts from a mixfix pattern (for backward compatibility)
+splitMixfix :: String -> [String]
+splitMixfix = map extractLiteral . filter isLiteral . parseMixfixPattern
+  where
+    isLiteral (Literal _) = True
+    isLiteral _ = False
+    extractLiteral (Literal s) = s
+    extractLiteral _ = error "extractLiteral called on non-literal"
+
+-- | Default fixity for macros based on hole count and position
+defaultFixity :: String -> Fixity
+defaultFixity name = case holes name of
+  2 -> Infixl 6   -- Haskell's default for binary infix
+  1 | head name == '_' -> Postfix 8
+    | last name == '_' -> Prefix  9
+  _ -> Prefix 9
+
+-- | Extract all mixfix keywords (literal segments) from macro definitions
+mixfixKeywords :: MacroEnvironment -> Set.Set String
+mixfixKeywords env =
+  Set.fromList
+    . filter (not . null)
+    . concatMap splitMixfix
+    . filter ('_' `elem`) -- Only process mixfix patterns (containing underscores)
+    . Map.keys
+    $ macroDefinitions env

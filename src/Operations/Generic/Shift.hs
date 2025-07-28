@@ -4,7 +4,7 @@
 -- This module provides a unified interface for shifting operations
 -- across all AST types (Term, RType, Proof).
 
-module Generic.Shift
+module Operations.Generic.Shift
   ( -- * Typeclass
     ShiftAst(..)
     -- * Generic operations
@@ -21,7 +21,7 @@ module Generic.Shift
   , shiftFreeRelVars
   ) where
 
-import Lib (Term(..), RType(..), Proof(..), TheoremArg(..))
+import Core.Syntax (Term(..), RType(..), Proof(..), TheoremArg(..))
 import qualified Data.Set as Set
 
 --------------------------------------------------------------------------------
