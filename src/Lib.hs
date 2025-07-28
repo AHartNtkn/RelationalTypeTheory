@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 module Lib
   ( Term (..),
     RType (..),
@@ -17,6 +18,9 @@ module Lib
     ModuleInfo (..),
     ModulePath,
     Fixity (..),
+    VarKind (..),
+    ParamInfo (..),
+    MacroSig,
     MixfixPart (..),
     parseMixfixPattern,
     splitMixfix,
@@ -24,16 +28,22 @@ module Lib
     defaultFixity,
     mixfixKeywords,
     extendMacroEnvironment,
+    updateAt,
     noMacros,
     noTheorems,
     termPos,
     rtypePos,
     proofPos,
+    inferParamInfosTerm,
+    inferParamInfosRel,
+    inferParamInfosProof,
   )
 where
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Control.Monad.State.Strict
+import Data.List (foldl')
 import Text.Megaparsec (SourcePos)
 
 data Term
@@ -66,7 +76,8 @@ data Proof
   | Iota Term Term SourcePos
   | RhoElim String Term Term Proof Proof SourcePos
   | Pair Proof Proof SourcePos
-  | Pi Proof String String String Proof SourcePos  -- π p - x.u.v.q (x:term, u,v:proofs)
+  | Pi Proof String String String Proof SourcePos  -- π p - x . u . v .q (x:term, u,v:proofs)
+  | PMacro String [Proof] SourcePos             -- NEW
   deriving (Show, Eq)
 
 data RelJudgment = RelJudgment Term RType Term -- t [R] t'
@@ -75,6 +86,7 @@ data RelJudgment = RelJudgment Term RType Term -- t [R] t'
 data MacroBody
   = TermMacro Term
   | RelMacro RType
+  | ProofMacro Proof
   deriving (Show, Eq)
 
 data Declaration
@@ -120,11 +132,26 @@ data Fixity
   | InfixN Int -- non-associative, level 0-9
   | Prefix Int -- prefix operator, level 0-9
   | Postfix Int -- postfix operator, level 0-9
+  | Closed Int -- closed/delimited operator, level 0-9
   deriving (Show, Eq)
+
+-- | Kind of variable for macro parameters
+data VarKind = TermK | RelK | ProofK deriving (Show, Eq)
+
+-- | Information about a macro parameter
+data ParamInfo = ParamInfo
+  { pName :: String
+  , pKind :: VarKind
+  , pBinds :: Bool          -- ^ True if this parameter introduces a binder
+  , pDeps :: [Int]         -- ^ indices of binder-params this argument lives under
+  } deriving (Show, Eq)
+
+-- | Macro signature with parameter information
+type MacroSig = ([ParamInfo], MacroBody)
 
 -- | Environment for macro definitions
 data MacroEnvironment = MacroEnvironment
-  { macroDefinitions :: Map.Map String ([String], MacroBody), -- macro name -> (params, body)
+  { macroDefinitions :: Map.Map String MacroSig, -- macro name -> (param info, body)
     macroFixities :: Map.Map String Fixity -- macro name -> fixity declaration
   }
   deriving (Show, Eq)
@@ -198,6 +225,7 @@ proofPos (Iota _ _ pos) = pos
 proofPos (RhoElim _ _ _ _ _ pos) = pos
 proofPos (Pair _ _ pos) = pos
 proofPos (Pi _ _ _ _ _ pos) = pos
+proofPos (PMacro _ _ pos) = pos
 
 -- | Principled representation of mixfix pattern parts
 data MixfixPart = Hole | Literal String
@@ -265,9 +293,13 @@ extendMacroEnvironment
   -> Fixity              -- ^ chosen fixity
   -> MacroEnvironment -> MacroEnvironment
 extendMacroEnvironment n ps body fix env =
-  env { macroDefinitions = Map.insert n (ps, body) (macroDefinitions env)
-      , macroFixities    = Map.insert n fix       (macroFixities    env)
-      }
+  let pInfo = case body of
+                TermMacro tm  -> inferParamInfosTerm ps tm
+                RelMacro  rt  -> inferParamInfosRel  ps rt
+                ProofMacro pr -> inferParamInfosProof ps pr
+  in env { macroDefinitions = Map.insert n (pInfo, body) (macroDefinitions env)
+         , macroFixities    = Map.insert n fix            (macroFixities    env)
+         }
 
 ------------------------------------------------------------------
 -- | Empty environments used by tests.
@@ -276,3 +308,127 @@ noMacros = MacroEnvironment Map.empty Map.empty
 
 noTheorems :: TheoremEnvironment
 noTheorems = TheoremEnvironment Map.empty
+
+-- | Safe list update at a given index
+updateAt :: Int -> (a -> a) -> [a] -> [a]
+updateAt i f xs = zipWith (\j x -> if j == i then f x else x) [0..] xs
+
+------------------------------------------------------------
+--  Macro parameter inference
+------------------------------------------------------------
+
+-- | Infer parameter information for term macros
+inferParamInfosTerm :: [String] -> Term -> [ParamInfo]
+inferParamInfosTerm ps body =
+  let initPI = [ ParamInfo nm TermK False [] | nm <- ps ]
+      idxOf  = Map.fromList (zip ps [0..])
+      walk :: [Int] -> Term -> State [ParamInfo] ()
+      walk stk term = case term of
+        Lam v t _ -> do
+          case Map.lookup v idxOf of
+            Just i -> modify (updateAt i (\pi -> pi{pBinds=True}))
+            _      -> pure ()
+          walk (maybe stk (:stk) (Map.lookup v idxOf)) t
+        Var v _ _ -> case Map.lookup v idxOf of
+            Just i -> modify (updateAt i (\pi -> pi{pDeps = Set.toAscList
+                                                        (Set.fromList (pDeps pi) `Set.union` Set.fromList stk)}))
+            _      -> pure ()
+        App f x _     -> walk stk f >> walk stk x
+        TMacro _ as _ -> mapM_ (walk stk) as
+  in execState (walk [] body) initPI
+
+-- | Infer parameter information for relational type macros
+inferParamInfosRel :: [String] -> RType -> [ParamInfo]
+inferParamInfosRel ps body =
+  let initPI = [ ParamInfo nm RelK False [] | nm <- ps ]
+      idxOf  = Map.fromList (zip ps [0..])
+      go :: [Int] -> RType -> State [ParamInfo] ()
+      go stk rtype = case rtype of
+        All v t _ -> do
+          case Map.lookup v idxOf of
+            Just i -> modify (updateAt i (\pi -> pi{pBinds=True, pKind=RelK}))
+            _      -> pure ()
+          go (maybe stk (:stk) (Map.lookup v idxOf)) t
+        RVar v _ _ -> case Map.lookup v idxOf of
+            Just i -> modify (updateAt i (\pi -> pi{pDeps = Set.toAscList
+                                                        (Set.fromList (pDeps pi) `Set.union` Set.fromList stk)}))
+            _      -> pure ()
+        Arr a b _   -> go stk a >> go stk b
+        Comp a b _  -> go stk a >> go stk b
+        Conv r _    -> go stk r
+        RMacro _ as _ -> mapM_ (go stk) as
+        Prom _ _    -> pure ()
+  in execState (go [] body) initPI
+
+-- | Infer parameter information for proof macros
+inferParamInfosProof :: [String] -> Proof -> [ParamInfo]
+inferParamInfosProof ps body =
+  let initPI = [ ParamInfo nm ProofK False [] | nm <- ps ]
+      idxOf  = Map.fromList (zip ps [0..])
+      walk :: [Int] -> Proof -> State [ParamInfo] ()
+      walk stk proof = case proof of
+        -- LamP binds a proof variable
+        LamP v _ p _ -> do
+          case Map.lookup v idxOf of
+            Just i -> modify (updateAt i (\pi -> pi{pBinds=True, pKind=ProofK}))
+            _      -> pure ()
+          walk (maybe stk (:stk) (Map.lookup v idxOf)) p
+        
+        -- TyLam binds a type variable (relation)
+        TyLam v p _ -> do
+          case Map.lookup v idxOf of
+            Just i -> modify (updateAt i (\pi -> pi{pBinds=True, pKind=RelK}))
+            _      -> pure ()
+          walk (maybe stk (:stk) (Map.lookup v idxOf)) p
+        
+        -- RhoElim binds a term variable
+        RhoElim x _ _ p1 p2 _ -> do
+          case Map.lookup x idxOf of
+            Just i -> modify (updateAt i (\pi -> pi{pBinds=True, pKind=TermK}))
+            _      -> pure ()
+          let xStk = maybe stk (:stk) (Map.lookup x idxOf)
+          walk stk p1
+          walk xStk p2
+        
+        -- Pi binds 1 term variable (x) and 2 proof variables (u, v)
+        Pi p1 x u v p2 _ -> do
+          -- Mark x as a term binder
+          case Map.lookup x idxOf of
+            Just i -> modify (updateAt i (\pi -> pi{pBinds=True, pKind=TermK}))
+            _      -> pure ()
+          -- Mark u as a proof binder
+          case Map.lookup u idxOf of
+            Just i -> modify (updateAt i (\pi -> pi{pBinds=True, pKind=ProofK}))
+            _      -> pure ()
+          -- Mark v as a proof binder
+          case Map.lookup v idxOf of
+            Just i -> modify (updateAt i (\pi -> pi{pBinds=True, pKind=ProofK}))
+            _      -> pure ()
+          
+          walk stk p1
+          -- Build the stack for p2 (which can see x, u, v)
+          let xIdx = Map.lookup x idxOf
+              uIdx = Map.lookup u idxOf
+              vIdx = Map.lookup v idxOf
+              newStk = foldl' (\s mi -> maybe s (:s) mi) stk [xIdx, uIdx, vIdx]
+          walk newStk p2
+        
+        -- Variable references
+        PVar v _ _ -> case Map.lookup v idxOf of
+            Just i -> modify (updateAt i (\pi -> pi{pDeps = Set.toAscList
+                                                        (Set.fromList (pDeps pi) `Set.union` Set.fromList stk)}))
+            _      -> pure ()
+        
+        -- Recursive cases
+        AppP p1 p2 _       -> walk stk p1 >> walk stk p2
+        TyApp p _ _        -> walk stk p
+        ConvProof _ p _ _  -> walk stk p
+        ConvIntro p _      -> walk stk p
+        ConvElim p _       -> walk stk p
+        Pair p1 p2 _       -> walk stk p1 >> walk stk p2
+        PMacro _ as _      -> mapM_ (walk stk) as
+        
+        -- Non-recursive cases
+        PTheoremApp _ _ _  -> pure ()
+        Iota _ _ _         -> pure ()
+  in execState (walk [] body) initPI

@@ -2,4 +2,4 @@
 import "test_lib.rtt";
 
 -- Use And from the library
-AndTrue := And True True;
+AndTrue ≔ And True True;

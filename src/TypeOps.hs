@@ -7,11 +7,14 @@ module TypeOps
     normalizeMacroApplication,
     MacroExpansionMode (..),
     ExpansionResult (..),
+    renameBinderVarsRType,
+    substituteMacroArgsRType,
   )
 where
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Data.List (foldl')
 import Errors
 import Lib
 import Normalize
@@ -186,30 +189,71 @@ freeTypeVariables ty = case ty of
   Comp t1 t2 _ -> Set.union (freeTypeVariables t1) (freeTypeVariables t2)
   Prom term _ -> freeVariables term
 
+-- | Count how many binders are to the left of a parameter (type level)
+binderPrefixCountRType :: [ParamInfo] -> Int -> Int
+binderPrefixCountRType pis j = length [ () | (k,ParamInfo{pBinds=True}) <- zip [0..] pis , k < j ]
+
+-- | Rename binder variables in RType based on actual arguments
+renameBinderVarsRType :: [ParamInfo] -> [RType] -> RType -> RType
+renameBinderVarsRType sig actuals = go
+  where
+    nameOfActual j = case actuals !! j of
+                       RVar s _ _ -> s
+                       _          -> error "binder argument must be a variable"
+    go r = case r of
+      All v t p ->
+        case lookupIdx v of
+          Just j | pBinds (sig!!j) -> All (nameOfActual j) (go t) p
+          _                        -> All v (go t) p
+      Arr a b p   -> Arr (go a) (go b) p
+      Comp a b p  -> Comp (go a) (go b) p
+      Conv rt p   -> Conv (go rt) p
+      RMacro n as p -> RMacro n (map go as) p
+      _           -> r
+    lookupIdx v = lookup v (zip (map pName sig) [0..])
+
+-- | Substitute macro arguments respecting binder-parameters (type level)
+substituteMacroArgsRType
+  :: [ParamInfo]   -- ^ macro signature
+  -> [RType]       -- ^ elaborated actuals
+  -> RType         -- ^ macro body
+  -> RType
+substituteMacroArgsRType sig actuals body =
+  foldl' step body (zip3 [0..] sig actuals)
+  where
+    step acc (j,pi,arg) =
+      if pBinds pi
+        then acc  -- binder-params are NOT substituted
+        else let k = binderPrefixCountRType sig j
+                 arg' = shiftRelsInRType k arg
+             in  substituteMultipleTypeVars [(length sig - 1 - j, arg')] acc
+
 -- | Normalize a macro application by expanding it
 normalizeMacroApplication :: MacroEnvironment -> String -> [RType] -> Either RelTTError RType
 normalizeMacroApplication env name args = do
-  (params, body) <- case Map.lookup name (macroDefinitions env) of
+  (sig, body) <- case Map.lookup name (macroDefinitions env) of
     Just def -> return def
     Nothing -> Left $ throwMacroError name (initialPos "<generated>") "macro expansion"
 
   case body of
     RelMacro rtypeBody -> do
-      if length params /= length args
+      if length sig /= length args
         then
           Left $
             MacroArityMismatch
               name
-              (length params)
+              (length sig)
               (length args)
               (ErrorContext (initialPos "<generated>") "macro application")
         else do
-          -- Substitute arguments for parameters in body simultaneously
-          -- Parameters are indexed in reverse order (most recent = index 0)
-          let substitutions = zip [length params - 1, length params - 2 .. 0] args
-          return $ substituteMultipleTypeVars substitutions rtypeBody
+          -- Apply binder renaming and substitution
+          let body1 = renameBinderVarsRType sig args rtypeBody
+              body2 = substituteMacroArgsRType sig args body1
+          return body2
     TermMacro _ ->
       Left $ throwMacroError name (initialPos "<generated>") "expected relational macro but found term macro"
+    ProofMacro _ ->
+      Left $ throwMacroError name (initialPos "<generated>") "expected relational macro but found proof macro"
 
 -- Internal expansion implementation
 
@@ -232,45 +276,41 @@ expandWithMode env mode maxSteps ty = case ty of
             totalSteps = sum (map expansionSteps expandedArgs)
             anyExpanded = any wasExpanded expandedArgs
         return $ ExpansionResult (RMacro name resultArgs pos) totalSteps anyExpanded
-      Just (params, body) -> do
-        -- It's a macro - expand it
-        case body of
-          RelMacro rtypeBody -> do
-            if length params /= length args
-              then
-                Left $
-                  MacroArityMismatch
-                    name
-                    (length params)
-                    (length args)
-                    (ErrorContext (initialPos "<generated>") "macro expansion")
-              else do
-                -- Expand arguments first
-                expandedArgs <- mapM (expandWithMode env mode maxSteps) args
-                let resultArgs = map expandedType expandedArgs
-                    argSteps = sum (map expansionSteps expandedArgs)
+      Just (sig, RelMacro rtypeBody) -> do
+        if length sig /= length args
+          then
+            Left $
+              MacroArityMismatch
+                name
+                (length sig)
+                (length args)
+                (ErrorContext (initialPos "<generated>") "macro expansion")
+          else do
+            -- Expand arguments first
+            expandedArgs <- mapM (expandWithMode env mode maxSteps) args
+            let resultArgs = map expandedType expandedArgs
+                argSteps = sum (map expansionSteps expandedArgs)
 
-                -- Substitute arguments into macro body simultaneously
-                -- Parameters are indexed in reverse order (most recent = index 0)
-                let substitutions = zip [length params - 1, length params - 2 .. 0] resultArgs
-                    expandedBody = substituteMultipleTypeVars substitutions rtypeBody
+            -- Apply binder renaming and substitution
+            let body1 = renameBinderVarsRType sig resultArgs rtypeBody
+                expandedBody = substituteMacroArgsRType sig resultArgs body1
 
-                case mode of
-                  NoExpansion ->
-                    return $ ExpansionResult (RMacro name resultArgs pos) argSteps True
-                  WeakHeadExpansion ->
-                    -- For WHNF, just return the substituted body without further expansion
-                    return $ ExpansionResult expandedBody (argSteps + 1) True
-                  FullExpansion -> do
-                    -- Recursively expand the substituted body
-                    bodyResult <- expandWithMode env mode (maxSteps - 1) expandedBody
-                    return $
-                      ExpansionResult
-                        (expandedType bodyResult)
-                        (argSteps + 1 + expansionSteps bodyResult)
-                        True
-          TermMacro _ ->
-            Left $ throwMacroError name (initialPos "<generated>") "expected relational macro but found term macro"
+            case mode of
+              NoExpansion ->
+                return $ ExpansionResult (RMacro name resultArgs pos) argSteps True
+              WeakHeadExpansion ->
+                -- For WHNF, just return the substituted body without further expansion
+                return $ ExpansionResult expandedBody (argSteps + 1) True
+              FullExpansion -> do
+                -- Recursively expand the substituted body
+                bodyResult <- expandWithMode env mode (maxSteps - 1) expandedBody
+                return $
+                  ExpansionResult
+                    (expandedType bodyResult)
+                    (argSteps + 1 + expansionSteps bodyResult)
+                    True
+      Just _ ->
+        Left $ throwMacroError name (initialPos "<generated>") "expected relational macro"
   Arr t1 t2 pos -> do
     exp1 <- expandWithMode env mode maxSteps t1
     exp2 <- expandWithMode env mode maxSteps t2

@@ -199,6 +199,10 @@ prettyProofWithConfig config proof = case proof of
      in unionE ++ " " ++ prettyProofWithConfig config p
   Pair p1 p2 _ ->
     "(" ++ prettyProofWithConfig config p1 ++ ", " ++ prettyProofWithConfig config p2 ++ ")"
+  PMacro name args _ ->
+    if null args
+      then name
+      else name ++ " " ++ unwords (map (prettyProofWithParens config) args)
 
 -- Add parentheses when needed for proofs
 prettyProofWithParens :: PrettyConfig -> Proof -> String
@@ -225,9 +229,9 @@ prettyRelJudgmentWithConfig config (RelJudgment t1 rtype t2) =
 -- Pretty print bindings
 prettyBinding :: Binding -> String
 prettyBinding binding = case binding of
-  TermBinding name -> name
-  RelBinding name -> name
-  ProofBinding name judgment -> name ++ " : " ++ prettyRelJudgment judgment
+  TermBinding name -> "(" ++ name ++ " : Term)"
+  RelBinding name -> "(" ++ name ++ " : Rel)"
+  ProofBinding name judgment -> "(" ++ name ++ " : " ++ prettyRelJudgment judgment ++ ")"
 
 -- Pretty print declarations
 prettyDeclaration :: Declaration -> String
@@ -240,16 +244,17 @@ prettyDeclarationWithConfig config decl = case decl of
         bodyStr = case body of
           TermMacro term -> prettyTermWithConfig config term
           RelMacro rtype -> prettyRTypeWithConfig config rtype
-     in name ++ paramStr ++ " := " ++ bodyStr ++ ";"
+          ProofMacro proof -> prettyProofWithConfig config proof
+     in name ++ paramStr ++ " ≔ " ++ bodyStr ++ ";"
   TheoremDef name bindings judgment proof ->
     let turnstile = if useUnicode config then "⊢" else "|-"
         bindingStr =
           if null bindings
             then ""
-            else "[" ++ intercalate ", " (map prettyBinding bindings) ++ "] "
+            else " " ++ unwords (map prettyBinding bindings)
         judgmentStr = prettyRelJudgmentWithConfig config judgment
         proofStr = prettyProofWithConfig config proof
-     in turnstile ++ " " ++ name ++ " : " ++ bindingStr ++ judgmentStr ++ " := " ++ proofStr ++ ";"
+     in turnstile ++ " " ++ name ++ bindingStr ++ " : " ++ judgmentStr ++ " ≔ " ++ proofStr ++ ";"
   ImportDecl importDecl -> prettyImportDeclaration importDecl
   ExportDecl exportDecl -> prettyExportDeclaration exportDecl
   FixityDecl fixity name -> prettyFixity fixity ++ " " ++ name ++ ";"
@@ -262,6 +267,7 @@ prettyFixity fixity = case fixity of
   InfixN level -> "infix " ++ show level
   Prefix level -> "prefix " ++ show level
   Postfix level -> "postfix " ++ show level
+  Closed level -> "closed " ++ show level
 
 -- Pretty print import declarations
 prettyImportDeclaration :: ImportDeclaration -> String

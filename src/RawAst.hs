@@ -10,6 +10,7 @@ module RawAst
   , RawMacroBody(..)
   , RawBinding(..)
   , RawJudgment(..)
+  , RawImportDeclaration(..)
   , Positioned(..)
   , nameText
   , nameString
@@ -19,18 +20,16 @@ module RawAst
   , StripPos(..)
   ) where
 
-import Data.Text (Text)
-import qualified Data.Text as T
 import Text.Megaparsec (SourcePos, initialPos)
 import Lib (Fixity(..))
 
--- Raw (unresolved) identifiers - just text, no de Bruijn indices
-newtype Name = Name Text deriving (Show, Eq, Ord)
+-- Raw (unresolved) identifiers - just strings, no de Bruijn indices
+newtype Name = Name String deriving (Show, Eq, Ord)
 
 -- Raw terms - no context, no validation
 data RawTerm
   = RTVar Name SourcePos                    -- x
-  | RTLam Name RawTerm SourcePos           -- λx. t  
+  | RTLam Name RawTerm SourcePos           -- λ x . t  
   | RTApp RawTerm RawTerm SourcePos        -- t u
   | RTMacro Name [RawTerm] SourcePos       -- user mixfix/macros _+_ etc.
   deriving (Show, Eq)
@@ -39,9 +38,9 @@ data RawTerm
 data RawRType
   = RRVar Name SourcePos                   -- X
   | RRArr RawRType RawRType SourcePos      -- T → U
-  | RRAll Name RawRType SourcePos          -- ∀X. T
+  | RRAll Name RawRType SourcePos          -- ∀ X . T
   | RRComp RawRType RawRType SourcePos     -- R ∘ S
-  | RRConv RawRType SourcePos              -- R˘
+  | RRConv RawRType SourcePos              -- R ˘
   | RRMacro Name [RawRType] SourcePos      -- mixfix on rel-types
   | RRApp  RawRType RawRType SourcePos     -- *juxtaposition*  R S
   | RRProm RawTerm SourcePos               -- promotion ⌈t⌉
@@ -52,13 +51,13 @@ data RawProof
   = RPVar Name SourcePos                                -- p
   | RPApp RawProof RawProof SourcePos                   -- p q
   | RPTheorem Name [RawArg] SourcePos                   -- theorem applications (NO arity check here)
-  | RPLamP Name RawRType RawProof SourcePos            -- λp:R. q (proof lambda)  
-  | RPLamT Name RawProof SourcePos                      -- ΛX. p (type lambda)
+  | RPLamP Name RawRType RawProof SourcePos            -- λ p : R . q (proof lambda)  
+  | RPLamT Name RawProof SourcePos                      -- Λ X . p (type lambda)
   | RPAppT RawProof RawRType SourcePos                  -- p T (type application)
   | RPConv RawTerm RawProof RawTerm SourcePos          -- t ⇃ p ⇂ u (conversion)
   | RPIota RawTerm RawTerm SourcePos                    -- ι⟨t,u⟩ (term promotion)
-  | RPRho Name RawTerm RawTerm RawProof RawProof SourcePos  -- ρ{x. t1, t2} p1 - p2 (rho elimination)
-  | RPPi RawProof Name Name Name RawProof SourcePos          -- π(p,x.u.v,q) - x:term, u,v:proofs
+  | RPRho Name RawTerm RawTerm RawProof RawProof SourcePos  -- ρ{ x . t1, t2} p1 - p2 (rho elimination)
+  | RPPi RawProof Name Name Name RawProof SourcePos          -- π(p,x .u.v,q) - x:term, u,v:proofs
   | RPConvIntro RawProof SourcePos                      -- ∪ᵢ p (converse intro)
   | RPConvElim RawProof SourcePos                       -- ∪ₑ p (converse elim)
   | RPPair RawProof RawProof SourcePos                  -- ⟨p,q⟩ (pair)
@@ -67,22 +66,29 @@ data RawProof
 
 -- Raw theorem/macro arguments - can be terms, types, or proofs
 data RawArg 
-  = TermArg RawTerm 
-  | RelArg RawRType 
-  | ProofArg RawProof
+  = RawTermArg RawTerm 
+  | RawRelArg RawRType 
+  | RawProofArg RawProof
+  deriving (Show, Eq)
+
+-- Raw import declarations  
+data RawImportDeclaration
+  = RawImportModule String                    -- import "path";
   deriving (Show, Eq)
 
 -- Raw declarations
 data RawDeclaration
-  = RawMacro Name [Name] RawMacroBody         -- macro name params := body
-  | RawTheorem Name [RawBinding] RawJudgment RawProof  -- ⊢ name bindings : judgment := proof
+  = RawMacro Name [Name] RawMacroBody         -- macro name params ≔ body
+  | RawTheorem Name [RawBinding] RawJudgment RawProof  -- ⊢ name bindings : judgment ≔ proof
   | RawFixityDecl Fixity Name                 -- fixity declarations
+  | RawImportDecl RawImportDeclaration        -- import declarations
   deriving (Show, Eq)
 
 -- Raw macro bodies (can be terms or relational types)
 data RawMacroBody
   = RawTermBody RawTerm
-  | RawRelBody RawRType  
+  | RawRelBody RawRType
+  | RawProofBody RawProof
   deriving (Show, Eq)
 
 -- Raw bindings for theorem parameters
@@ -101,11 +107,11 @@ data Positioned a = Positioned a SourcePos
   deriving (Show, Eq)
 
 -- Helper functions for working with names
-nameText :: Name -> Text  
-nameText (Name t) = t
+nameText :: Name -> String  
+nameText (Name s) = s
 
 nameString :: Name -> String
-nameString (Name t) = T.unpack t
+nameString (Name s) = s
 
 -- Helper functions for extracting position info
 getPos :: Positioned a -> SourcePos
@@ -158,9 +164,9 @@ instance StripPos RawProof where
     RPMixfix n ps _              -> RPMixfix n (map stripPos ps) dummyPos
 
 instance StripPos RawArg where
-  stripPos (TermArg t)  = TermArg  (stripPos t)
-  stripPos (RelArg r)   = RelArg   (stripPos r)
-  stripPos (ProofArg p) = ProofArg (stripPos p)
+  stripPos (RawTermArg t)  = RawTermArg  (stripPos t)
+  stripPos (RawRelArg r)   = RawRelArg   (stripPos r)
+  stripPos (RawProofArg p) = RawProofArg (stripPos p)
 
 instance StripPos RawJudgment where
   stripPos (RawJudgment t r u) =
@@ -169,6 +175,7 @@ instance StripPos RawJudgment where
 instance StripPos RawMacroBody where
   stripPos (RawTermBody t) = RawTermBody (stripPos t)
   stripPos (RawRelBody r)  = RawRelBody  (stripPos r)
+  stripPos (RawProofBody p) = RawProofBody (stripPos p)
 
 instance StripPos RawBinding where
   stripPos = \case
@@ -182,3 +189,8 @@ instance StripPos RawDeclaration where
     RawTheorem n bs j p      -> RawTheorem n (map stripPos bs)
                                              (stripPos j) (stripPos p)
     RawFixityDecl f n        -> RawFixityDecl f n
+    RawImportDecl i          -> RawImportDecl (stripPos i)
+
+instance StripPos RawImportDeclaration where
+  stripPos = \case
+    RawImportModule path -> RawImportModule path

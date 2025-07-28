@@ -7,6 +7,7 @@ import qualified ContextSpec
 import qualified ElaborateSpec
 import qualified ErrorsSpec
 import qualified IntegrationSpec
+import qualified MacroBinderSpec
 import qualified MixfixSpec
 import qualified NewParserPipelineSpec
 import qualified NormalizeSpec
@@ -39,6 +40,7 @@ main = hspec $ do
   describe "Normalization" NormalizeSpec.spec
   describe "Term Operations" TermOpsSpec.spec
   describe "Type Operations" TypeOpsSpec.spec
+  describe "Macro Binder System" MacroBinderSpec.spec
   describe "Context Management" ContextSpec.spec
   describe "Error Handling" ErrorsSpec.spec
   -- describe "Proof Checking" ProofCheckerSpec.spec

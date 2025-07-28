@@ -1,4 +1,4 @@
-module TheoremReferenceParsingSpec where
+module TheoremReferenceParsingSpec (spec) where
 
 import Context (emptyTypingContext, extendTheoremEnvironment, noMacros, noTheorems)
 import Control.Monad.Reader (runReader)
@@ -7,7 +7,6 @@ import Lib
 import Parser.Legacy (ParseContext (..), emptyParseContext, parseFile, parseProof, runParserEmpty, runParserT)
 import ProofChecker (checkProof)
 import Test.Hspec
-import TestHelpers
 import Text.Megaparsec (SourcePos, eof, errorBundlePretty, initialPos)
 
 spec :: Spec
@@ -19,11 +18,11 @@ spec = do
     describe "Direct parser theorem reference handling" $ do
       
       it "should parse simple theorem reference (baseline - should work)" $ do
-        let theoremEnv = extendTheoremEnvironment "simple_thm" [] 
+        let localTheoremEnv = extendTheoremEnvironment "simple_thm" [] 
                           (RelJudgment (Var "x" 0 pos) (RVar "R" 0 pos) (Var "x" 0 pos))
                           (PVar "dummy" 0 pos)
                           noTheorems
-            ctx = emptyParseContext { theoremEnv = theoremEnv }
+            ctx = emptyParseContext { theoremEnv = localTheoremEnv }
             input = "simple_thm"
         case runReader (runParserT (parseProof <* eof) "test" input) ctx of
           Left err -> expectationFailure $ "Expected successful parsing of simple theorem reference, got: " ++ errorBundlePretty err
@@ -33,9 +32,9 @@ spec = do
 
       it "should parse theorem reference as proof argument (BUG - currently fails)" $ do
         -- Create theorems where one legitimately takes a proof argument from another
-        let innerThm = RelJudgment (Var "x" 0 pos) (RMacro "λy.y" [] pos) (Var "x" 0 pos)
-            outerThm = RelJudgment (Var "z" 0 pos) (RMacro "λw.w" [] pos) (Var "z" 0 pos)
-            theoremEnv = extendTheoremEnvironment "identity" [TermBinding "x"] 
+        let innerThm = RelJudgment (Var "x" 0 pos) (RMacro "λ y . y" [] pos) (Var "x" 0 pos)
+            outerThm = RelJudgment (Var "z" 0 pos) (RMacro "λ w . w" [] pos) (Var "z" 0 pos)
+            localTheoremEnv = extendTheoremEnvironment "identity" [TermBinding "x"] 
                           innerThm
                           (PVar "dummy1" 0 pos) $
                          extendTheoremEnvironment "use_proof" [TermBinding "y", ProofBinding "p" innerThm] 
@@ -44,7 +43,7 @@ spec = do
                           noTheorems
             -- Add "a" to the term context so it can be parsed as a term argument
             termContext = Map.fromList [("a", 0)]
-            ctx = emptyParseContext { theoremEnv = theoremEnv, termVars = termContext }
+            ctx = emptyParseContext { theoremEnv = localTheoremEnv, termVars = termContext }
             input = "use_proof a (identity a)"
         case runReader (runParserT (parseProof <* eof) "test" input) ctx of
           Left err -> expectationFailure $ "BUG DETECTED: Failed to parse theorem reference as proof argument. This should work but currently fails with: " ++ errorBundlePretty err
@@ -59,16 +58,16 @@ spec = do
       
       it "should type check nested theorem references (BUG - currently fails at parse stage)" $ do
         -- Create theorems where one legitimately takes a proof argument from another
-        let idThm = RelJudgment (Var "x" 0 pos) (RMacro "λy.y" [] pos) (Var "x" 0 pos)
+        let idThm = RelJudgment (Var "x" 0 pos) (RMacro "λ y . y" [] pos) (Var "x" 0 pos)
             idProof = ConvProof (Var "x" 0 pos) (Iota (Var "x" 0 pos) (Lam "y" (Var "y" 0 pos) pos) pos) (Var "x" 0 pos) pos
             
-            theoremEnv = extendTheoremEnvironment "identity" [TermBinding "x"] idThm idProof $
+            localTheoremEnv = extendTheoremEnvironment "identity" [TermBinding "x"] idThm idProof $
                          extendTheoremEnvironment "proof_user" [TermBinding "y", ProofBinding "p" idThm] idThm idProof $
                          noTheorems
             
         -- Try to create a theorem that uses valid nested references: proof_user a (identity a)
         let termContext = Map.fromList [("a", 0)]
-            ctx = emptyParseContext { theoremEnv = theoremEnv, termVars = termContext }
+            ctx = emptyParseContext { theoremEnv = localTheoremEnv, termVars = termContext }
             nestedProofInput = "proof_user a (identity a)"
             
         case runReader (runParserT (parseProof <* eof) "test" nestedProofInput) ctx of
@@ -76,7 +75,7 @@ spec = do
           Right nestedProof -> do
             -- If parsing succeeds, try type checking
             let typingCtx = emptyTypingContext
-            case checkProof typingCtx noMacros theoremEnv nestedProof idThm of
+            case checkProof typingCtx noMacros localTheoremEnv nestedProof idThm of
               Left err -> expectationFailure $ "Type checking failed (this might be expected): " ++ show err  
               Right _ -> return () -- Success case when bug is fixed
 
@@ -86,9 +85,9 @@ spec = do
       
       it "should parse file containing nested theorem references (BUG - currently fails)" $ do
         let fileContent = unlines
-              [ "⊢ identity (x : Term) : x [λy.y] x := x ⇃ ι⟨x,λy.y⟩ ⇂ x;",
-                "⊢ proof_wrapper (y : Term) (p : y [λz.z] y) : y [λz.z] y := p;", 
-                "⊢ nested_thm (a : Term) : a [λw.w] a := proof_wrapper a (identity a);"
+              [ "⊢ identity (x : Term) : x [λ y . y] x ≔ x ⇃ ι⟨ x ,λ y . y⟩ ⇂ x;",
+                "⊢ proof_wrapper (y : Term) (p : y [λ z . z] y) : y [λ z . z] y ≔ p;", 
+                "⊢ nested_thm (a : Term) : a [λ w . w] a ≔ proof_wrapper a (identity a);"
               ]
         case runParserEmpty parseFile fileContent of
           Left err -> expectationFailure $ "BUG DETECTED: File with valid nested theorem references should parse but failed with: " ++ errorBundlePretty err

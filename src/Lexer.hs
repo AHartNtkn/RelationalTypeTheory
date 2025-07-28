@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
 module Lexer 
   ( sc
   , symbol
@@ -10,19 +9,17 @@ module Lexer
   , braces
   , coloneqq
   , isValidIdentChar
-  , isMixfixChar       --  ← NEW
+  , stringLit
   ) where
 
 import Data.Char (generalCategory, GeneralCategory(..))
-import Data.Text (Text)
-import qualified Data.Text as T
 import Text.Megaparsec
 import Text.Megaparsec.Char (spaceChar, char)
 import qualified Text.Megaparsec.Char.Lexer as L
 import Data.Void
 import Control.Monad (void)
 
-type P = Parsec Void Text
+type P = Parsec Void String
 
 -- | Standard space consumer
 --
@@ -40,17 +37,15 @@ sc = L.space (void spaceChar)                       -- zero‑or‑more spaces
 lexeme :: P a -> P a
 lexeme = L.lexeme sc
 
-symbol :: Text -> P Text
+symbol :: String -> P String
 symbol = L.symbol sc
 
 -- | Keywords that may appear in concrete syntax but are *not* legal
 -- identifiers.  Putting them here guarantees we fail fast in the
 -- *parser* phase – the elaborator will never see them.
-reservedWords :: [Text]
+reservedWords :: [String]
 reservedWords =
-  [ "Term","term","Rel","rel","forall","Λ","λ","∀"           -- sorts & binders
-  , "iota","rho","pi","conv_intro","conv_elim"                  -- proof keywords
-  , "conv_up","conv_down","proof"                               -- misc.
+  [ "Term","term","Rel","rel"                               -- sorts & binders
   ]
 
 operatorCats :: [GeneralCategory]
@@ -83,43 +78,37 @@ isIdentChar c = case generalCategory c of
   EnclosingMark       -> True
   _ | generalCategory c `elem` operatorCats -> True
   _                   -> c == '_' || c == '\''
-  && c `notElem` ['λ', '→', '∘', '˘', '∀', 'ι', 'ρ', 'π', '⇃', '⇂', 'Λ']
 
 -- Reserved delimiter characters that cannot be part of identifiers
 isDelimiter :: Char -> Bool
-isDelimiter c = c `elem` ['(', ')', '[', ']', '{', '}', ';', ',', ':', '.', '⟨', '⟩', '<', '>', '-']
+isDelimiter c = c `elem` ['(', ')', ';', '[', ']', '≔']   -- ONLY the truly fatal ones
 
 isValidIdentChar :: Char -> Bool
 isValidIdentChar c = isIdentChar c && not (isDelimiter c)
 
--- | Character class for **mixfix operator names**.
---   We allow the regular identifier alphabet **plus**
---   the three ASCII glyphs that we still want to treat as
---   delimiters for *ordinary* identifiers.
---
---   * keeps the iota/rho fixes intact because the global
---     delimiter table is left untouched;
---   * does **not** include '⟨' or '⟩', so the old "y⟩"
---     problem does not re‑appear.
-isMixfixChar :: Char -> Bool
-isMixfixChar c =
-     (isIdentChar c && not (isDelimiter c))  -- normal ident chars
-  || c `elem` (['<', '>', '-', '⟨', '⟩', '∣'] :: [Char])   -- extra operator glyphs including brackets
-  || c == '_'                                -- hole marker
-
-ident :: P Text
+ident :: P String
 ident = lexeme . try $ do
-  txt <- T.pack <$> some (satisfy isValidIdentChar) <?> "identifier"
+  txt <- some (satisfy isValidIdentChar) <?> "identifier"
   if txt `elem` reservedWords
-     then fail $ "reserved keyword \"" <> T.unpack txt <> "\""
+     then fail $ "reserved keyword \"" ++ txt ++ "\""
      else pure txt
 
-pKeyword :: Text -> P ()
+pKeyword :: String -> P ()
 pKeyword kw = () <$ try (symbol kw)
 
 -- Common symbol combinations
-coloneqq :: P Text
-coloneqq = symbol ":=" <|> symbol "≔"
+coloneqq :: P String
+coloneqq = symbol "≔" <|> symbol "≔"
+
+-- String literal parser
+stringLit :: P String
+stringLit = lexeme $ do
+  _ <- char '"'
+  content <- many stringChar
+  _ <- char '"'
+  return content
+  where
+    stringChar = satisfy (\c -> c /= '"' && c /= '\n' && c /= '\r')
 
 -- Convenience parsers for common delimiters
 parens :: P a -> P a

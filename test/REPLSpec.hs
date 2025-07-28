@@ -39,11 +39,11 @@ spec = do
 
     it "parses check proof commands" $ do
       parseREPLCommand ":check p x[R]y" `shouldBe` Right (CheckProof "p" "x[R]y")
-      parseREPLCommand ":c ι⟨x,y⟩ x[R]y" `shouldBe` Right (CheckProof "ι⟨x,y⟩" "x[R]y")
+      parseREPLCommand ":c ι⟨ x , y ⟩ x[R]y" `shouldBe` Right (CheckProof "ι⟨ x , y ⟩" "x[R]y")
 
     it "parses infer proof commands" $ do
       parseREPLCommand ":infer p" `shouldBe` Right (InferProof "p")
-      parseREPLCommand ":infer ι⟨x,y⟩" `shouldBe` Right (InferProof "ι⟨x,y⟩")
+      parseREPLCommand ":infer ι⟨ x , y ⟩" `shouldBe` Right (InferProof "ι⟨ x , y ⟩")
 
     it "parses macro expand commands" $ do
       parseREPLCommand ":expand Bool" `shouldBe` Right (ExpandMacro "Bool")
@@ -59,8 +59,8 @@ spec = do
       parseREPLCommand ":history" `shouldBe` Right ShowHistory
 
     it "parses declaration input" $ do
-      parseREPLCommand "Bool := ∀X. X → X → X;" `shouldBe` Right (ParseDeclaration "Bool := ∀X. X → X → X;")
-      parseREPLCommand "⊢ test : x [R] y := p;" `shouldBe` Right (ParseDeclaration "⊢ test : x [R] y := p;")
+      parseREPLCommand "Bool ≔ ∀ X . X → X → X;" `shouldBe` Right (ParseDeclaration "Bool ≔ ∀ X . X → X → X;")
+      parseREPLCommand "⊢ test : x [R] y ≔ p;" `shouldBe` Right (ParseDeclaration "⊢ test : x [R] y ≔ p;")
 
     it "handles empty input" $ do
       let isLeft (Left _) = True
@@ -116,11 +116,11 @@ spec = do
       result `shouldContain` "No term named NonExistent"
 
     it "executes infer proof command with simple proof" $ do
-      result <- evalStateT (executeREPLCommand (InferProof "ι⟨λx. x, λy. y⟩")) initialREPLState
+      result <- evalStateT (executeREPLCommand (InferProof "ι⟨λ x . x, λ y . y⟩")) initialREPLState
       result `shouldContain` "Inferred judgment:"
 
     it "executes check proof command with valid syntax" $ do
-      result <- evalStateT (executeREPLCommand (CheckProof "ι⟨λx. x, λy. y⟩" "(λx. x)[(λa. λb. a)]((λy. y))")) initialREPLState
+      result <- evalStateT (executeREPLCommand (CheckProof "ι⟨λ x . x, λ y . y⟩" "(λ x . x)[(λa. λb. a)]((λ y . y))")) initialREPLState
       result `shouldSatisfy` (\r -> "Proof is valid" `isInfixOf` r || "Parse error:" `isInfixOf` r || "Proof checking failed:" `isInfixOf` r)
 
     it "handles invalid syntax in proof check" $ do
@@ -130,8 +130,8 @@ spec = do
     it "handles Unicode π symbol in pi elimination" $ do
       -- Both ASCII and Unicode should fail with the same error: "Unknown identifier: p"
       -- because 'p' is not bound in initialREPLState
-      asciiResult <- evalStateT (executeREPLCommand (InferProof "pi p - x.u.v.u")) initialREPLState
-      unicodeResult <- evalStateT (executeREPLCommand (InferProof "π p - x.u.v.u")) initialREPLState
+      asciiResult <- evalStateT (executeREPLCommand (InferProof "pi p - x . u . v . u")) initialREPLState
+      unicodeResult <- evalStateT (executeREPLCommand (InferProof "π p - x . u . v . u")) initialREPLState
 
       -- Both should fail with an error about 'p' being unknown
       -- The error might be "Unknown identifier: p" or "Unknown proof: p" or "Unknown term: p"
@@ -147,8 +147,8 @@ spec = do
     it "handles Unicode π symbol with spaces after dots" $ do
       -- Both ASCII and Unicode should fail with the same error: "Unknown identifier: p"
       -- because 'p' is not bound in initialREPLState (spaces shouldn't matter)
-      asciiWithSpaces <- evalStateT (executeREPLCommand (InferProof "pi p - x. u. v. u")) initialREPLState
-      unicodeWithSpaces <- evalStateT (executeREPLCommand (InferProof "π p - x. u. v. u")) initialREPLState
+      asciiWithSpaces <- evalStateT (executeREPLCommand (InferProof "pi p - x . u. v. u")) initialREPLState
+      unicodeWithSpaces <- evalStateT (executeREPLCommand (InferProof "π p - x . u. v. u")) initialREPLState
 
       -- Both should fail with an error about 'p' being unknown
       -- The error might be "Unknown identifier: p" or "Unknown proof: p" or "Unknown term: p"
@@ -171,12 +171,12 @@ spec = do
 
   describe "REPL Macro and Declaration Management" $ do
     it "processes valid macro definition" $ do
-      let macroDecl = "Id := λx. x;"
+      let macroDecl = "Id ≔ λ x . x;"
       result <- evalStateT (executeREPLCommand (ParseDeclaration macroDecl)) initialREPLState
       result `shouldContain` "Added macro: Id"
 
     it "processes valid theorem definition" $ do
-      let theoremDecl = "⊢ test : x [R] y := p;"
+      let theoremDecl = "⊢ test : x [R] y ≔ p;"
       -- This should parse successfully but may fail in proof checking
       result <- evalStateT (executeREPLCommand (ParseDeclaration theoremDecl)) initialREPLState
       -- Could be either success or proof checking error
@@ -188,8 +188,8 @@ spec = do
       result `shouldContain` "Parse error:"
 
     it "maintains state across multiple declarations" $ do
-      let macro1 = "Id := λx. x;"
-      let macro2 = "Comp R S := R ∘ S;"
+      let macro1 = "Id ≔ λ x . x;"
+      let macro2 = "Comp R S ≔ R ∘ S;"
 
       finalState <-
         execStateT
@@ -202,7 +202,7 @@ spec = do
       length (replDeclarations finalState) `shouldBe` 2
 
     it "lists declarations after adding them" $ do
-      let macro = "Id := λx. x;"
+      let macro = "Id ≔ λ x . x;"
       result <-
         evalStateT
           ( do
@@ -211,10 +211,10 @@ spec = do
           )
           initialREPLState
 
-      result `shouldContain` "Id := λx. x;"
+      result `shouldContain` "Id ≔ λ x . x;"
 
     it "shows macro info after definition" $ do
-      let macro = "Id := λx. x;"
+      let macro = "Id ≔ λ x . x;"
       result <-
         evalStateT
           ( do
@@ -223,10 +223,10 @@ spec = do
           )
           initialREPLState
 
-      result `shouldContain` "Macro Id := λx. x"
+      result `shouldContain` "Macro Id ≔ λ x . x"
 
     it "expands macros after definition" $ do
-      let macro = "Id := λx. x;"
+      let macro = "Id ≔ λ x . x;"
       result <-
         evalStateT
           ( do
@@ -236,7 +236,7 @@ spec = do
           initialREPLState
 
       result `shouldContain` "Original: Id"
-      result `shouldContain` "Expanded: λx. x"
+      result `shouldContain` "Expanded: λ x . x"
 
   describe "REPL File Loading" $ do
     it "handles non-existent file gracefully" $ do
@@ -254,8 +254,8 @@ spec = do
   describe "REPL Integration" $ do
     it "maintains consistent state through multiple operations" $ do
       let operations =
-            [ ParseDeclaration "Bool := ∀X. X → X → X;",
-              ParseDeclaration "True := (λx. λy. x);"
+            [ ParseDeclaration "Bool ≔ ∀ X . X → X → X;",
+              ParseDeclaration "True ≔ (λ x . λ y . x);"
             ]
 
       finalState <- execStateT (mapM_ executeREPLCommand operations) initialREPLState
@@ -265,7 +265,7 @@ spec = do
 
     it "handles mixed valid and invalid commands" $ do
       let operations =
-            [ ParseDeclaration "Bool := ∀X. X → X → X;", -- Valid
+            [ ParseDeclaration "Bool ≔ ∀ X . X → X → X;", -- Valid
               ParseDeclaration "Invalid syntax", -- Invalid
               ListDeclarations, -- Valid
               ShowInfo "NonExistent" -- Valid but no result
@@ -282,7 +282,7 @@ spec = do
       length errors `shouldBeGreaterThan` 0
 
     it "preserves Unicode formatting in output" $ do
-      let macro = "Arrow X Y := X → Y;"
+      let macro = "Arrow X Y ≔ X → Y;"
       result <-
         evalStateT
           ( do
@@ -293,7 +293,7 @@ spec = do
 
       result `shouldContain` "→" -- Unicode arrow should be preserved
     it "handles complex nested structures" $ do
-      let complexMacro = "Complex := ∀X. (X → X) → X ∘ X;"
+      let complexMacro = "Complex ≔ ∀ X . (X → X) → X ∘ X;"
       result <-
         evalStateT
           ( do
@@ -302,7 +302,7 @@ spec = do
           )
           initialREPLState
 
-      result `shouldContain` "∀X. (X → X) → X ∘ X"
+      result `shouldContain` "∀ X . (X → X) → X ∘ X"
 
   describe "REPL Error Handling" $ do
     it "provides helpful error messages for parsing failures" $ do
@@ -318,7 +318,7 @@ spec = do
         evalStateT
           ( do
               -- First define a macro that expects parameters
-              _ <- executeREPLCommand (ParseDeclaration "TestMacro X Y := X → Y;")
+              _ <- executeREPLCommand (ParseDeclaration "TestMacro X Y ≔ X → Y;")
               -- Then try to expand it without enough arguments (should cause arity mismatch)
               executeREPLCommand (ExpandMacro "TestMacro")
           )
@@ -328,7 +328,7 @@ spec = do
     it "recovers from errors and continues operation" $ do
       let operations =
             [ ParseDeclaration "Invalid", -- Error
-              ParseDeclaration "Bool := ∀X. X → X;", -- Success
+              ParseDeclaration "Bool ≔ ∀ X . X → X;", -- Success
               ListDeclarations -- Success
             ]
 
@@ -336,4 +336,4 @@ spec = do
 
       -- Last operation should show the valid declaration
       let lastResult = last results
-      lastResult `shouldContain` "Bool := ∀X. X → X;"
+      lastResult `shouldContain` "Bool ≔ ∀ X . X → X;"

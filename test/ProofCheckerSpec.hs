@@ -9,7 +9,7 @@ import Lib
 import Parser.Legacy (parseDeclaration, runParserEmpty)
 import ProofChecker
 import Test.Hspec
-import TestHelpers (buildContextFromBindings)
+import TestHelpers (buildContextFromBindings, simpleRelMacro)
 import Text.Megaparsec (initialPos)
 
 spec :: Spec
@@ -61,7 +61,7 @@ basicProofCheckingSpec = describe "basic proof checking" $ do
 -- | Test proof lambda abstractions (LamP)
 proofLambdaSpec :: Spec
 proofLambdaSpec = describe "proof lambda abstractions (LamP)" $ do
-  it "correctly types λu:R.p : R → R'" $ do
+  it "correctly types λ u : R .p : R → R'" $ do
     -- Test: λu:(A→B).p where p uses u to prove x[A→B]y
     let termCtx =
           extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
@@ -86,7 +86,7 @@ proofLambdaSpec = describe "proof lambda abstractions (LamP)" $ do
             argType `shouldBe` arrType
             -- The body type should be what the inner proof establishes
             -- Since bodyProof is just 'u' which has type arrType,
-            -- the resulting judgment should be λx.x[arrType→arrType]λx'.x'
+            -- the resulting judgment should be λ x . x[arrType→arrType]λ x' . x'
             bodyType `shouldBe` arrType
 
             -- Also verify the structure of the derived terms
@@ -102,7 +102,7 @@ proofLambdaSpec = describe "proof lambda abstractions (LamP)" $ do
       Left err -> expectationFailure $ "Expected successful lambda proof: " ++ show err
 
   it "handles nested proof lambda abstractions" $ do
-    -- Test: λu:R.λv:S.body
+    -- Test: λ u : R . λv:S.body
     let termCtx =
           extendTermContext "z" (RMacro "C" [] (initialPos "test")) $
             extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
@@ -114,7 +114,7 @@ proofLambdaSpec = describe "proof lambda abstractions (LamP)" $ do
         -- Inner lambda: λv:S.v
         innerLambda = LamP "v" sType (PVar "v" 0 (initialPos "test")) (initialPos "test")
 
-        -- Outer lambda: λu:R.λv:S.v
+        -- Outer lambda: λ u : R . λv:S.v
         outerLambda = LamP "u" rType innerLambda (initialPos "test")
         macroEnv = noMacros
 
@@ -202,19 +202,19 @@ proofApplicationSpec = describe "proof applications (AppP)" $ do
 -- | Test type applications (TyApp)
 typeApplicationSpec :: Spec
 typeApplicationSpec = describe "type applications (TyApp)" $ do
-  it "correctly types p{R} for universally quantified proof" $ do
-    -- Test: p{R} where p : ∀X.P[X]
+  it "correctly types p { R } for universally quantified proof" $ do
+    -- Test: p { R } where p : ∀ X .P[X]
     let termCtx =
           extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
             extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
 
-        -- Universal type: ∀X. x[X]y
+        -- Universal type: ∀ X . x[X]y
         universalType = All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test")
         universalJudgment = RelJudgment (Var "x" 1 (initialPos "test")) universalType (Var "y" 0 (initialPos "test"))
 
         ctx = extendProofContext "p" universalJudgment termCtx
 
-        -- Type application: p{R}
+        -- Type application: p { R }
         substitutionType = RMacro "R" [] (initialPos "test")
         typeAppProof = TyApp (PVar "p" 0 (initialPos "test")) substitutionType (initialPos "test")
         macroEnv = noMacros
@@ -227,10 +227,10 @@ typeApplicationSpec = describe "type applications (TyApp)" $ do
       Left err -> expectationFailure $ "Expected successful type application: " ++ show err
 
   it "tests universal instantiation over macro expanding to quantified type" $ do
-    -- Test: if we have C := ∀X. X → X → X, can we do p{A} where p : b [C] b?
+    -- Test: if we have C ≔ ∀ X . X → X → X, can we do p{A} where p : b [C] b?
     let termCtx = extendTermContext "b" (RMacro "Term" [] (initialPos "test")) emptyTypingContext
 
-        -- Define macro C := ∀X. X → X → X (like Bool)
+        -- Define macro C ≔ ∀ X . X → X → X (like Bool)
         pos = initialPos "test"
         quantifiedMacro = RelMacro $ All "X" (Arr (RVar "X" 0 pos) (Arr (RVar "X" 0 pos) (RVar "X" 0 pos) pos) pos) pos
         macroEnv = extendMacroEnvironment "C" [] quantifiedMacro (defaultFixity "TEST") noMacros
@@ -274,8 +274,8 @@ typeApplicationSpec = describe "type applications (TyApp)" $ do
 -- | Test type lambda abstractions (TyLam)
 typeLambdaSpec :: Spec
 typeLambdaSpec = describe "type lambda abstractions (TyLam)" $ do
-  it "correctly types Λx.p : ∀x.R" $ do
-    -- Test: Λx.p where p proves something with free type variable x
+  it "correctly types Λx .p : ∀x . R" $ do
+    -- Test: Λx .p where p proves something with free type variable x
     let termCtx =
           extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
             extendTermContext "t" (RMacro "A" [] (initialPos "test")) emptyTypingContext
@@ -284,7 +284,7 @@ typeLambdaSpec = describe "type lambda abstractions (TyLam)" $ do
         bodyJudgment = RelJudgment (Var "t" 1 (initialPos "test")) (RVar "X" (-1) (initialPos "test")) (Var "y" 0 (initialPos "test"))
         bodyCtx = extendProofContext "body" bodyJudgment termCtx
 
-        -- Type lambda: Λx.body
+        -- Type lambda: Λx .body
         typeLambdaProof = TyLam "X" (PVar "body" 0 (initialPos "test")) (initialPos "test")
         macroEnv = noMacros
 
@@ -312,15 +312,15 @@ conversionProofSpec = describe "conversion proofs (ConvProof)" $ do
     -- Test conversion with beta-equivalent terms
     let termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
 
-        -- Original terms in proof: ((λx.x) a) [R] a
+        -- Original terms in proof: ((λ x . x) a) [R] a
         originalTerm1 = App (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (Var "a" 0 (initialPos "test")) (initialPos "test")
         originalTerm2 = Var "a" 0 (initialPos "test")
         originalJudgment = RelJudgment originalTerm1 (RMacro "R" [] (initialPos "test")) originalTerm2
 
         ctx = extendProofContext "p" originalJudgment termCtx
 
-        -- Conversion: a ⇃ p ⇂ a (β-reducing (λx.x) a to a)
-        convertedTerm1 = Var "a" 0 (initialPos "test") -- β-equivalent to (λx.x) a
+        -- Conversion: a ⇃ p ⇂ a (β-reducing (λ x . x) a to a)
+        convertedTerm1 = Var "a" 0 (initialPos "test") -- β-equivalent to (λ x . x) a
         convertedTerm2 = Var "a" 0 (initialPos "test") -- Same
         conversionProof = ConvProof convertedTerm1 (PVar "p" 0 (initialPos "test")) convertedTerm2 (initialPos "test")
         macroEnv = noMacros
@@ -352,7 +352,7 @@ conversionProofSpec = describe "conversion proofs (ConvProof)" $ do
       Right _ -> expectationFailure "Expected conversion to fail with non-equivalent terms"
 
   it "rejects conversion proof with mismatched judgment types" $ do
-    -- Critical test: ((λz.z) x) ⇃ rel ⇂ b should NOT have type x [S] b
+    -- Critical test: ((λ z . z) x) ⇃ rel ⇂ b should NOT have type x [S] b
     let termCtx =
           extendTermContext "b" (RMacro "Term" [] (initialPos "test")) $
             extendTermContext "x" (RMacro "Term" [] (initialPos "test")) emptyTypingContext
@@ -362,7 +362,7 @@ conversionProofSpec = describe "conversion proofs (ConvProof)" $ do
         originalJudgment = RelJudgment (Var "x" 1 (initialPos "test")) relType (Var "b" 0 (initialPos "test"))
         ctx = extendProofContext "rel" originalJudgment termCtx
 
-        -- Conversion proof: ((λz.z) x) ⇃ rel ⇂ b
+        -- Conversion proof: ((λ z . z) x) ⇃ rel ⇂ b
         lamTerm = App (Lam "z" (Var "z" 0 (initialPos "test")) (initialPos "test")) (Var "x" 1 (initialPos "test")) (initialPos "test")
         conversionProof = ConvProof lamTerm (PVar "rel" 0 (initialPos "test")) (Var "b" 0 (initialPos "test")) (initialPos "test")
 
@@ -377,14 +377,14 @@ conversionProofSpec = describe "conversion proofs (ConvProof)" $ do
         expected `shouldBe` RelJudgment (Var "x" 1 (initialPos "test")) relType (Var "b" 0 (initialPos "test"))
         actual `shouldBe` RelJudgment lamTerm relType (Var "b" 0 (initialPos "test"))
       Left err -> expectationFailure $ "Expected ProofTypingError, got: " ++ show err
-      Right _ -> expectationFailure "Expected conversion to fail - inferred type should be ((λz.z) x) [S] b, not x [S] b"
+      Right _ -> expectationFailure "Expected conversion to fail - inferred type should be ((λ z . z) x) [S] b, not x [S] b"
 
 -- | Test rho elimination (RhoElim)
 rhoEliminationSpec :: Spec
 rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
-  it "correctly types ρ{x.t₁,t₂} p - p' according to paper rule" $ do
+  it "correctly types ρ{ x .t₁,t₂} p - p' according to paper rule" $ do
     -- Paper rule: Γ ⊢ p : t[t'']t', Γ ⊢ p' : [t'' t/x]t₁[R][t'' t/x]t₂
-    --             ⊢ ρ{x.t₁,t₂} p - p' : [t'/x]t₁[R][t'/x]t₂
+    --             ⊢ ρ{ x .t₁,t₂} p - p' : [t'/x]t₁[R][t'/x]t₂
 
     let termCtx =
           extendTermContext "g" (Arr (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")) $
@@ -410,7 +410,7 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
           extendProofContext "p2" secondJudgment $
             extendProofContext "p1" firstJudgment termCtx
 
-        -- Rho elimination: ρ{x.x a, g a} p1 - p2
+        -- Rho elimination: ρ{ x . x a, g a} p1 - p2
         rhoProof = RhoElim "x" template1 template2 (PVar "p1" 1 (initialPos "test")) (PVar "p2" 0 (initialPos "test")) (initialPos "test")
         macroEnv = noMacros
 
@@ -496,17 +496,17 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
         promotedTerm = Var "f" 0 (initialPos "test") -- f as promoted term
         firstJudgment = RelJudgment (Var "y" 1 (initialPos "test")) (Prom promotedTerm (initialPos "test")) (App promotedTerm (Var "y" 1 (initialPos "test")) (initialPos "test"))
 
-        -- Template with bound variable y that could be captured: λy. x y
-        template1 = Lam "y" (App (Var "x" (-1) (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test") -- λy. x y
+        -- Template with bound variable y that could be captured: λ y . x y
+        template1 = Lam "y" (App (Var "x" (-1) (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test") -- λ y . x y
         template2 = Var "y" 1 (initialPos "test") -- outer y (not the bound one)
 
-        -- After substitution [f y/x], template1 becomes: λy. (f y) y
+        -- After substitution [f y/x], template1 becomes: λ y . (f y) y
         -- This tests proper handling of bound vs free variables
         substitutedTemplate1 = Lam "y" (App (App (Var "f" 0 (initialPos "test")) (Var "y" 1 (initialPos "test")) (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
 
         secondJudgment =
           RelJudgment
-            substitutedTemplate1 -- λy. (f y) y
+            substitutedTemplate1 -- λ y . (f y) y
             (RMacro "R" [] (initialPos "test")) -- R
             (Var "y" 1 (initialPos "test")) -- y
         ctx =
@@ -516,10 +516,10 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
         rhoProof = RhoElim "x" template1 template2 (PVar "p1" 1 (initialPos "test")) (PVar "p2" 0 (initialPos "test")) (initialPos "test")
         macroEnv = noMacros
 
-        -- Expected result: [f y/x](λy. x y)[R][f y/x]y = (λy. (f y) y)[R]y
+        -- Expected result: [f y/x](λ y . x y)[R][f y/x]y = (λ y . (f y) y)[R]y
         expectedJudgment =
           RelJudgment
-            substitutedTemplate1 -- λy. (f y) y
+            substitutedTemplate1 -- λ y . (f y) y
             (RMacro "R" [] (initialPos "test")) -- R
             (Var "y" 1 (initialPos "test")) -- y
     case inferProofType ctx macroEnv noTheorems rhoProof of
@@ -536,16 +536,16 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
         promotedTerm = Var "g" 0 (initialPos "test")
         firstJudgment = RelJudgment (Var "a" 1 (initialPos "test")) (Prom promotedTerm (initialPos "test")) (App promotedTerm (Var "a" 1 (initialPos "test")) (initialPos "test"))
 
-        -- Template with nested lambdas: λf. λz. x (f z)
+        -- Template with nested lambdas: λ f . λ z . x (f z)
         template1 = Lam "f" (Lam "z" (App (Var "x" (-1) (initialPos "test")) (App (Var "f" 1 (initialPos "test")) (Var "z" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")
         template2 = Var "a" 1 (initialPos "test")
 
-        -- After substitution [g a/x]: λf. λz. (g a) (f z)
+        -- After substitution [g a/x]: λ f . λ z . (g a) (f z)
         substitutedTemplate1 = Lam "f" (Lam "z" (App (App (Var "g" 0 (initialPos "test")) (Var "a" 1 (initialPos "test")) (initialPos "test")) (App (Var "f" 1 (initialPos "test")) (Var "z" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")
 
         secondJudgment =
           RelJudgment
-            substitutedTemplate1 -- λf. λz. (g a) (f z)
+            substitutedTemplate1 -- λ f . λ z . (g a) (f z)
             (RMacro "R" [] (initialPos "test")) -- R
             (Var "a" 1 (initialPos "test")) -- a
         ctx =
@@ -595,9 +595,9 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
 -- | Test pi elimination (Pi)
 piEliminationSpec :: Spec
 piEliminationSpec = describe "pi elimination (Pi)" $ do
-  it "correctly types π p - x.u.v.p' according to paper rule [LEFT]" $ do
+  it "correctly types π p - x . u . v .p' according to paper rule [LEFT]" $ do
     -- Paper rule: Γ ⊢ p : t[R∘R']t', Γ, u : t[R]x, v : x[R']t' ⊢ p' : t₁[R'']t₂
-    --             ⊢ π p - x.u.v.p' : t₁[R'']t₂
+    --             ⊢ π p - x . u . v .p' : t₁[R'']t₂
 
     let termCtx =
           extendTermContext "d" (RMacro "D" [] (initialPos "test")) $
@@ -610,7 +610,7 @@ piEliminationSpec = describe "pi elimination (Pi)" $ do
 
         ctx = extendProofContext "comp" compJudgment termCtx
 
-        -- Pi elimination: π comp - x.u.v.inner
+        -- Pi elimination: π comp - x . u . v .inner
         -- The inner proof will be a direct reference to one of the witnesses
         -- We'll use witness u which references bound variable u - this should fail
         piProof = Pi (PVar "comp" 0 (initialPos "test")) "x" "u" "v" (PVar "u" 1 (initialPos "test")) (initialPos "test")
@@ -621,9 +621,9 @@ piEliminationSpec = describe "pi elimination (Pi)" $ do
       Left (InvalidContext msg _) -> msg `shouldContain` "bound variables"
       Left err -> expectationFailure $ "Expected bound variable error, but got: " ++ show err
 
-  it "correctly types π p - x.u.v.p' according to paper rule [RIGHT]" $ do
+  it "correctly types π p - x . u . v .p' according to paper rule [RIGHT]" $ do
     -- Paper rule: Γ ⊢ p : t[R∘R']t', Γ, u : t[R]x, v : x[R']t' ⊢ p' : t₁[R'']t₂
-    --             ⊢ π p - x.u.v.p' : t₁[R'']t₂
+    --             ⊢ π p - x . u . v .p' : t₁[R'']t₂
 
     let termCtx =
           extendTermContext "d" (RMacro "D" [] (initialPos "test")) $
@@ -636,7 +636,7 @@ piEliminationSpec = describe "pi elimination (Pi)" $ do
 
         ctx = extendProofContext "comp" compJudgment termCtx
 
-        -- Pi elimination: π comp - x.u.v.inner
+        -- Pi elimination: π comp - x . u . v .inner
         -- The inner proof will be a direct reference to one of the witnesses
         -- We'll use witness v which references bound variable v - this should fail
         piProof = Pi (PVar "comp" 0 (initialPos "test")) "x" "u" "v" (PVar "v" 0 (initialPos "test")) (initialPos "test")
@@ -647,9 +647,9 @@ piEliminationSpec = describe "pi elimination (Pi)" $ do
       Left (InvalidContext msg _) -> msg `shouldContain` "bound variables"
       Left err -> expectationFailure $ "Expected bound variable error, but got: " ++ show err
 
-  it "correctly types π p - x.u.v.p' according to paper rule [COMP]" $ do
+  it "correctly types π p - x . u . v .p' according to paper rule [COMP]" $ do
     -- Paper rule: Γ ⊢ p : t[R∘R']t', Γ, u : t[R]x, v : x[R']t' ⊢ p' : t₁[R'']t₂
-    --             ⊢ π p - x.u.v.p' : t₁[R'']t₂
+    --             ⊢ π p - x . u . v .p' : t₁[R'']t₂
 
     let termCtx =
           extendTermContext "d" (RMacro "D" [] (initialPos "test")) $
@@ -662,7 +662,7 @@ piEliminationSpec = describe "pi elimination (Pi)" $ do
 
         ctx = extendProofContext "comp" compJudgment termCtx
 
-        -- Pi elimination: π comp - x.u.v.inner
+        -- Pi elimination: π comp - x . u . v .inner
         -- The inner proof will be a direct reference to one of the witnesses
         -- We'll use witness u which should be at index 1 in the extended context (after x, u are added)
         piProof = Pi (PVar "comp" 0 (initialPos "test")) "x" "u" "v" (PVar "comp" 2 (initialPos "test")) (initialPos "test")
@@ -747,7 +747,7 @@ iotaProofSpec = describe "iota (term promotion introduction)" $ do
         proof = Iota term1 term2 (initialPos "test")
         macroEnv = noMacros
 
-        -- Expected: a[λx.x]((λx.x) a)
+        -- Expected: a[λ x . x]((λ x . x) a)
         expectedJudgment = RelJudgment term1 (Prom term2 (initialPos "test")) (App term2 term1 (initialPos "test"))
 
     case inferProofType termCtx macroEnv noTheorems proof of
@@ -980,7 +980,7 @@ compositionProofSpec = describe "composition operations" $ do
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful long composition chain: " ++ show err
 
-  it "handles composition with converse operations (R˘ ∘ S)" $ do
+  it "handles composition with converse operations (R ˘ ∘ S)" $ do
     -- Test composition combined with converse
     let termCtx =
           extendTermContext "z" (RMacro "C" [] (initialPos "test")) $
@@ -994,14 +994,14 @@ compositionProofSpec = describe "composition operations" $ do
           extendProofContext "p2" secondJudgment $
             extendProofContext "p1" forwardJudgment termCtx
 
-        -- Create converse: x[R˘]y from y[R]x
+        -- Create converse: x[R ˘]y from y[R]x
         converseProof = ConvIntro (PVar "p1" 1 (initialPos "test")) (initialPos "test")
 
-        -- Then compose: (converse, p2) should give x[R˘∘S]z
+        -- Then compose: (converse, p2) should give x[R ˘∘S]z
         compositionProof = Pair converseProof (PVar "p2" 0 (initialPos "test")) (initialPos "test")
         macroEnv = noMacros
 
-        -- Expected: x[R˘∘S]z
+        -- Expected: x[R ˘∘S]z
         expectedType = Comp (Conv (RMacro "R" [] (initialPos "test")) (initialPos "test")) (RMacro "S" [] (initialPos "test")) (initialPos "test")
         expectedJudgment = RelJudgment (Var "x" 2 (initialPos "test")) expectedType (Var "z" 0 (initialPos "test"))
 
@@ -1036,7 +1036,7 @@ compositionProofSpec = describe "composition operations" $ do
 -- | Test quantifier scope interactions with other constructs
 quantifierScopeInteractionSpec :: Spec
 quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
-  it "handles quantifiers in composition: ∀X.(R ∘ S)" $ do
+  it "handles quantifiers in composition: ∀ X .(R ∘ S)" $ do
     -- Test quantifier scoping over composition
     let termCtx =
           extendTermContext "z" (RMacro "C" [] (initialPos "test")) $
@@ -1045,7 +1045,7 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
 
         -- Create composition R ∘ S where R and S both use type variable X
         innerComp = Comp (RVar "X" (-1) (initialPos "test")) (RVar "X" (-1) (initialPos "test")) (initialPos "test") -- X ∘ X
-        quantifiedType = All "X" innerComp (initialPos "test") -- ∀X.(X ∘ X)
+        quantifiedType = All "X" innerComp (initialPos "test") -- ∀ X .(X ∘ X)
 
         -- Body proof that establishes the composition under the quantifier
         judgment1 = RelJudgment (Var "x" 2 (initialPos "test")) (RVar "X" (-1) (initialPos "test")) (Var "y" 1 (initialPos "test"))
@@ -1058,7 +1058,7 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
         -- Composition proof: (p1, p2) : x[X∘X]z
         compProof = Pair (PVar "p1" 1 (initialPos "test")) (PVar "p2" 0 (initialPos "test")) (initialPos "test")
 
-        -- Type lambda wrapping the composition: Λx.(p1, p2) : ∀X.(X ∘ X)
+        -- Type lambda wrapping the composition: Λx .(p1, p2) : ∀ X .(X ∘ X)
         quantifierProof = TyLam "X" compProof (initialPos "test")
         macroEnv = noMacros
 
@@ -1068,7 +1068,7 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful quantified composition: " ++ show err
 
-  it "handles nested quantifiers: ∀X.∀Y.(X ∘ Y)" $ do
+  it "handles nested quantifiers: ∀ X . ∀ Y .(X ∘ Y)" $ do
     -- Test nested quantifier scoping
     let termCtx =
           extendTermContext "z" (RMacro "C" [] (initialPos "test")) $
@@ -1077,9 +1077,9 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
 
         -- Inner composition: X ∘ Y
         innerComp = Comp (RVar "X" (-1) (initialPos "test")) (RVar "Y" (-1) (initialPos "test")) (initialPos "test")
-        -- Nested quantifiers: ∀X.∀Y.(X ∘ Y)
-        innerQuantified = All "Y" innerComp (initialPos "test") -- ∀Y.(X ∘ Y)
-        outerQuantified = All "X" innerQuantified (initialPos "test") -- ∀X.∀Y.(X ∘ Y)
+        -- Nested quantifiers: ∀ X . ∀ Y .(X ∘ Y)
+        innerQuantified = All "Y" innerComp (initialPos "test") -- ∀ Y .(X ∘ Y)
+        outerQuantified = All "X" innerQuantified (initialPos "test") -- ∀ X . ∀ Y .(X ∘ Y)
 
         -- Body proofs
         judgment1 = RelJudgment (Var "x" 2 (initialPos "test")) (RVar "X" (-1) (initialPos "test")) (Var "y" 1 (initialPos "test"))
@@ -1089,7 +1089,7 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
           extendProofContext "p2" judgment2 $
             extendProofContext "p1" judgment1 termCtx
 
-        -- Build nested type lambdas: ΛX.ΛY.(p1, p2)
+        -- Build nested type lambdas: Λ X .Λ Y .(p1, p2)
         compProof = Pair (PVar "p1" 1 (initialPos "test")) (PVar "p2" 0 (initialPos "test")) (initialPos "test")
         innerTypeProof = TyLam "Y" compProof (initialPos "test")
         outerTypeProof = TyLam "X" innerTypeProof (initialPos "test")
@@ -1101,15 +1101,15 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful nested quantifiers: " ++ show err
 
-  it "handles quantifiers with converse: ∀X.(X˘)" $ do
+  it "handles quantifiers with converse: ∀ X .(X˘)" $ do
     -- Test quantifier scoping over converse
     let termCtx =
           extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
             extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
 
-        -- Type: ∀X.(X˘)
+        -- Type: ∀ X .(X˘)
         converseType = Conv (RVar "X" (-1) (initialPos "test")) (initialPos "test") -- X˘
-        quantifiedType = All "X" converseType (initialPos "test") -- ∀X.(X˘)
+        quantifiedType = All "X" converseType (initialPos "test") -- ∀ X .(X˘)
 
         -- Body proof: x[X]y, then converse to get y[X˘]x
         forwardJudgment = RelJudgment (Var "x" 1 (initialPos "test")) (RVar "X" (-1) (initialPos "test")) (Var "y" 0 (initialPos "test"))
@@ -1118,7 +1118,7 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
         -- Converse proof: ∪ᵢ p : y[X˘]x
         converseProof = ConvIntro (PVar "p" 0 (initialPos "test")) (initialPos "test")
 
-        -- Type lambda: Λx.(∪ᵢ p) : ∀X.(X˘)
+        -- Type lambda: Λx .(∪ᵢ p) : ∀ X .(X˘)
         quantifierProof = TyLam "X" converseProof (initialPos "test")
         macroEnv = noMacros
 
@@ -1128,7 +1128,7 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful quantified converse: " ++ show err
 
-  it "handles quantifiers with promotion: ∀X.(t^)" $ do
+  it "handles quantifiers with promotion: ∀ X .(t^)" $ do
     -- Test quantifier scoping over promotion
     let termCtx =
           extendTermContext "f" (Arr (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")) $
@@ -1137,15 +1137,15 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
         -- Promotion term that doesn't involve X
         promotedTerm = Var "f" 0 (initialPos "test") -- f
 
-        -- Type: ∀X.(f^)
+        -- Type: ∀ X .(f^)
         promotionType = Prom promotedTerm (initialPos "test") -- f^
-        quantifiedType = All "X" promotionType (initialPos "test") -- ∀X.(f^)
+        quantifiedType = All "X" promotionType (initialPos "test") -- ∀ X .(f^)
 
         -- Body proof: a[f^](f a)
         promotionJudgment = RelJudgment (Var "a" 1 (initialPos "test")) promotionType (App (Var "f" 0 (initialPos "test")) (Var "a" 1 (initialPos "test")) (initialPos "test"))
         ctx = extendProofContext "p" promotionJudgment termCtx
 
-        -- Type lambda: Λx.p : ∀X.(f^)
+        -- Type lambda: Λx .p : ∀ X .(f^)
         quantifierProof = TyLam "X" (PVar "p" 0 (initialPos "test")) (initialPos "test")
         macroEnv = noMacros
 
@@ -1155,15 +1155,15 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful quantified promotion: " ++ show err
 
-  it "handles type application instantiating quantifiers: p{R} from ∀X.R'" $ do
+  it "handles type application instantiating quantifiers: p { R } from ∀ X . R'" $ do
     -- Test type application on quantified types
     let termCtx =
           extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
             extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
 
-        -- Original quantified type: ∀X.(X → A)
+        -- Original quantified type: ∀ X .(X → A)
         innerType = Arr (RVar "X" 0 (initialPos "test")) (RMacro "A" [] (initialPos "test")) (initialPos "test") -- X → A
-        quantifiedType = All "X" innerType (initialPos "test") -- ∀X.(X → A)
+        quantifiedType = All "X" innerType (initialPos "test") -- ∀ X .(X → A)
 
         -- Body proof establishes the quantified relation
         bodyJudgment = RelJudgment (Var "x" 1 (initialPos "test")) quantifiedType (Var "y" 0 (initialPos "test"))
@@ -1187,7 +1187,7 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
     let baseCtx = extendRelContext "X" emptyTypingContext -- X already bound
         termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) baseCtx
 
-        -- Try to create ∀X.R where X is already bound - this should fail
+        -- Try to create ∀ X . R where X is already bound - this should fail
         bodyJudgment = RelJudgment (Var "a" 0 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "a" 0 (initialPos "test"))
         ctx = extendProofContext "p" bodyJudgment termCtx
 
@@ -1204,7 +1204,7 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
 wellFormednessViolationSpec :: Spec
 wellFormednessViolationSpec = describe "well-formedness violations" $ do
   it "detects violation of type lambda freshness constraint (direct name binding)" $ do
-    -- Paper requires X ∉ FV(Γ) for Λx.p : t[∀x.R]t'
+    -- Paper requires X ∉ FV(Γ) for Λx .p : t[∀x . R]t'
     -- Test case where X is already directly bound as a relation variable
     let baseCtx = extendRelContext "X" emptyTypingContext -- X directly bound as relation
 
@@ -1298,7 +1298,7 @@ wellFormednessViolationSpec = describe "well-formedness violations" $ do
 
   it "validates macro environment parameter arity checking" $ do
     -- Test that macro environment validates parameter arity during expansion
-    let macroEnv = MacroEnvironment (Map.fromList [("TestMacro", (["X", "Y"], RelMacro (Arr (RVar "X" 0 (initialPos "test")) (RVar "Y" 1 (initialPos "test")) (initialPos "test"))))]) Map.empty
+    let macroEnv = MacroEnvironment (Map.fromList [("TestMacro", simpleRelMacro ["X", "Y"] (Arr (RVar "X" 0 (initialPos "test")) (RVar "Y" 1 (initialPos "test")) (initialPos "test")))]) Map.empty
         termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
 
         -- Create proof that would trigger macro expansion with wrong arity
@@ -1516,7 +1516,7 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
       Left err -> expectationFailure $ "Theorem reference failed: " ++ show err
 
   it "basic theorem reference application - universal proof applied to function" $ do
-    -- Test 1: Proof of ∀X.X, then function (∀X.X) → B, apply proof to function to get B
+    -- Test 1: Proof of ∀ X . X, then function (∀ X . X) → B, apply proof to function to get B
     let universalProof =
           extendTheoremEnvironment
             "universalThm"
@@ -1546,7 +1546,7 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
       Left err -> expectationFailure $ "Basic theorem application failed: " ++ show err
 
   it "basic theorem reference application - identity function applied to value" $ do
-    -- Test 2: Proof of ∀X. X → X, then assume A and apply identity to get A
+    -- Test 2: Proof of ∀ X . X → X, then assume A and apply identity to get A
     let identityProof =
           extendTheoremEnvironment
             "identityThm"
@@ -1730,17 +1730,17 @@ rhoEliminationAlphaOnlySpec = describe "rho elimination uses α-equivalence only
           extendTermContext "x" (RMacro "Term" [] pos) $
             extendTermContext "S" (RMacro "Rel" [] pos) emptyTypingContext
 
-        -- First proof: x [(λz.z)^] x (promoted identity)
+        -- First proof: x [(λ z . z)^] x (promoted identity)
         promType = Prom (Lam "z" (Var "z" 0 pos) pos) pos
         firstJudgment = RelJudgment (Var "x" 1 pos) promType (Var "x" 1 pos)
         ctx = extendProofContext "eq" firstJudgment termCtx
 
-        -- Second proof should prove: (λz.z) x [S] x
+        -- Second proof should prove: (λ z . z) x [S] x
         -- But we'll try to use a proof that proves: x [S] x (β-η equivalent but not α-equivalent)
         secondJudgment = RelJudgment (Var "x" 1 pos) (RMacro "S" [] pos) (Var "x" 1 pos)
         finalCtx = extendProofContext "rel" secondJudgment ctx
 
-        -- Rho elimination: ρ{y.y,x} eq - rel
+        -- Rho elimination: ρ{y . y, x } eq - rel
         rhoProof =
           RhoElim
             "y"
@@ -1750,7 +1750,7 @@ rhoEliminationAlphaOnlySpec = describe "rho elimination uses α-equivalence only
             (PVar "rel" 0 pos)
             pos
 
-        -- Expected: (λz.z) x [S] x, but rel proves x [S] x
+        -- Expected: (λ z . z) x [S] x, but rel proves x [S] x
         expectedJudgment =
           RelJudgment
             (App (Lam "z" (Var "z" 0 pos) pos) (Var "x" 1 pos) pos)
@@ -1788,7 +1788,7 @@ compositionAlphaOnlySpec = describe "composition uses α-equivalence only" $ do
         firstJudgment = RelJudgment (Var "a" 2 pos) (RMacro "R" [] pos) (Var "b" 1 pos)
         ctx1 = extendProofContext "p1" firstJudgment termCtx
 
-        -- Second proof: (λz.z) b [S] c (β-η equivalent to b [S] c but not α-equivalent)
+        -- Second proof: (λ z . z) b [S] c (β-η equivalent to b [S] c but not α-equivalent)
         betaEtaMiddle = App (Lam "z" (Var "z" 0 pos) pos) (Var "b" 1 pos) pos
         secondJudgment = RelJudgment betaEtaMiddle (RMacro "S" [] pos) (Var "c" 0 pos)
         ctx2 = extendProofContext "p2" secondJudgment ctx1
@@ -1820,7 +1820,7 @@ conversionBetaEtaSpec = describe "conversion proofs use β-η equivalence" $ do
           extendTermContext "x" (RMacro "Term" [] pos) $
             extendTermContext "R" (RMacro "Rel" [] pos) emptyTypingContext
 
-        -- Original proof: (λz.z) x [R] (λz.z) x
+        -- Original proof: (λ z . z) x [R] (λ z . z) x
         origTerm = App (Lam "z" (Var "z" 0 pos) pos) (Var "x" 1 pos) pos
         origJudgment = RelJudgment origTerm (RMacro "R" [] pos) origTerm
         ctx = extendProofContext "p" origJudgment termCtx
@@ -1877,7 +1877,7 @@ quantifierDeBruijnBugProofSpec :: Spec
 quantifierDeBruijnBugProofSpec = describe "quantifier de Bruijn bug in proof checking" $ do
   it "type application with unbound relation in quantifier should work" $ do
     -- This test demonstrates the bug through the proof checker
-    -- p{S} where p : a [∀X.S] b should type check to a [S] b
+    -- p { S } where p : a [∀ X . S] b should type check to a [S] b
     let pos = initialPos "test"
         -- Create the context with necessary bindings
         ctx =
@@ -1893,7 +1893,7 @@ quantifierDeBruijnBugProofSpec = describe "quantifier de Bruijn bug in proof che
               )
             $ emptyTypingContext
 
-        -- Create the proof: p{S}
+        -- Create the proof: p { S }
         proof = TyApp (PVar "p" 0 pos) (RVar "S" 0 pos) pos
 
         -- Expected judgment: a [S] b
@@ -1908,8 +1908,8 @@ quantifierDeBruijnBugProofSpec = describe "quantifier de Bruijn bug in proof che
 
   it "nested quantifier type applications work" $ do
     -- Test nested type applications using proper RelTT syntax
-    let nestedTheorem = "⊢ nested_test (a : Term) (b : Term) (R : Rel) (S : Rel) (T : Rel) (p : a [∀X.∀Y.(X ∘ T)] b) : a [R ∘ T] b := (p{R}){S};"
-        simpleTheorem = "⊢ simple_test (a : Term) (b : Term) (R : Rel) (S : Rel) (p : a [∀X.S] b) : a [S] b := p{R};"
+    let nestedTheorem = "⊢ nested_test (a : Term) (b : Term) (R : Rel) (S : Rel) (T : Rel) (p : a [∀ X . ∀ Y .(X ∘ T)] b) : a [R ∘ T] b ≔ (p { R }){ S };"
+        simpleTheorem = "⊢ simple_test (a : Term) (b : Term) (R : Rel) (S : Rel) (p : a [∀ X . S] b) : a [S] b ≔ p { R };"
 
     case runParserEmpty parseDeclaration nestedTheorem of
       Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr
@@ -1946,7 +1946,7 @@ quantifierDeBruijnBugProofSpec = describe "quantifier de Bruijn bug in proof che
       Left err -> expectationFailure $ "Judgment equality with mixed macro expansion failed: " ++ show err
 
   it "debug: check de Bruijn indices in proof inference" $ do
-    -- Simple proof: λp:R. p should give λx.x [R → R] λx'.x'
+    -- Simple proof: λ p : R . p should give λ x . x [R → R] λ x' . x'
     let proof = LamP "p" (RVar "R" 0 (initialPos "test")) (PVar "p" 0 (initialPos "test")) (initialPos "test")
         ctx = emptyTypingContext
         macroEnv = MacroEnvironment Map.empty Map.empty
@@ -1956,7 +1956,7 @@ quantifierDeBruijnBugProofSpec = describe "quantifier de Bruijn bug in proof che
         let actualJudgment = resultJudgment result
         putStrLn $ "Simple proof result: " ++ show actualJudgment
 
-        -- Should be something like: λx.x [R → R] λx'.x'
+        -- Should be something like: λ x . x [R → R] λ x' . x'
         case actualJudgment of
           RelJudgment (Lam _ (Var _ idx1 _) _) _ (Lam _ (Var _ idx2 _) _) -> do
             putStrLn $ "Left index: " ++ show idx1 ++ ", Right index: " ++ show idx2

@@ -37,18 +37,18 @@ RelTT extends lambda calculus with relational types that capture relationships b
 
 - **Arrow types**: `A → B` for functional relations
 - **Composition**: `R ∘ S` for sequential composition of relations
-- **Converse**: `R˘` for inverse relations
+- **Converse**: `R ˘` for inverse relations
 - **Lambda Relations**: `f` for treating lambda expresions as functional relations
-- **Universal quantification**: `∀X.R` over relation variables
+- **Universal quantification**: `∀ X . R` over relation variables
 
 ### Proof System
 
 The proof checker validates all RelTT proof constructors:
 
-- **Terms as relations**: `ι⟨t, f⟩` proves `t [f̂] (f t)`
-- **Composition introduction**: `(p, q)` for sequential composition
-- **Pi elimination**: `π p - x.u.v.q` for decomposing compositions
-- **Rho elimination**: `ρ{x.t₁,t₂} p - q` for substitution under promoted types
+- **Terms as relations**: `ι⟨ t , f ⟩` proves `t [f] (f t)`
+- **Composition introduction**: `(p , q)` for sequential composition
+- **Pi elimination**: `π p - x. u . v .q` for decomposing compositions
+- **Rho elimination**: `ρ{ x . t₁ , t₂ } p - q` for substitution under promoted types
 - **Converse operations**: `∪ᵢ p` and `∪ₑ p` for relation reversal
 - **Conversion**: `t₁ ⇃ p ⇂ t₂` for β-η equivalent endpoints
 
@@ -95,7 +95,7 @@ stack run -- --repl
 # In REPL:
 RelTT> :load examples/demo.rtt
 RelTT> :info pi_left_id
-RelTT> :check ι⟨x, f⟩
+RelTT> :check ι⟨ x , f⟩
 ```
 
 ## Examples
@@ -111,26 +111,26 @@ RelTT supports both ASCII and Unicode syntax:
 
 ### Terms
 - Variables: `x`, `y`, `z`
-- Lambda abstraction: `λx.t` or `\x.t`
+- Lambda abstraction: `λ x .t` or `\x.t`
 - Application: `f x`
 
 ### Relations  
 - Arrow types: `A → B` or `A -> B`
 - Composition: `R ∘ S` 
-- Converse: `R˘`
-- Universal quantification: `∀X.R` or `forall X.R`
+- Converse: `R ˘`
+- Universal quantification: `∀ X . R` or `forall X. R`
 
 ### Proofs
 - Iota: `ι⟨t, f⟩` or `iota⟨t, f⟩`
 - Composition: `(p, q)`
-- Pi elimination: `π p - x.u.v.q`
-- Rho elimination: `ρ{x.t₁,t₂} p - q`
+- Pi elimination: `π p - x. u . v .q`
+- Rho elimination: `ρ{ x .t₁,t₂} p - q`
 - Converse intro/elim: `∪ᵢ p`, `∪ₑ p` or `convIntro p`, `convElim p`
 - Conversion: `t₁ ⇃ p ⇂ t₂` or `t₁ convl p convr t₂`
 
 ### Declarations
-- Macros: `Name (args) := definition ;`
-- Theorems: `⊢ name (args) : judgment := proof ;`
+- Macros: `Name (args) ≔ definition;`
+- Theorems: `⊢ name (args) : judgment ≔ proof;`
 
 ## Architecture
 

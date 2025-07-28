@@ -71,7 +71,7 @@ macroAwareEqualitySpec = describe "macro-aware equality (key optimization)" $ do
 -- | Test macro expansion functionality
 macroExpansionSpec :: Spec
 macroExpansionSpec = describe "macro expansion" $ do
-  it "expands simple macro: Id → (λx. x)" $ do
+  it "expands simple macro: Id → (λ x . x)" $ do
     let env = noMacros
         env' = extendMacroEnvironment "Id" [] (RelMacro (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))) (defaultFixity "ID") env
         macroType = RMacro "Id" [] (initialPos "test")
@@ -121,7 +121,7 @@ typeSubstitutionSpec = describe "type substitution" $ do
     -- After substitution: X becomes A, Y's index decreases to 0
     result `shouldBe` Arr (RMacro "A" [] (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")
 
-  it "handles bound variable shadowing: [A/X](∀X. X) → ∀X. X" $ do
+  it "handles bound variable shadowing: [A/X](∀ X . X) → ∀ X . X" $ do
     let target = All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test")
         replacement = RMacro "A" [] (initialPos "test")
         result = substituteTypeVar 0 replacement target
@@ -145,9 +145,9 @@ typeSubstitutionSpec = describe "type substitution" $ do
 deBruijnMacroSubstitutionSpec :: Spec
 deBruijnMacroSubstitutionSpec = describe "de Bruijn macro substitution" $ do
   it "shifts indices when substituting under one quantifier" $ do
-    -- Macro: Container X := ∀Y. X → Y
+    -- Macro: Container X ≔ ∀ Y . X → Y
     -- Substitute RVar "Z" 3 for X
-    -- Expected: ∀Y. (RVar "Z" 4 (initialPos "test")) → (RVar "Y" 0 (initialPos "test"))
+    -- Expected: ∀ Y . (RVar "Z" 4 (initialPos "test")) → (RVar "Y" 0 (initialPos "test"))
     let target = All "Y" (Arr (RVar "X" 1 (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
         replacement = RVar "Z" 3 (initialPos "test")
         result = substituteTypeVar 0 replacement target
@@ -155,7 +155,7 @@ deBruijnMacroSubstitutionSpec = describe "de Bruijn macro substitution" $ do
     result `shouldBe` expected
 
   it "shifts indices when substituting under nested quantifiers" $ do
-    -- Macro: Nested X := ∀A. ∀B. X → A → B
+    -- Macro: Nested X ≔ ∀A. ∀B. X → A → B
     -- Substitute RVar "Z" 2 for X
     -- Expected: ∀A. ∀B. (RVar "Z" 4 (initialPos "test")) → (RVar "A" 1 (initialPos "test")) → (RVar "B" 0 (initialPos "test"))
     let target = All "A" (All "B" (Arr (RVar "X" 2 (initialPos "test")) (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")
@@ -165,9 +165,9 @@ deBruijnMacroSubstitutionSpec = describe "de Bruijn macro substitution" $ do
     result `shouldBe` expected
 
   it "handles complex replacement types with multiple variables" $ do
-    -- Macro: Complex X := ∀Y. X
+    -- Macro: Complex X ≔ ∀ Y . X
     -- Substitute (∀A. RVar "Z" 1 → RVar "A" 0 (initialPos "test")) for X
-    -- Expected: ∀Y. ∀A. (RVar "Z" 2 (initialPos "test")) → (RVar "A" 0 (initialPos "test"))
+    -- Expected: ∀ Y . ∀A. (RVar "Z" 2 (initialPos "test")) → (RVar "A" 0 (initialPos "test"))
     let target = All "Y" (RVar "X" 1 (initialPos "test")) (initialPos "test")
         replacement = All "A" (Arr (RVar "Z" 1 (initialPos "test")) (RVar "A" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
         result = substituteTypeVar 0 replacement target
@@ -175,14 +175,14 @@ deBruijnMacroSubstitutionSpec = describe "de Bruijn macro substitution" $ do
     result `shouldBe` expected
 
   it "preserves shadowing - no substitution under shadowing quantifier" $ do
-    -- Macro: Shadow X := ∀X. X → Int
+    -- Macro: Shadow X ≔ ∀ X . X → Int
     -- Substitute anything for X - should not affect the bound X
     let target = All "X" (Arr (RVar "X" 0 (initialPos "test")) (RMacro "Int" [] (initialPos "test")) (initialPos "test")) (initialPos "test")
         replacement = RMacro "String" [] (initialPos "test")
         result = substituteTypeVar 0 replacement target
     result `shouldBe` target -- No substitution because X is shadowed
   it "handles partial shadowing in complex expressions" $ do
-    -- Target: (RVar "X" → ∀X. RVar "X" 0 (initialPos "test")) → RVar "X"
+    -- Target: (RVar "X" → ∀ X . RVar "X" 0 (initialPos "test")) → RVar "X"
     -- Only the outer X variables should be substituted
     let target = Arr (Arr (RVar "X" 0 (initialPos "test")) (All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")
         replacement = RMacro "Int" [] (initialPos "test")
@@ -191,7 +191,7 @@ deBruijnMacroSubstitutionSpec = describe "de Bruijn macro substitution" $ do
     result `shouldBe` expected
 
   it "shifts in composition and converse" $ do
-    -- Macro: RelCombine X := ∀R. (X ∘ R) → (R˘)
+    -- Macro: RelCombine X ≔ ∀R . (X ∘ R) → (R ˘)
     let target = All "R" (Arr (Comp (RVar "X" 1 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (initialPos "test")) (Conv (RVar "R" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")
         replacement = RVar "Base" 2 (initialPos "test")
         result = substituteTypeVar 0 replacement target
@@ -225,7 +225,7 @@ deBruijnMacroSubstitutionSpec = describe "de Bruijn macro substitution" $ do
       Left err -> expectationFailure $ "Macro expansion failed: " ++ show err
 
   it "complex macro with nested bindings and multiple substitutions" $ do
-    -- Macro: TripleNest X Y := ∀A. ∀B. (X → A) → (Y → B) → (A → B)
+    -- Macro: TripleNest X Y ≔ ∀A. ∀B. (X → A) → (Y → B) → (A → B)
     let env = noMacros
         env' =
           extendMacroEnvironment
@@ -289,7 +289,7 @@ structuralEqualitySpec = describe "structural equality" $ do
       Right result -> result `shouldBe` True
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
 
-  it "recognizes quantified type alpha equivalence: ∀X. X ≡ ∀Y. Y" $ do
+  it "recognizes quantified type alpha equivalence: ∀ X . X ≡ ∀ Y . Y" $ do
     let env = noMacros
         type1 = All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test")
         type2 = All "Y" (RVar "Y" 0 (initialPos "test")) (initialPos "test")
@@ -417,11 +417,11 @@ typeOpsErrorEdgeCasesSpec = describe "type operations error edge cases" $ do
 quantifierDeBruijnBugSpec :: Spec
 quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug" $ do
   it "substituteTypeVar should correctly handle de Bruijn indices for unbound variables" $ do
-    -- When substituting X with R in ∀X.S, the S index should decrement correctly
+    -- When substituting X with R in ∀ X .S, the S index should decrement correctly
     let pos = initialPos "test"
         sInBody = RVar "S" 2 pos -- S with de Bruijn index 2 (shifted under X binder)
         r = RVar "R" 0 pos -- R with de Bruijn index 0
-        -- Create ∀X.S - S doesn't contain X
+        -- Create ∀ X .S - S doesn't contain X
         quantType = All "X" sInBody pos
         expectedAfterSubst = RVar "S" 1 pos -- S decrements from 2 to 1 after X removal
 
@@ -468,7 +468,7 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug" $ do
         x = RVar "X" 0 pos
         r = RVar "R" 0 pos
         s = RVar "S" 0 pos
-        -- Create ∀X.∀Y.X ∘ T
+        -- Create ∀ X . ∀ Y . X ∘ T
         innerBody = Comp x t pos
         innerQuant = All "Y" innerBody pos
         outerQuant = All "X" innerQuant pos

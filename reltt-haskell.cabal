@@ -41,6 +41,7 @@ library
       PrettyPrint
       ModuleSystem
   other-modules:
+      Lib.FreeVars
       Parser.Mixfix
       Paths_reltt_haskell
   autogen-modules:
@@ -91,6 +92,7 @@ test-suite reltt-haskell-test
       ElaborateSpec
       ErrorsSpec
       IntegrationSpec
+      MacroBinderSpec
       MixfixSpec
       NewParserPipelineSpec
       NormalizeSpec

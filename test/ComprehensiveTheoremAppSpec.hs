@@ -106,7 +106,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
 
     it "handles theorem with multiple proof arguments (SUCCESS)" $ do
       let theoremName = "multi_proof_thm"
-          -- Theorem: ⊢ multi_proof_thm (x : Term) (p1 : x [λy.y] x) (p2 : x [λy.y] x) : x [λy.y ∘ λy.y] x
+          -- Theorem: ⊢ multi_proof_thm (x : Term) (p1 : x [λ y . y] x) (p2 : x [λ y . y] x) : x [λ y . y ∘ λ y . y] x
           idRel = Prom (Lam "y" (Var "y" 0 dummyPos) dummyPos) dummyPos
           theoremBindings =
             [ TermBinding "x",
@@ -117,7 +117,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremProof = PVar "dummy_proof" 0 dummyPos
           theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
 
-          -- Add axiom theorem for identity proofs: ⊢ id_proof (x : Term) : x [λy.y] x
+          -- Add axiom theorem for identity proofs: ⊢ id_proof (x : Term) : x [λ y . y] x
           idTheoremEnv =
             extendTheoremEnvironment
               "id_proof"
@@ -132,7 +132,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           proofArg2 = PTheoremApp "id_proof" [TermArg argTerm] dummyPos
           theoremApp = PTheoremApp theoremName [TermArg argTerm, ProofArg proofArg1, ProofArg proofArg2] dummyPos
 
-          -- Expected result: a [λy.y ∘ λy.y] a
+          -- Expected result: a [λ y . y ∘ λ y . y] a
           expectedJudgment = RelJudgment argTerm (Comp idRel idRel dummyPos) argTerm
 
       case inferProofType emptyCtx emptyMacroEnv idTheoremEnv theoremApp of
@@ -141,7 +141,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
 
     it "fails when multiple proof arguments have wrong types after substitution (DESIGNED FAILURE)" $ do
       let theoremName = "multi_proof_thm"
-          -- Same theorem: ⊢ multi_proof_thm (x : Term) (p1 : x [λy.y] x) (p2 : x [λy.y] x) : x [λy.y ∘ λy.y] x
+          -- Same theorem: ⊢ multi_proof_thm (x : Term) (p1 : x [λ y . y] x) (p2 : x [λ y . y] x) : x [λ y . y ∘ λ y . y] x
           idRel = Prom (Lam "y" (Var "y" 0 dummyPos) dummyPos) dummyPos
           theoremBindings =
             [ TermBinding "x",
@@ -152,7 +152,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremProof = PVar "dummy_proof" 0 dummyPos
           theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
 
-          -- Add axiom theorem with WRONG type: ⊢ wrong_id_proof (x : Term) : x [λy.y ∘ λy.y] x
+          -- Add axiom theorem with WRONG type: ⊢ wrong_id_proof (x : Term) : x [λ y . y ∘ λ y . y] x
           wrongIdTheoremEnv =
             extendTheoremEnvironment
               "wrong_id_proof"
@@ -163,7 +163,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
 
           -- Application: multi_proof_thm a (wrong_id_proof a) (wrong_id_proof a)
           argTerm = Var "a" 0 dummyPos
-          -- These provide (a [λy.y ∘ λy.y] a) but theorem expects (a [λy.y] a) for each proof argument
+          -- These provide (a [λ y . y ∘ λ y . y] a) but theorem expects (a [λ y . y] a) for each proof argument
           wrongProofArg1 = PTheoremApp "wrong_id_proof" [TermArg argTerm] dummyPos
           wrongProofArg2 = PTheoremApp "wrong_id_proof" [TermArg argTerm] dummyPos
           theoremApp = PTheoremApp theoremName [TermArg argTerm, ProofArg wrongProofArg1, ProofArg wrongProofArg2] dummyPos
@@ -176,7 +176,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
   describe "Substitution validation tests" $ do
     it "correctly substitutes term arguments in return judgment" $ do
       let theoremName = "subst_test_thm"
-          -- Theorem: ⊢ subst_test_thm (f : Term) (x : Term) : (f x) [λy.y] (f x)
+          -- Theorem: ⊢ subst_test_thm (f : Term) (x : Term) : (f x) [λ y . y] (f x)
           theoremBindings = [TermBinding "f", TermBinding "x"]
           theoremJudgment =
             RelJudgment
@@ -191,7 +191,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           argX = Var "a" 0 dummyPos
           theoremApp = PTheoremApp theoremName [TermArg argF, TermArg argX] dummyPos
 
-          -- Expected result: (g a) [λy.y] (g a)
+          -- Expected result: (g a) [λ y . y] (g a)
           expectedJudgment =
             RelJudgment
               (App argF argX dummyPos)
@@ -204,7 +204,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
 
     it "correctly substitutes relation arguments in return judgment" $ do
       let theoremName = "rel_subst_thm"
-          -- Theorem: ⊢ rel_subst_thm (R : Rel) (S : Rel) (x : Term) : x [R ∘ S ∘ R˘] x
+          -- Theorem: ⊢ rel_subst_thm (R : Rel) (S : Rel) (x : Term) : x [R ∘ S ∘ R ˘] x
           theoremBindings = [RelBinding "R", RelBinding "S", TermBinding "x"]
           theoremJudgment =
             RelJudgment
@@ -418,7 +418,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
 
     it "validates complex nested substitutions (SUCCESS)" $ do
       let theoremName = "nested_subst_thm"
-          -- ⊢ nested_subst_thm (f : Term) (g : Term) (R : Rel) (p : (f (g x)) [R ∘ R˘] (f (g x))) : (f (g x)) [R ∘ R˘ ∘ R] (f (g x))
+          -- ⊢ nested_subst_thm (f : Term) (g : Term) (R : Rel) (p : (f (g x)) [R ∘ R ˘] (f (g x))) : (f (g x)) [R ∘ R ˘ ∘ R] (f (g x))
           termX = Var "x" 0 dummyPos
           appGX = App (Var "g" 0 dummyPos) termX dummyPos
           appFGX = App (Var "f" 0 dummyPos) appGX dummyPos
@@ -428,7 +428,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremProof = PVar "dummy_proof" 0 dummyPos
           theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
 
-          -- Add axiom theorem: ⊢ complex_axiom (f : Term) (g : Term) (R : Rel) : (f (g x)) [R ∘ R˘] (f (g x))
+          -- Add axiom theorem: ⊢ complex_axiom (f : Term) (g : Term) (R : Rel) : (f (g x)) [R ∘ R ˘] (f (g x))
           complexAxiomEnv =
             extendTheoremEnvironment
               "complex_axiom"
@@ -448,7 +448,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           validProof = PTheoremApp "complex_axiom" [TermArg argF, TermArg argG, RelArg argR] dummyPos
           theoremApp = PTheoremApp theoremName [TermArg argF, TermArg argG, RelArg argR, ProofArg validProof] dummyPos
 
-          -- Expected result: (h (k x)) [S ∘ S˘ ∘ S] (h (k x))
+          -- Expected result: (h (k x)) [S ∘ S ˘ ∘ S] (h (k x))
           expectedJudgment = RelJudgment substAppFGX (Comp substRelRRConv argR dummyPos) substAppFGX
 
       case inferProofType emptyCtx emptyMacroEnv complexAxiomEnv theoremApp of
@@ -457,7 +457,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
 
     it "fails when nested substitutions don't match exactly (DESIGNED FAILURE)" $ do
       let theoremName = "nested_subst_thm"
-          -- Same theorem: ⊢ nested_subst_thm (f : Term) (g : Term) (R : Rel) (p : (f (g x)) [R ∘ R˘] (f (g x))) : (f (g x)) [R ∘ R˘ ∘ R] (f (g x))
+          -- Same theorem: ⊢ nested_subst_thm (f : Term) (g : Term) (R : Rel) (p : (f (g x)) [R ∘ R ˘] (f (g x))) : (f (g x)) [R ∘ R ˘ ∘ R] (f (g x))
           termX = Var "x" 0 dummyPos
           appGX = App (Var "g" 0 dummyPos) termX dummyPos
           appFGX = App (Var "f" 0 dummyPos) appGX dummyPos
@@ -467,7 +467,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremProof = PVar "dummy_proof" 0 dummyPos
           theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
 
-          -- Add axiom theorem with DIFFERENT nested structure: ⊢ wrong_complex_axiom (f : Term) (g : Term) (R : Rel) : (g (f x)) [R ∘ R˘] (g (f x))
+          -- Add axiom theorem with DIFFERENT nested structure: ⊢ wrong_complex_axiom (f : Term) (g : Term) (R : Rel) : (g (f x)) [R ∘ R ˘] (g (f x))
           termY = Var "y" 0 dummyPos -- Different base variable
           appFY = App (Var "f" 0 dummyPos) termY dummyPos
           appGFY = App (Var "g" 0 dummyPos) appFY dummyPos -- Different nesting: g(f(y)) instead of f(g(x))
@@ -483,7 +483,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           argF = Var "h" 0 dummyPos
           argG = Var "k" 0 dummyPos
           argR = RVar "S" 0 dummyPos
-          -- This proof will provide (k (h y)) [S ∘ S˘] (k (h y)) but theorem expects (h (k x)) [S ∘ S˘] (h (k x))
+          -- This proof will provide (k (h y)) [S ∘ S ˘] (k (h y)) but theorem expects (h (k x)) [S ∘ S ˘] (h (k x))
           wrongProof = PTheoremApp "wrong_complex_axiom" [TermArg argF, TermArg argG, RelArg argR] dummyPos
           theoremApp = PTheoremApp theoremName [TermArg argF, TermArg argG, RelArg argR, ProofArg wrongProof] dummyPos
 

@@ -31,7 +31,7 @@ spec = do
           Left err -> expectationFailure $ "Expected success but got: " ++ show err
           Right content -> do
             -- Library should come before main in concatenated content
-            let libIndex = indexOf "Bool := ∀X" content
+            let libIndex = indexOf "Bool ≔ ∀X" content
                 mainIndex = indexOf "And b1 b2" content
             libIndex `shouldSatisfy` (< mainIndex)
 

@@ -2,7 +2,6 @@
 
 module TermOpsSpec (spec) where
 
-import Context (extendMacroEnvironment, noMacros)
 import Errors
 import Lib
 import Normalize

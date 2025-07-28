@@ -13,6 +13,7 @@ import Control.Monad.Reader (MonadReader, ask, local)
 import qualified Data.List as L
 import qualified Data.Map as M
 import Data.Ord (comparing)
+import Debug.Trace
 import Lib (MacroEnvironment(..), MacroBody(..), Fixity(..), MixfixPart(..), parseMixfixPattern, splitMixfix, holes)
 import Text.Megaparsec hiding (getSourcePos)
 
@@ -112,7 +113,9 @@ buildMixfixOps spec env =
           '_' `elem` name, -- Only actual mixfix macros (with underscores) - check this first
           length (splitMixfix name) == 1, -- Only simple single-segment operators
           name `M.member` macroDefinitions env, -- Skip if macro definition doesn't exist
+          trace ("DEBUG MIXFIX: Checking " ++ name ++ " for body type") True,
           isRightBody spec (snd (macroDefinitions env M.! name)),
+          trace ("DEBUG MIXFIX: " ++ name ++ " passed isRightBody check") True,
           op <- fixityToOp name fx
       ]
     getLvl (Lib.Infixl n) = n
@@ -120,11 +123,13 @@ buildMixfixOps spec env =
     getLvl (Lib.InfixN n) = n
     getLvl (Lib.Prefix n) = n
     getLvl (Lib.Postfix n) = n
+    getLvl (Lib.Closed n) = n
     fixityToOp n (Lib.Infixl _) = [Expr.InfixL (bin n)]
     fixityToOp n (Lib.Infixr _) = [Expr.InfixR (bin n)]
     fixityToOp n (Lib.InfixN _) = [Expr.InfixN (bin n)]
     fixityToOp n (Lib.Prefix _) = [Expr.Prefix (pre n)]
     fixityToOp n (Lib.Postfix _) = [Expr.Postfix (post n)]
+    fixityToOp n (Lib.Closed _) = [] -- Closed patterns handled by generalMixfix, not buildMixfixOps
     bin n = do
       pos <- (posParser spec)
       _ <- symbolParser spec (extractLit n)

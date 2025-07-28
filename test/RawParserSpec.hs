@@ -2,8 +2,6 @@
 
 module RawParserSpec (spec) where
 
-import Data.Text (Text)
-import Data.Void
 import RawAst
 import RawParser
 import Test.Hspec
@@ -19,7 +17,7 @@ spec = do
         Right other -> expectationFailure $ "Expected RTVar, got: " ++ show other
 
     it "parses lambda expression" $ do
-      case runParser rawTerm "test" "λx. x" of
+      case runParser rawTerm "test" "λ x . x" of
         Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
         Right (RTLam (Name "x") (RTVar (Name "x") _) _) -> return ()
         Right other -> expectationFailure $ "Expected RTLam, got: " ++ show other
@@ -51,20 +49,20 @@ spec = do
         Right other -> expectationFailure $ "Expected RPVar, got: " ++ show other
 
     it "parses iota proof" $ do
-      case runParser rawProof "test" "ι⟨x, y⟩" of
+      case runParser rawProof "test" "ι⟨ x , y⟩" of
         Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
         Right (RPIota (RTVar (Name "x") _) (RTVar (Name "y") _) _) -> return ()
         Right other -> expectationFailure $ "Expected RPIota, got: " ++ show other
 
   describe "Raw Declaration Parsing" $ do
     it "parses simple macro" $ do
-      case runParser rawDeclaration "test" "id := λx. x;" of
+      case runParser rawDeclaration "test" "id ≔ λ x . x;" of
         Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
         Right (RawMacro (Name "id") [] _) -> return ()
         Right other -> expectationFailure $ "Expected RawMacro, got: " ++ show other
 
     it "parses theorem" $ do
-      case runParser rawDeclaration "test" "⊢ test (x : term) : x [R] x := p;" of
+      case runParser rawDeclaration "test" "⊢ test (x : term) : x [R] x ≔ p;" of
         Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
         Right (RawTheorem (Name "test") _ _ _) -> return ()
         Right other -> expectationFailure $ "Expected RawTheorem, got: " ++ show other

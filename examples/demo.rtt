@@ -5,84 +5,84 @@
 -- 1. ASSUMPTION RULE
 -- =============================================================================
 -- Rule: x : t [R] t' ∈ Γ  ⇒  Γ ⊢ x : t [R] t'
-⊢ assumption (a : Term) (b : Term) (R : Rel) (p : a [R] b) : a [R] b := p;
+⊢ assumption (a : Term) (b : Term) (R : Rel) (p : a [R] b) : a [R] b ≔ p;
 
 -- =============================================================================
 -- 2. ARROW INTRODUCTION (Lambda Abstraction)
 -- =============================================================================
--- Rule: Γ, p : x [R] x' ⊢ q : t [R'] t'  (*)  ⇒  Γ ⊢ λp:R.q : λx.t [R → R'] λx'.t'
+-- Rule: Γ, p : x [R] x' ⊢ q : t [R'] t'  (*)  ⇒  Γ ⊢ λ p : R . q : λ x . t [R → R'] λ x' .t'
 -- Side condition (*): x ∉ FV(Γ, R, R')
-⊢ arrow_intro (a : Term) (b : Term) (f : Term) : (λx.a) [f → b] (λx.(b a)) := λp:f. ι⟨a,b⟩;
+⊢ arrow_intro (a : Term) (b : Term) (f : Term) : (λ x . a) [f → b] (λ x . b a) ≔ λ p : f . ι⟨ a , b ⟩;
 
 -- Eta-expansion examples for arrow types
 -- These demonstrate eta-expansion: given f, we can construct the eta-expanded form
 
 -- Single arrow eta-expansion
--- Given f : s [R → S] t, prove (λx. s x) [R → S] (λx. t x) by λp:R. f p
+-- Given f : s [R → S] t, prove (λ x . s x) [R → S] (λ x . t x) by λ p : R . f p
 ⊢ eta_arrow_1 (R : Rel) (S : Rel) (s : Term) (t : Term)
-    (f : s [R → S] t) : (λx. s x) [R → S] (λx. t x)
-    := λp:R. f p;
+    (f : s [R → S] t) : (λ x . s x) [R → S] (λ x . t x)
+    ≔ λ p : R . f p;
 
 -- Double arrow eta-expansion  
--- Given f : s [R → S → T] t, prove (λx. λy. s x y) [R → S → T] (λx. λy. t x y) by λp:R. λq:S. f p q
+-- Given f : s [R → S → T] t, prove (λ x . λ y . s x y) [R → S → T] (λ x . λ y . t x y) by λ p : R . λ q : S . f p q
 ⊢ eta_arrow_2 (R : Rel) (S : Rel) (T : Rel) (s : Term) (t : Term)
-    (f : s [R → S → T] t) : (λx. λy. s x y) [R → S → T] (λx. λy. t x y)
-    := λp:R. λq:S. f p q;
+    (f : s [R → S → T] t) : (λ x . λ y . s x y) [R → S → T] (λ x . λ y . t x y)
+    ≔ λ p : R . λ q : S . f p q;
 
 -- Triple arrow eta-expansion
--- Given f : s [R → S → T → U] t, prove (λx. λy. λz. s x y z) [R → S → T → U] (λx. λy. λz. t x y z) by λp:R. λq:S. λr:T. f p q r
+-- Given f : s [R → S → T → U] t, prove (λ x . λ y . λ z . s x y z) [R → S → T → U] (λ x . λ y . λ z . t x y z) by λ p : R . λ q : S . λr:T. f p q r
 ⊢ eta_arrow_3 (R : Rel) (S : Rel) (T : Rel) (U : Rel) (s : Term) (t : Term)
-    (f : s [R → S → T → U] t) : (λx. λy. λz. s x y z) [R → S → T → U] (λx. λy. λz. t x y z)
-    := λp:R. λq:S. λr:T. f p q r;
+    (f : s [R → S → T → U] t) : (λ x . λ y . λ z . s x y z) [R → S → T → U] (λ x . λ y . λ z . t x y z)
+    ≔ λ p : R . λ q : S . λr:T. f p q r;
 
 -- =============================================================================
 -- 3. ARROW ELIMINATION (Application)
 -- =============================================================================
 -- Rule: Γ ⊢ p₁ : t₁ [R → R'] t₁'  Γ ⊢ p₂ : t₂ [R] t₂'  ⇒  Γ ⊢ p₁ p₂ : t₁ t₂ [R'] t₁' t₂'
-⊢ arrow_elim (R : Rel) (S : Rel) (a : Term) (b : Term) (c : Term) (d : Term) (f : a [R → S] b) (g : c [R] d) : (a c) [S] (b d) := f g;
+⊢ arrow_elim (R : Rel) (S : Rel) (a : Term) (b : Term) (c : Term) (d : Term) (f : a [R → S] b) (g : c [R] d) : (a c) [S] (b d) ≔ f g;
 
 -- =============================================================================
 -- 4. UNIVERSAL INSTANTIATION
 -- =============================================================================
--- Rule: Γ ⊢ p : t [∀X.R'] t'  ⇒  Γ ⊢ p{R} : t [[R/X]R'] t'
-⊢ forall_inst (R : Rel) (a : Term) (b : Term) (p : a [∀X.X] b) : a [R] b := p{R};
+-- Rule: Γ ⊢ p : t [∀ X . R'] t'  ⇒  Γ ⊢ p { R } : t [[R/X]R'] t'
+⊢ forall_inst (R : Rel) (a : Term) (b : Term) (p : a [∀ X . X] b) : a [R] b ≔ p { R };
 
 -- 4b. COMPLEX INSTANTIATION
 ⊢ forall_inst_comp (R : Rel) (S : Rel) (a : Term) (b : Term) 
-                   (p : a [∀X.X ∘ S] b) : a [R ∘ S] b := p{R};
+                   (p : a [∀ X . X ∘ S] b) : a [R ∘ S] b ≔ p { R };
 
 -- =============================================================================
 -- 5. UNIVERSAL GENERALIZATION
 -- =============================================================================
--- Rule: Γ ⊢ p : t [R] t'  X ∉ FV(Γ)  ⇒  Γ ⊢ ΛX.p : t [∀X.R] t'
-⊢ forall_gen (a : Term) (b : Term) (R : Term) (p : a [R] b) : a [∀X.R] b := ΛX.p;
+-- Rule: Γ ⊢ p : t [R] t'  X ∉ FV(Γ)  ⇒  Γ ⊢ Λ X .p : t [∀ X . R] t'
+⊢ forall_gen (a : Term) (b : Term) (R : Term) (p : a [R] b) : a [∀ X . R] b ≔ Λ X .p;
 
 -- 5b. QUANTIFIER COMMUTATIVITY
--- Rule: Nested quantifiers can be reordered: ∀X.∀Y.R ≡ ∀Y.∀X.R
-⊢ forall_commute (a : Term) (b : Term) (R : Rel) (p : a [∀X.∀Y.R] b) : a [∀Y.∀X.R] b := 
-  ΛY. ΛX. (p{X}){Y};
+-- Rule: Nested quantifiers can be reordered: ∀ X . ∀ Y . R ≡ ∀ Y . ∀ X . R
+⊢ forall_commute (a : Term) (b : Term) (R : Rel) (p : a [∀ X . ∀ Y . R] b) : a [∀ Y . ∀ X . R] b ≔ 
+  Λ Y . Λ X . (p { X }) { Y };
 
 -- =============================================================================
 -- 6. CONVERSION
 -- =============================================================================
 -- Rule: Γ ⊢ p : t₁ [R] t₂  t₁ =βη t₁'  t₂ =βη t₂'  ⇒  Γ ⊢ t₁' ◁ p ▷ t₂' : t₁' [R] t₂'
-⊢ conversion (R : Rel) (f : Term) (a : Term) (p : ((λx.f x) a) [R] ((λy.f y) a)) : (f a) [R] (f a) := (f a) ⇃ p ⇂ (f a);
+⊢ conversion (R : Rel) (f : Term) (a : Term) (p : ((λ x .f x) a) [R] ((λ y .f y) a)) : (f a) [R] (f a) ≔ (f a) ⇃ p ⇂ (f a);
 
 -- =============================================================================
 -- 7. CONVERSE
 -- =============================================================================
 
 -- 7a. INTRODUCTION
--- Rule: Γ ⊢ p : t [R˘] t'  ⇒  Γ ⊢ ∪ₑ p : t' [R] t
-⊢ conv_elim (R : Rel) (a : Term) (b : Term) (p : a [R˘] b) : b [R] a := ∪ₑ p;
+-- Rule: Γ ⊢ p : t [R ˘] t'  ⇒  Γ ⊢ ∪ₑ p : t' [R] t
+⊢ conv_elim (R : Rel) (a : Term) (b : Term) (p : a [R ˘] b) : b [R] a ≔ ∪ₑ p;
 
 -- 7b. ELIMINATION
--- Rule: Γ ⊢ p : t [R] t'  ⇒  Γ ⊢ ∪ᵢ p : t' [R˘] t
-⊢ conv_intro (R : Rel) (a : Term) (b : Term) (p : a [R] b) : b [R˘] a := ∪ᵢ p;
+-- Rule: Γ ⊢ p : t [R] t'  ⇒  Γ ⊢ ∪ᵢ p : t' [R ˘] t
+⊢ conv_intro (R : Rel) (a : Term) (b : Term) (p : a [R] b) : b [R ˘] a ≔ ∪ᵢ p;
 
 -- 7c. Cancelation
 -- Double converse cancels out
-⊢ double_conv (R : Rel) (a : Term) (b : Term) (p : a [R] b) : a [R] b := ∪ₑ (∪ᵢ p);
+⊢ double_conv (R : Rel) (a : Term) (b : Term) (p : a [R] b) : a [R] b ≔ ∪ₑ (∪ᵢ p);
 
 -- =============================================================================
 -- 9. IOTA INTRODUCTION (Terms as Relations)
@@ -90,11 +90,11 @@
 -- Rule: ⊢ Γ ⇒ ι{t,t'} : t [t'] t' t
 -- This proves that t is related to t' when t' is viewed as a function (i.e., t' = t'(t))
 -- When a term f is used as a relation, it relates x to f(x)
-⊢ iota (a : Term) (f : Term) : a [f] (f a) := ι⟨a,f⟩;
+⊢ iota (a : Term) (f : Term) : a [f] (f a) ≔ ι⟨ a , f s ⟩;
 
 -- ============================================================================
 -- 10. ρ‑ELIMINATION (SUBSTITUTION ELIMINATION)
--- Rule: Γ ⊢ p : t [t''] t'  Γ ⊢ p' : [t'' t/x]t₁ [R] [t'' t/x]t₂  ⇒  Γ ⊢ ρ{x.t₁,t₂} p - p' : [t'/x]t₁ [R] [t'/x]t₂
+-- Rule: Γ ⊢ p : t [t''] t'  Γ ⊢ p' : [t'' t/x]t₁ [R] [t'' t/x]t₂  ⇒  Γ ⊢ ρ{ x . t₁ , t₂ } p - p' : [t'/x]t₁ [R] [t'/x]t₂
 -- Side condition: Substitution must be well-formed
 -- Each block shows a different pattern for using ρ p - p' to rewrite endpoints…
 -- References: RelTT substitution rules and endpoint rewriting
@@ -105,34 +105,34 @@
 --       Strategy: Given a[f]b and (f a)[R](f a), prove b[R]b by endpoint substitution.
 ⊢ rho_elim_id (R : Rel) (a : Term) (b : Term) (f : Term)
     (eq : a [f] b) (p : (f a) [R] (f a)) : b [R] b
-    := ρ{x.x,x} eq - p;
+    ≔ ρ{ x . x , x } eq - p;
 
 -- 10b.  Left endpoint rewriting
 --       Rewrites the right endpoint of a relation from (f a) to b.
 --       Strategy: Given a[f]b and a[R](f a), use ρ to substitute b for the right endpoint.
 ⊢ rho_elim_left (R : Rel) (a : Term) (b : Term) (f : Term) 
     (eq : a [f] b) (p : a [R] (f a)) : a [R] b
-    := ρ{x.a,x} eq - p;
+    ≔ ρ{ x . a , x } eq - p;
 
 -- 10c.  Right endpoint rewriting  
 --       Rewrites the left endpoint of a relation from (f a) to b.
 --       Strategy: Given a[f]b and (f a)[R]a, use ρ to substitute b for the left endpoint.
 ⊢ rho_elim_right (R : Rel) (a : Term) (b : Term) (f : Term)
     (eq : a [f] b) (p : (f a) [R] a) : b [R] a
-    := ρ{x.x,a} eq - p;
+    ≔ ρ{ x . x , a } eq - p;
 
 -- 10d.  Nested substitution (context rewriting)
 --       Simultaneously rewrites nested occurrences within compound expressions.
 --       Strategy: Given a[f]b and (g (f a))[R](h (f a)), substitute b for (f a) in both contexts.
 ⊢ rho_elim_inside (R : Rel) (a : Term) (b : Term) (f : Term) (g : Term) (h : Term)
     (eq : a [f] b) (p : (g (f a)) [R] (h (f a))) : (g b) [R] (h b)
-    := ρ{x.(g x),(h x)} eq - p;
+    ≔ ρ{ x . g x , h x } eq - p;
 
 -- ============================================================================
 -- 11. π‑ELIMINATION (COMPOSITION ELIMINATION) 
--- Rule: Γ ⊢ p : t [R·R'] t'  Γ, u : t [R] x, v : x [R'] t' ⊢ p' : t₁ [R''] t₂  ⇒  Γ ⊢ π p - x.u.v.p' : t₁ [R''] t₂
+-- Rule: Γ ⊢ p : t [R·R'] t'  Γ, u : t [R] x, v : x [R'] t' ⊢ p' : t₁ [R''] t₂  ⇒  Γ ⊢ π p - x . u . v .p' : t₁ [R''] t₂
 -- Side condition: x ∉ FV(Γ, t₁, t₂, t, t', R, R', R'')
--- Each block shows a different idiom for using π p - x.u.v.p' …
+-- Each block shows a different idiom for using π p - x . u . v .p' …
 -- References: RelTT Fig. 7 (syntax, erasure) and Fig. 8 (typing rules)
 -- ============================================================================
 
@@ -142,83 +142,83 @@
     (R : Rel) (S : Rel) (a : Term) (b : Term)
     (p : a [R ∘ S] b)
   : a [R ∘ S] b
-  := π p - x.u.v.(u,v);
+  ≔ π p - x . u . v . (u , v);
 
 -- 11b.  Associativity  (a[R∘(S∘T)]d  ⇒  a[((R∘S)∘T)]d)
 ⊢ pi_assoc
     (R : Rel) (S : Rel) (T : Rel) (a : Term) (d : Term)
     (p : a [R ∘ (S ∘ T)] d)
   : a [(R ∘ S) ∘ T] d
-  := π p - x.u.v.          -- u : a[R]x , v : x[S∘T]d
-       π v - y.w.z.        -- w : x[S]y , z : y[T]d
-         ((u,w), z);
+  ≔ π p - x . u . v .          -- u : a[R]x , v : x[S∘T]d
+       π v - y . w . z .        -- w : x[S]y , z : y[T]d
+         ((u , w) , z);
 
 -- 11c.  Right‑to‑left associativity  (mirror of 11b)
 ⊢ pi_assoc_sym
     (R : Rel) (S : Rel) (T : Rel) (a : Term) (d : Term)
     (p : a [(R ∘ S) ∘ T] d)
   : a [R ∘ (S ∘ T)] d
-  := π p - y.w.z.          -- w : a[R∘S]y , z : y[T]d
-       π w - x.u.v.        -- u : a[R]x   , v : x[S]y
-         (u,(v,z));
+  ≔ π p - y . w . z .          -- w : a[R∘S]y , z : y[T]d
+       π w - x . u . v .        -- u : a[R]x   , v : x[S]y
+         (u , (v , z));
 
 -- 11d.  Converse flip
---       a[R∘S]b  ⇒  b[S˘∘R˘]a    (extract, take converses, swap order)
+--       a[R∘S]b  ⇒  b[S ˘∘R ˘]a    (extract, take converses, swap order)
 ⊢ pi_converse
     (R : Rel) (S : Rel) (a : Term) (b : Term)
     (p : a [R ∘ S] b)
-  : b [S˘ ∘ R˘] a
-  := π p - x.u.v.(∪ᵢ v, ∪ᵢ u);
+  : b [S ˘ ∘ R ˘] a
+  ≔ π p - x . u . v . (∪ᵢ v , ∪ᵢ u);
 
 -- 11d'. Converse flip inverse
---        b[S˘∘R˘]a  ⇒  a[R∘S]b    (extract, take converses, swap order back)
+--        b[S ˘∘R ˘]a  ⇒  a[R∘S]b    (extract, take converses, swap order back)
 ⊢ pi_converse_inv
     (R : Rel) (S : Rel) (a : Term) (b : Term)
-    (p : b [S˘ ∘ R˘] a)
+    (p : b [S ˘ ∘ R ˘] a)
   : a [R ∘ S] b
-  := π p - x.u.v.(∪ₑ v, ∪ₑ u);
+  ≔ π p - x . u . v . (∪ₑ v , ∪ₑ u);
 
 -- 11e  :  left‑identity for composition
--- Given  p : a [(λz.z) ∘ S] b              prove  a [S] b
+-- Given  p : a [(λ z . z) ∘ S] b              prove  a [S] b
 -- Uses:  π‑elim + ρ‑elim + simple identity conversion.
 ⊢ pi_left_id
     (S : Rel) (a : Term) (b : Term)
-    (p : a [(λz.z) ∘ S] b)
+    (p : a [(λ z . z) ∘ S] b)
   : a [S] b
-  := π p - x.eq.rel.                -- eq : a[(λz.z)]x , rel : x[S]b
-       ρ{z.z,b}                     -- rewrite the left endpoint of rel
-         (ρ{z.z,a} eq - ((λz.z) a) ⇃ ι⟨a,λz.z⟩ ⇂ a)        -- gives x[(λz.z)]a  (promoted, no ˘)
-       - ((λz.z) x) ⇃ rel ⇂ b;
+  ≔ π p - x . eq . rel .                -- eq : a[(λ z . z)]x , rel : x[S]b
+       ρ{ z . z , b }                     -- rewrite the left endpoint of rel
+         (ρ{ z . z , a } eq - (λ z . z) a ⇃ ι⟨ a , λ z . z ⟩ ⇂ a)        -- gives x[λ z . z]a  (promoted, no ˘)
+       - (λ z . z) x ⇃ rel ⇂ b;
 
 -- 11f.  π followed by ρ  (left‑identity law)
---       Goal:   a [R ∘ (λz.z)] b   →   a [R] b
+--       Goal:   a [R ∘ (λ z . z)] b   →   a [R] b
 --       Strategy:
 --         1.  π‑eliminate the composite to expose
 --                rel : a[R]x                -- the real relation
---                eq  : x[(λz.z)]b           -- identity proof
+--                eq  : x[(λ z . z)]b           -- identity proof
 --         2.  Flip orientation of eq (∪ₑ) to get
---                q : x[(λz.z)]a
+--                q : x[(λ z . z)]a
 --         3.  ρ‑rewrite the left endpoint of rel from x to a.
 ⊢ pi_right_id
     (R : Rel) (a : Term) (b : Term)
-    (p : a [R ∘ (λz.z)] b)
+    (p : a [R ∘ (λ z . z)] b)
   : a [R] b
-  := π p - x.rel.eq.        -- rel : a[R]x , eq : x[(λz.z)]b
-       ρ{z.a,z} eq - 
-        a ⇃ rel ⇂ ((λz.z) x);   -- eq has promoted type, use identity substitution
+  ≔ π p - x . rel . eq .        -- rel : a[R]x , eq : x[(λ z . z)]b
+       ρ{ z . a , z } eq - 
+        a ⇃ rel ⇂ (λ z . z) x;   -- eq has promoted type, use identity substitution
 
 -- 11g.  Double nesting depth three
---       Builds a witness of length 3 from length 1 in the obvious way.
+--       Builds a witness of length 3 from length 1 in the obvious way .
 ⊢ pi_expand
     (R : Rel) (S : Rel) (T : Rel) (a : Term) (d : Term)
     (p : a [(R ∘ S) ∘ T] d)
   : a [R ∘ (S ∘ T)] d
-  := π p - x.u.v.           -- u : a[R∘S]x , v : x[T]d
-       π u - y.w.z.         -- w : a[R]y   , z : y[S]x
-         (w,(z,v));
+  ≔ π p - x . u . v .           -- u : a[R∘S]x , v : x[T]d
+       π u - y . w . z .         -- w : a[R]y   , z : y[S]x
+         (w , (z , v));
 
 -- =============================================================================
 -- 12. COMPOSITION INTRODUCTION (Pairing)
 -- =============================================================================
 -- Rule: Γ ⊢ p : t [R] t''  Γ ⊢ p' : t'' [R'] t'  ⇒  Γ ⊢ (p,p') : t [R·R'] t'
-⊢ comp_intro (R : Rel) (S : Rel) (a : Term) (b : Term) (c : Term) (p : a [R] b) (q : b [S] c) : a [R ∘ S] c := (p,q);
+⊢ comp_intro (R : Rel) (S : Rel) (a : Term) (b : Term) (c : Term) (p : a [R] b) (q : b [S] c) : a [R ∘ S] c ≔ (p , q);

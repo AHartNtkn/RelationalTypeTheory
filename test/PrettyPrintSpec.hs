@@ -1,6 +1,5 @@
 module PrettyPrintSpec (spec) where
 
-import Context (extendMacroEnvironment, noMacros)
 import Control.Monad.Reader (runReader)
 import qualified Data.Map as Map
 import Errors
@@ -37,11 +36,11 @@ spec = do
         prettyTermWithConfig config (Var "y" 1 (initialPos "test")) `shouldBe` "y_1"
 
       it "pretty prints lambda abstractions with Unicode" $ do
-        prettyTerm (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "λx. x"
+        prettyTerm (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "λ x . x"
 
       it "pretty prints lambda abstractions with ASCII" $ do
         let config = defaultPrettyConfig {useUnicode = False}
-        prettyTermWithConfig config (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "\\x. x"
+        prettyTermWithConfig config (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "\\x . x"
 
       it "pretty prints applications" $ do
         prettyTerm (App (Var "f" 0 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "f x"
@@ -49,7 +48,7 @@ spec = do
     describe "complex terms" $ do
       it "pretty prints nested lambda abstractions" $ do
         let term = Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")
-        prettyTerm term `shouldBe` "λx. λy. x"
+        prettyTerm term `shouldBe` "λ x . λ y . x"
 
       it "pretty prints nested applications" $ do
         let term = App (App (Var "f" 0 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")
@@ -57,11 +56,11 @@ spec = do
 
       it "adds parentheses for complex applications" $ do
         let term = App (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")
-        prettyTerm term `shouldBe` "(λx. x) y"
+        prettyTerm term `shouldBe` "(λ x . x) y"
 
       it "handles deeply nested terms" $ do
         let term = Lam "f" (Lam "x" (App (Var "f" 1 (initialPos "test")) (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")
-        prettyTerm term `shouldBe` "λf. λx. f (f x)"
+        prettyTerm term `shouldBe` "λ f . λ x . f (f x)"
 
   describe "Type Pretty Printing" $ do
     describe "basic types" $ do
@@ -80,11 +79,11 @@ spec = do
         prettyRTypeWithConfig config (Arr (RVar "X" 0 (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "X -> Y"
 
       it "pretty prints universal quantification with Unicode" $ do
-        prettyRType (All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "∀X. X"
+        prettyRType (All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "∀ X . X"
 
       it "pretty prints universal quantification with ASCII" $ do
         let config = defaultPrettyConfig {useUnicode = False}
-        prettyRTypeWithConfig config (All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "forallX. X"
+        prettyRTypeWithConfig config (All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "forallX . X"
 
     describe "relational operations" $ do
       it "pretty prints composition with Unicode" $ do
@@ -95,14 +94,14 @@ spec = do
         prettyRTypeWithConfig config (Comp (RVar "R" 0 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "R o S"
 
       it "pretty prints converse with Unicode" $ do
-        prettyRType (Conv (RVar "R" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "R˘"
+        prettyRType (Conv (RVar "R" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "R ˘"
 
       it "pretty prints converse with ASCII" $ do
         let config = defaultPrettyConfig {useUnicode = False}
         prettyRTypeWithConfig config (Conv (RVar "R" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "R^"
 
       it "pretty prints promotion (hides Prom from user)" $ do
-        prettyRType (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) `shouldBe` "λx. x"
+        prettyRType (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) `shouldBe` "λ x . x"
 
       it "hides promotion for term macros" $ do
         prettyRType (Prom (TMacro "Id" [] (initialPos "test")) (initialPos "test")) `shouldBe` "Id"
@@ -133,7 +132,7 @@ spec = do
 
       it "pretty prints relational macros with complex type arguments" $ do
         let complex = RMacro "Transform" [Arr (RVar "A" 0 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"), All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test")] (initialPos "test")
-        prettyRType complex `shouldBe` "Transform (A → B) (∀X. X)"
+        prettyRType complex `shouldBe` "Transform (A → B) (∀ X . X)"
 
       it "pretty prints relational macros with promoted terms" $ do
         let original = RMacro "Lift" [Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")] (initialPos "test")
@@ -160,7 +159,7 @@ spec = do
 
       it "pretty prints nested quantifiers" $ do
         let rtype = All "X" (All "Y" (Arr (RVar "X" 1 (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")
-        prettyRType rtype `shouldBe` "∀X. ∀Y. X → Y"
+        prettyRType rtype `shouldBe` "∀ X . ∀ Y . X → Y"
 
       it "pretty prints complex composition chains" $ do
         let rtype = Comp (Comp (RVar "R" 0 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test")) (RVar "T" 0 (initialPos "test")) (initialPos "test")
@@ -168,7 +167,7 @@ spec = do
 
       it "pretty prints composition with converse" $ do
         let rtype = Comp (Conv (RVar "R" 0 (initialPos "test")) (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test")
-        prettyRType rtype `shouldBe` "R˘ ∘ S"
+        prettyRType rtype `shouldBe` "R ˘ ∘ S"
 
   describe "Proof Pretty Printing" $ do
     describe "basic proofs" $ do
@@ -177,25 +176,25 @@ spec = do
 
       it "pretty prints proof lambda abstractions" $ do
         let proof = LamP "u" (RVar "R" 0 (initialPos "test")) (PVar "p" 0 (initialPos "test")) (initialPos "test")
-        prettyProof proof `shouldBe` "λu:R. p"
+        prettyProof proof `shouldBe` "λ u : R . p"
 
       it "pretty prints proof applications" $ do
         prettyProof (AppP (PVar "p" 0 (initialPos "test")) (PVar "q" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "p q"
 
       it "pretty prints type lambda abstractions with Unicode" $ do
-        prettyProof (TyLam "X" (PVar "p" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "ΛX. p"
+        prettyProof (TyLam "X" (PVar "p" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "Λ X . p"
 
       it "pretty prints type lambda abstractions with ASCII" $ do
         let config = defaultPrettyConfig {useUnicode = False}
-        prettyProofWithConfig config (TyLam "X" (PVar "p" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "LambdaX. p"
+        prettyProofWithConfig config (TyLam "X" (PVar "p" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "LambdaX . p"
 
       it "pretty prints type applications" $ do
-        prettyProof (TyApp (PVar "p" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "p{X}"
+        prettyProof (TyApp (PVar "p" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "p { X }"
 
     describe "advanced proof constructs" $ do
       it "pretty prints iota (term promotion introduction)" $ do
         let proof = Iota (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (Lam "y" (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
-        prettyProof proof `shouldBe` "ι⟨λx. x, λy. y⟩"
+        prettyProof proof `shouldBe` "ι⟨λ x . x, λ y . y⟩"
 
       it "pretty prints conversion proofs" $ do
         let proof = ConvProof (Var "x" 0 (initialPos "test")) (PVar "p" 0 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")
@@ -203,11 +202,11 @@ spec = do
 
       it "pretty prints rho elimination" $ do
         let proof = RhoElim "x" (Var "t1" 0 (initialPos "test")) (Var "t2" 0 (initialPos "test")) (PVar "p" 0 (initialPos "test")) (PVar "q" 0 (initialPos "test")) (initialPos "test")
-        prettyProof proof `shouldBe` "ρ{x.t1, t2} p - q"
+        prettyProof proof `shouldBe` "ρ{ x .t1, t2} p - q"
 
       it "pretty prints pi elimination" $ do
         let proof = Pi (PVar "p" 0 (initialPos "test")) "x" "u" "v" (PVar "q" 0 (initialPos "test")) (initialPos "test")
-        prettyProof proof `shouldBe` "π p - x.u.v.q"
+        prettyProof proof `shouldBe` "π p - x . u . v .q"
 
       it "pretty prints converse introduction with Unicode" $ do
         prettyProof (ConvIntro (PVar "p" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "∪ᵢ p"
@@ -228,11 +227,11 @@ spec = do
 
       it "pretty prints complex rho elimination with nested terms" $ do
         let proof = RhoElim "x" (Lam "y" (Var "y" 0 (initialPos "test")) (initialPos "test")) (App (Var "f" 0 (initialPos "test")) (Var "a" 0 (initialPos "test")) (initialPos "test")) (ConvIntro (PVar "p" 0 (initialPos "test")) (initialPos "test")) (ConvElim (PVar "q" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
-        prettyProof proof `shouldBe` "ρ{x.λy. y, f a} ∪ᵢ p - ∪ₑ q"
+        prettyProof proof `shouldBe` "ρ{ x . λ y . y, f a} ∪ᵢ p - ∪ₑ q"
 
       it "pretty prints complex pi elimination with multiple bindings" $ do
         let proof = Pi (TyApp (PVar "p" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) "x" "u" "v" (Pair (PVar "q" 0 (initialPos "test")) (PVar "r" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
-        prettyProof proof `shouldBe` "π p{X} - x.u.v.(q, r)"
+        prettyProof proof `shouldBe` "π p { X } - x . u . v .(q, r)"
 
       it "pretty prints nested proof applications with parentheses" $ do
         let proof = AppP (AppP (PVar "f" 0 (initialPos "test")) (ConvIntro (PVar "p" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (ConvElim (PVar "q" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
@@ -240,24 +239,24 @@ spec = do
 
       it "pretty prints iota with complex terms" $ do
         let proof = Iota (App (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (Lam "f" (Lam "x" (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")
-        prettyProof proof `shouldBe` "ι⟨(λx. x) y, λf. λx. f x⟩"
+        prettyProof proof `shouldBe` "ι⟨(λ x . x) y, λ f . λ x . f x⟩"
 
       it "pretty prints conversion proofs with complex terms" $ do
         let proof = ConvProof (App (Var "f" 0 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (TyLam "X" (PVar "p" 0 (initialPos "test")) (initialPos "test")) (Lam "y" (App (Var "g" 0 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")
-        prettyProof proof `shouldBe` "f x ⇃ ΛX. p ⇂ λy. g y"
+        prettyProof proof `shouldBe` "f x ⇃ Λ X . p ⇂ λ y . g y"
 
     describe "complex proofs" $ do
       it "adds parentheses for complex proof applications" $ do
         let proof = AppP (LamP "u" (RVar "R" 0 (initialPos "test")) (PVar "p" 0 (initialPos "test")) (initialPos "test")) (PVar "q" 0 (initialPos "test")) (initialPos "test")
-        prettyProof proof `shouldBe` "(λu:R. p) q"
+        prettyProof proof `shouldBe` "(λ u : R . p) q"
 
       it "handles nested proof lambda abstractions" $ do
         let proof = LamP "u" (RVar "R" 0 (initialPos "test")) (LamP "v" (RVar "S" 0 (initialPos "test")) (PVar "p" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
-        prettyProof proof `shouldBe` "λu:R. λv:S. p"
+        prettyProof proof `shouldBe` "λ u : R . λv:S. p"
 
       it "handles deeply nested type applications" $ do
         let proof = TyApp (TyApp (PVar "p" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")
-        prettyProof proof `shouldBe` "p{X}{Y}"
+        prettyProof proof `shouldBe` "p { X }{Y}"
 
   describe "Relational Judgment Pretty Printing" $ do
     it "pretty prints basic relational judgments" $ do
@@ -270,7 +269,7 @@ spec = do
               (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))
               (Arr (RVar "X" 0 (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test"))
               (Lam "y" (Var "y" 0 (initialPos "test")) (initialPos "test"))
-      prettyRelJudgment judgment `shouldBe` "λx. x [X → Y] λy. y"
+      prettyRelJudgment judgment `shouldBe` "λ x . x [X → Y] λ y . y"
 
     it "pretty prints judgments with promoted types" $ do
       let judgment =
@@ -278,55 +277,55 @@ spec = do
               (Var "f" 0 (initialPos "test"))
               (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
               (Var "g" 0 (initialPos "test"))
-      prettyRelJudgment judgment `shouldBe` "f [λx. x] g"
+      prettyRelJudgment judgment `shouldBe` "f [λ x . x] g"
 
   describe "Declaration Pretty Printing" $ do
     it "pretty prints macro definitions without parameters" $ do
       let decl = MacroDef "Id" [] (RelMacro (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")))
-      prettyDeclaration decl `shouldBe` "Id := X → X;"
+      prettyDeclaration decl `shouldBe` "Id ≔ X → X;"
 
     it "pretty prints macro definitions with parameters" $ do
       let decl = MacroDef "Comp" ["R", "S"] (RelMacro (Comp (RVar "R" 0 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test")))
-      prettyDeclaration decl `shouldBe` "Comp R S := R ∘ S;"
+      prettyDeclaration decl `shouldBe` "Comp R S ≔ R ∘ S;"
 
     it "pretty prints theorem definitions without bindings" $ do
       let judgment = RelJudgment (Var "x" 0 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (Var "y" 0 (initialPos "test"))
       let decl = TheoremDef "test" [] judgment (PVar "p" 0 (initialPos "test"))
-      prettyDeclaration decl `shouldBe` "⊢ test : x [R] y := p;"
+      prettyDeclaration decl `shouldBe` "⊢ test : x [R] y ≔ p;"
 
     it "pretty prints theorem definitions with bindings" $ do
       let judgment = RelJudgment (Var "x" 0 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (Var "y" 0 (initialPos "test"))
       let bindings = [TermBinding "x", RelBinding "R"]
       let decl = TheoremDef "test" bindings judgment (PVar "p" 0 (initialPos "test"))
-      prettyDeclaration decl `shouldBe` "⊢ test : [x, R] x [R] y := p;"
+      prettyDeclaration decl `shouldBe` "⊢ test : [x, R] x [R] y ≔ p;"
 
     it "pretty prints theorem definitions with ASCII" $ do
       let config = defaultPrettyConfig {useUnicode = False}
       let judgment = RelJudgment (Var "x" 0 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (Var "y" 0 (initialPos "test"))
       let decl = TheoremDef "test" [] judgment (PVar "p" 0 (initialPos "test"))
-      prettyDeclarationWithConfig config decl `shouldBe` "|- test : x [R] y := p;"
+      prettyDeclarationWithConfig config decl `shouldBe` "|- test : x [R] y ≔ p;"
 
     describe "advanced macro declaration tests" $ do
       it "pretty prints term macro definitions" $ do
         let termBody = TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))
         let decl = MacroDef "Id" [] termBody
-        prettyDeclaration decl `shouldBe` "Id := λx. x;"
+        prettyDeclaration decl `shouldBe` "Id ≔ λ x . x;"
 
       it "pretty prints term macro definitions with parameters" $ do
         let complexTerm = TermMacro (Lam "f" (Lam "x" (App (Var "f" 1 (initialPos "test")) (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
         let decl = MacroDef "Twice" ["f"] complexTerm
-        prettyDeclaration decl `shouldBe` "Twice f := λf. λx. f (f x);"
+        prettyDeclaration decl `shouldBe` "Twice f ≔ λ f . λ x . f (f x);"
 
       it "pretty prints relational macro definitions with operations" $ do
         let relOps = RelMacro (Comp (Conv (RVar "R" 0 (initialPos "test")) (initialPos "test")) (RVar "R" 0 (initialPos "test")) (initialPos "test"))
         let decl = MacroDef "SelfCompose" ["R"] relOps
-        prettyDeclaration decl `shouldBe` "SelfCompose R := R˘ ∘ R;"
+        prettyDeclaration decl `shouldBe` "SelfCompose R ≔ R ˘ ∘ R;"
 
       it "pretty prints theorem definitions with complex proofs" $ do
         let judgment = RelJudgment (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (Prom (Lam "y" (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Lam "z" (Var "z" 0 (initialPos "test")) (initialPos "test"))
         let complexProof = Iota (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (Lam "z" (Var "z" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
         let decl = TheoremDef "identity_iso" [] judgment complexProof
-        prettyDeclaration decl `shouldBe` "⊢ identity_iso : λx. x [λy. y] λz. z := ι⟨λx. x, λz. z⟩;"
+        prettyDeclaration decl `shouldBe` "⊢ identity_iso : λ x . x [λ y . y] λ z . z ≔ ι⟨λ x . x, λ z . z⟩;"
 
   describe "Binding Pretty Printing" $ do
     it "pretty prints term bindings" $ do
@@ -459,11 +458,11 @@ spec = do
   describe "Comprehensive Integration Tests" $ do
     it "pretty prints complex boolean type definition" $ do
       let boolType = All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")
-      prettyRType boolType `shouldBe` "∀X. X → X → X"
+      prettyRType boolType `shouldBe` "∀ X . X → X → X"
 
     it "pretty prints complex proof with multiple constructs" $ do
       let complexProof = TyLam "X" (LamP "p" (RVar "R" 0 (initialPos "test")) (ConvElim (PVar "p" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")
-      prettyProof complexProof `shouldBe` "ΛX. λp:R. ∪ₑ p"
+      prettyProof complexProof `shouldBe` "Λ X . λ p : R . ∪ₑ p"
 
     it "pretty prints complex theorem declaration" $ do
       let judgment =
@@ -473,7 +472,7 @@ spec = do
               (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))
       let proof = Iota (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
       let decl = TheoremDef "id_test" [] judgment proof
-      prettyDeclaration decl `shouldBe` "⊢ id_test : λx. x [λx. x] λx. x := ι⟨λx. x, λx. x⟩;"
+      prettyDeclaration decl `shouldBe` "⊢ id_test : λ x . x [λ x . x] λ x . x ≔ ι⟨λ x . x, λ x . x⟩;"
 
     it "maintains consistency between Unicode and ASCII modes" $ do
       let term = Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")
@@ -501,8 +500,8 @@ spec = do
       let promotion = Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
 
       prettyRType composition `shouldBe` "R ∘ S"
-      prettyRType converse `shouldBe` "R˘"
-      prettyRType promotion `shouldBe` "λx. x"
+      prettyRType converse `shouldBe` "R ˘"
+      prettyRType promotion `shouldBe` "λ x . x"
 
     it "handles complex nested structures with proper parenthesization" $ do
       let complexType =
@@ -510,12 +509,12 @@ spec = do
               (All "X" (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
               (Comp (Conv (RVar "R" 0 (initialPos "test")) (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"))
               (initialPos "test")
-      prettyRType complexType `shouldBe` "(∀X. X → X) → R˘ ∘ S"
+      prettyRType complexType `shouldBe` "(∀ X . X → X) → R ˘ ∘ S"
 
     it "preserves de Bruijn index information when requested" $ do
       let config = defaultPrettyConfig {showIndices = True}
       let term = Lam "x" (Lam "y" (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")
-      prettyTermWithConfig config term `shouldBe` "λx. λy. x_1 y_0"
+      prettyTermWithConfig config term `shouldBe` "λ x . λ y . x_1 y_0"
 
   describe "Term Macro (TMacro) Pretty Printing" $ do
     it "pretty prints zero-arity term macros" $ do
@@ -533,11 +532,11 @@ spec = do
 
     it "pretty prints term macros with complex arguments" $ do
       let complex = TMacro "Map" [Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"), App (Var "f" 0 (initialPos "test")) (Var "a" 0 (initialPos "test")) (initialPos "test")] (initialPos "test")
-      prettyTerm complex `shouldBe` "Map (λx. x) (f a)"
+      prettyTerm complex `shouldBe` "Map (λ x . x) (f a)"
 
     it "pretty prints term macros with lambda arguments requiring parentheses" $ do
       let withLam = TMacro "Apply" [Lam "x" (App (Var "x" 0 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")] (initialPos "test")
-      prettyTerm withLam `shouldBe` "Apply (λx. x y)"
+      prettyTerm withLam `shouldBe` "Apply (λ x . x y)"
 
     it "handles empty argument lists consistently" $ do
       prettyTerm (TMacro "Nil" [] (initialPos "test")) `shouldBe` "Nil"
@@ -556,11 +555,11 @@ spec = do
       prettyRType (RVar longName 0 (initialPos "test")) `shouldBe` longName
 
     it "handles deep nesting without stack overflow" $ do
-      -- Create a deeply nested lambda: λx1. λx2. ... λx10. x10
+      -- Create a deeply nested lambda: λ x1. λ x2. ... λ x10. x10
       let deepNested = foldr (\i acc -> Lam ("x" ++ show i) acc (initialPos "test")) (Var "x10" 0 (initialPos "test")) [1 .. 10]
       let result = prettyTerm deepNested
-      result `shouldContain` "λx1"
-      result `shouldContain` "λx10"
+      result `shouldContain` "λ x1"
+      result `shouldContain` "λ x10"
       result `shouldContain` "x10"
 
     it "handles deeply nested type applications" $ do
@@ -618,7 +617,7 @@ spec = do
     it "handles pathological parenthesization cases" $ do
       -- Ensure parentheses are correctly placed in complex nested structures
       let nestedApp = App (App (Lam "f" (Lam "x" (Var "f" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "g" 0 (initialPos "test")) (initialPos "test")) (Var "h" 0 (initialPos "test")) (initialPos "test")
-      prettyTerm nestedApp `shouldBe` "(λf. λx. f) g h"
+      prettyTerm nestedApp `shouldBe` "(λ f . λ x . f) g h"
 
       let nestedRType = Arr (Arr (RVar "A" 0 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test")) (Arr (RVar "C" 0 (initialPos "test")) (RVar "D" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
       prettyRType nestedRType `shouldBe` "(A → B) → C → D"

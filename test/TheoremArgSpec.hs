@@ -48,7 +48,7 @@ spec = describe "TheoremArg" $ do
     it "pretty prints complex TermArg" $ do
       let term = Lam "x" (Var "x" 0 dummyPos) dummyPos
           termArg = TermArg term
-      prettyTheoremArgWithConfig config termArg `shouldBe` "(λx. x)"
+      prettyTheoremArgWithConfig config termArg `shouldBe` "(λ x . x)"
 
     it "pretty prints complex RelArg" $ do
       let rtype = Arr (RVar "R" 0 dummyPos) (RVar "S" 1 dummyPos) dummyPos

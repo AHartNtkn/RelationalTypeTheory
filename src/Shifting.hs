@@ -12,6 +12,9 @@ module Shifting
     -- Type shifting for relations
     shiftRelsInRType,
     shiftRelsInRTypeAbove,
+    -- Proof shifting
+    shiftProof,
+    shiftProofAbove,
   )
 where
 
@@ -121,3 +124,27 @@ shiftRelsInRTypeAbove cutoff shift ty = case ty of
   Conv t pos -> Conv (shiftRelsInRTypeAbove cutoff shift t) pos
   Comp t1 t2 pos -> Comp (shiftRelsInRTypeAbove cutoff shift t1) (shiftRelsInRTypeAbove cutoff shift t2) pos
   Prom term pos -> Prom term pos -- Terms are NOT shifted when shifting relation variables
+
+-- | Shift proof indices by the given amount
+shiftProof :: Int -> Proof -> Proof
+shiftProof = shiftProofAbove 0
+
+-- | Shift proof indices above a cutoff  
+shiftProofAbove :: Int -> Int -> Proof -> Proof
+shiftProofAbove cutoff shift proof = case proof of
+  PVar name i pos
+    | i >= cutoff -> PVar name (i + shift) pos
+    | otherwise -> proof
+  PTheoremApp name args pos -> PTheoremApp name args pos -- theorem args don't have bound variables
+  LamP name rtype body pos -> LamP name rtype (shiftProofAbove (cutoff + 1) shift body) pos
+  AppP p1 p2 pos -> AppP (shiftProofAbove cutoff shift p1) (shiftProofAbove cutoff shift p2) pos
+  TyApp p rtype pos -> TyApp (shiftProofAbove cutoff shift p) rtype pos
+  TyLam name body pos -> TyLam name (shiftProofAbove cutoff shift body) pos -- type lambda doesn't bind proof vars
+  ConvProof t1 p t2 pos -> ConvProof t1 (shiftProofAbove cutoff shift p) t2 pos
+  ConvIntro p pos -> ConvIntro (shiftProofAbove cutoff shift p) pos
+  ConvElim p pos -> ConvElim (shiftProofAbove cutoff shift p) pos
+  Iota t1 t2 pos -> Iota t1 t2 pos -- terms don't have proof variables
+  RhoElim x t1 t2 p1 p2 pos -> RhoElim x t1 t2 (shiftProofAbove cutoff shift p1) (shiftProofAbove cutoff shift p2) pos
+  Pair p1 p2 pos -> Pair (shiftProofAbove cutoff shift p1) (shiftProofAbove cutoff shift p2) pos
+  Pi p1 x u v p2 pos -> Pi (shiftProofAbove cutoff shift p1) x u v (shiftProofAbove (cutoff + 3) shift p2) pos -- binds x,u,v
+  PMacro name args pos -> PMacro name (map (shiftProofAbove cutoff shift) args) pos

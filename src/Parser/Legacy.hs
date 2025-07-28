@@ -32,7 +32,7 @@ module Parser.Legacy
   )
 where
 
-import Context (extendMacroEnvironment, extendTheoremEnvironment, lookupTheorem, noMacros, noTheorems)
+import Context (extendTheoremEnvironment, lookupTheorem)
 import Control.Monad.Combinators.Expr
 import qualified Control.Monad.Combinators.Expr as Expr
 import Control.Monad.Reader
@@ -301,6 +301,8 @@ parseRVarOrApp = do
         Just (_, RelMacro _) ->
           -- Use relational macro directly
           return $ RMacro name [] pos
+        Just (_, ProofMacro _) ->
+          fail $ "Proof macro '" ++ name ++ "' cannot be used in relational context"
         Nothing -> do
           -- Check if it's a term variable that should be promoted
           case Map.lookup name (termVars ctx) of
@@ -345,7 +347,9 @@ parseRMacro = do
     Just (_, RelMacro _) -> do
       args <- some parseRAtom
       return (RMacro f args pos)
-    _ -> fail $ "Unknown relational macro: " ++ f
+    Just (_, TermMacro _) -> fail $ "Expected relational macro but found term macro: " ++ f
+    Just (_, ProofMacro _) -> fail $ "Expected relational macro but found proof macro: " ++ f
+    Nothing -> fail $ "Unknown relational macro: " ++ f
   where
     parseRAtom = parens parseRType <|> parseRVarOrApp
 
@@ -623,15 +627,19 @@ parseFixityDecl = do
     Lib.Postfix _ -> case reverse pattern of
       Literal _ : Hole : _ -> return ()
       _ -> fail $ "postfix requires pattern ending with hole followed by literal, but got: " ++ name
+    Lib.Closed _ -> case pattern of
+      Literal _ : _ -> return () -- Closed patterns must start with a literal
+      _ -> fail $ "closed requires pattern starting with literal, but got: " ++ name
   void $ symbol ";"
   return (FixityDecl (fixityConstructor level) name)
 
 -- | Macro body = term ▷ ';'  ∨  relational‑type
 parseMacroBody :: Parser MacroBody
-parseMacroBody = termBranch <|> relBranch
+parseMacroBody = termBranch <|> relBranch <|> proofBranch
   where
     termBranch = TermMacro <$> try (parseTermNoValidation <* sc <* lookAhead (symbol ";"))
-    relBranch = RelMacro <$> parseRType
+    relBranch = RelMacro <$> try (parseRType <* sc <* lookAhead (symbol ";"))
+    proofBranch = ProofMacro <$> parseProof
 
 parseMacroDef :: Parser Declaration
 parseMacroDef = do
@@ -640,7 +648,7 @@ parseMacroDef = do
   let autoParams = ["p" ++ show i | i <- [1 .. holes name]]
   explicitParams <- many identifier
   let params = if null explicitParams then autoParams else explicitParams
-  _ <- symbol "≔" <|> symbol ":="
+  _ <- symbol "≔" <|> symbol "≔"
   let bindArgs ctx =
         let argIndexMap = Map.fromList (zip params (reverse [0 .. length params - 1]))
             newTermVars = Map.union argIndexMap (Map.map (+ length params) (termVars ctx))
@@ -661,7 +669,7 @@ parseTheoremDef = do
   let finalCtx = currentCtx {termVars = termVars bindingCtx, relVars = relVars bindingCtx, proofVars = proofVars bindingCtx}
   _ <- symbol ":"
   relJudg <- local (const finalCtx) parseRelJudgment
-  _ <- symbol "≔" <|> symbol ":="
+  _ <- symbol "≔" <|> symbol "≔"
   proof <- local (const finalCtx) parseProof
   _ <- symbol ";"
   return (TheoremDef name bindings relJudg proof)

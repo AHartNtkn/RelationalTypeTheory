@@ -16,8 +16,10 @@ import Context
 import qualified Data.Set as Set
 import Errors
 import Lib
+import Lib.FreeVars (freeVarsInTerm, freeVarsInRType)
 import Normalize (TermExpansionResult (..), expandTermMacros, termEquality, termEqualityAlpha)
 import Shifting (shiftTerm, shiftTermWithBoundsCheck, shiftTermsInRType, shiftTermsInRTypeWithBoundsCheck)
+import Elaborate (expandProofMacroOneStep)
 import TypeOps (ExpansionResult (..), expandMacrosWHNF, substituteTypeVar, typeEquality)
 
 -------------------------------------------------------------------------------
@@ -181,7 +183,7 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
           else Left $ TypeMismatch argType rtype2 (ErrorContext pos "proof application")
       _ -> Left $ InvalidTypeApplication rtype1 (ErrorContext pos "proof application")
 
-  -- Type application: Γ ⊢ p{R} : t[[R/X]R']t'
+  -- Type application: Γ ⊢ p { R } : t[[R/X]R']t'
   TyApp proof1 rtype pos -> do
     result1 <- inferProofType ctx macroEnv theoremEnv proof1
     let RelJudgment term1 rtype1 term1' = resultJudgment result1
@@ -197,7 +199,7 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
         return $ ProofCheckResult finalJudgment ctx
       _ -> Left $ InvalidTypeApplication rtype1 (ErrorContext pos "type application")
 
-  -- Type lambda: Γ ⊢ Λx.p : t[∀x.R]t'
+  -- Type lambda: Γ ⊢ Λx .p : t[∀x . R]t'
   TyLam varName body pos -> do
     -- Check freshness condition
     if isFreshInContext varName ctx
@@ -255,9 +257,9 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
         finalJudgment = RelJudgment term1 promotedType resultTerm2
     return $ ProofCheckResult finalJudgment ctx
 
-  -- Rho elimination: ρ{x.t₁,t₂} p - p' : [t'/x]t₁[R][t'/x]t₂
+  -- Rho elimination: ρ{ x .t₁,t₂} p - p' : [t'/x]t₁[R][t'/x]t₂
   -- Paper rule: Γ ⊢ p : t[t'']t', Γ ⊢ p' : [t'' t/x]t₁[R][t'' t/x]t₂
-  --             ⊢ ρ{x.t₁,t₂} p - p' : [t'/x]t₁[R][t'/x]t₂
+  --             ⊢ ρ{ x .t₁,t₂} p - p' : [t'/x]t₁[R][t'/x]t₂
   RhoElim varName term1 term2 proof1 proof2 pos -> do
     -- Check first proof: p : t[t'']t'
     result1 <- inferProofType ctx macroEnv theoremEnv proof1
@@ -308,9 +310,9 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
         return $ ProofCheckResult finalJudgment ctx
       else Left $ CompositionError proof1 proof2 termMiddle termMiddle' (ErrorContext pos "composition introduction")
 
-  -- Pi elimination: Γ ⊢ π p - x.u.v.p' : t₁[R'']t₂
+  -- Pi elimination: Γ ⊢ π p - x . u . v .p' : t₁[R'']t₂
   -- Paper rule: Γ ⊢ p : t[R∘R']t', Γ, u : t[R]x, v : x[R']t' ⊢ p' : t₁[R'']t₂
-  --             ⊢ π p - x.u.v.p' : t₁[R'']t₂
+  --             ⊢ π p - x . u . v .p' : t₁[R'']t₂
   Pi proof1 varX varU varV proof2 pos -> do
     result1 <- inferProofType ctx macroEnv theoremEnv proof1
     let RelJudgment term1 rtype term2 = resultJudgment result1
@@ -318,11 +320,11 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
     case rtype of
       Comp rtype1 rtype2 _ -> do
         -- Side condition (**): x ∉ FV(Γ, t₁, t₂, t, t', R, R', R'')
-        let contextFreeVars = freeVarsInContext ctx
-            term1FreeVars = freeVarsInTerm term1
-            term2FreeVars = freeVarsInTerm term2
-            rtype1FreeVars = freeVarsInRType rtype1
-            rtype2FreeVars = freeVarsInRType rtype2
+        let contextFreeVars = boundVarsInContext ctx
+            term1FreeVars = freeVarsInTerm macroEnv term1
+            term2FreeVars = freeVarsInTerm macroEnv term2
+            rtype1FreeVars = freeVarsInRType macroEnv rtype1
+            rtype2FreeVars = freeVarsInRType macroEnv rtype2
             allFreeVars = Set.unions [contextFreeVars, term1FreeVars, term2FreeVars, rtype1FreeVars, rtype2FreeVars]
 
         if Set.member varX allFreeVars
@@ -367,6 +369,12 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
                     (ErrorContext pos "pi elimination bounds check")
       _ -> Left $ CompositionError proof1 proof1 term1 term2 (ErrorContext pos "pi elimination: first proof must have composition type")
 
+  -- PMacro case - expand and recurse
+  PMacro name args pos -> do
+    case expandProofMacroOneStep macroEnv name args pos of
+      Left elaborateErr -> Left $ InternalError ("Proof macro expansion failed: " ++ show elaborateErr) (ErrorContext pos "proof macro expansion")
+      Right expandedProof -> inferProofType ctx macroEnv theoremEnv expandedProof
+
 -- Helper functions
 
 -- | Normalize a judgment by expanding macros in terms and types (NO BETA-ETA)
@@ -380,7 +388,7 @@ normalizeJudgment macroEnv (RelJudgment t1 rtype t2) = do
 
 -- | Check equality of relational judgments
 -- NOTE: Relational judgments must be syntactically equal, not β-η equivalent
--- This is crucial for type safety - x [R] y and (λz.z) x [R] y are different judgments
+-- This is crucial for type safety - x [R] y and (λ z . z) x [R] y are different judgments
 relJudgmentEqual :: MacroEnvironment -> RelJudgment -> RelJudgment -> Either RelTTError Bool
 relJudgmentEqual macroEnv (RelJudgment t1 r1 t1') (RelJudgment t2 r2 t2') = do
   -- Use syntactic equality (alpha equivalence) for terms, not β-η equivalence

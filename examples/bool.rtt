@@ -7,209 +7,209 @@
 
 -- The Boolean type as a Church encoding
 -- Ass a relation, it's a PER identifying equality between booleans
-Bool := ∀X. X → X → X;
+Bool ≔ ∀ X . X → X → X;
 
 -- Boolean values as lambda terms (promoted to relation types)
-True := (λx. λy. x);
-False := (λx. λy. y);
+True ≔ (λ x . λ y . x);
+False ≔ (λ x . λ y . y);
 
 -- =============================================================================
 -- BASIC BOOLEAN OPERATIONS
 -- =============================================================================
 
 -- Logical negation
-Not b := (λt. λf. b f t);
+Not b ≔ (λ t . λ f . b f t);
 
 -- Logical conjunction (and)
-_&&_ b1 b2 := (λt. λf. b1 (b2 t f) f);
+_&&_ b1 b2 ≔ (λ t . λ f . b1 (b2 t f) f);
 
 -- Logical disjunction (or)
-_||_ b1 b2 := (λt. λf. b1 t (b2 t f));
+_||_ b1 b2 ≔ (λ t . λ f . b1 t (b2 t f));
 
 -- Logical exclusive or (xor)
-Xor b1 b2 := (λt. λf. b1 (b2 f t) (b2 t f));
+Xor b1 b2 ≔ (λ t . λ f . b1 (b2 f t) (b2 t f));
 
 -- Logical implication
-Implies b1 b2 := (λt. λf. b1 (b2 t f) t);
+Implies b1 b2 ≔ (λ t . λ f . b1 (b2 t f) t);
 
 -- Logical equivalence (biconditional)
-Iff b1 b2 := (λt. λf. b1 (b2 t f) (b2 f t));
+Iff b1 b2 ≔ (λ t . λ f . b1 (b2 t f) (b2 f t));
 
 -- =============================================================================
 -- CONDITIONAL OPERATIONS
 -- =============================================================================
 
 -- If-then-else for booleans
-if_then_else_ b x y := b x y;
+if_then_else_ b x y ≔ b x y;
 
 -- NAND (not and)
-Nand b1 b2 := Not (b1 && b2);
+Nand b1 b2 ≔ Not (b1 && b2);
 
 -- NOR (not or)
-Nor b1 b2 := Not (b1 || b2);
+Nor b1 b2 ≔ Not (b1 || b2);
 
 -- =============================================================================
 -- PROVEN THEOREMS - TYPE MEMBERSHIP
 -- =============================================================================
 
 -- True is a Boolean
-⊢ true_is_bool : True [Bool] True := ΛX. λp:X. λq:X. p;
+⊢ true_is_bool : True [Bool] True ≔ Λ X . λ p : X . λ q : X . p;
 
 -- False is a Boolean  
-⊢ false_is_bool : False [Bool] False := ΛX. λp:X. λq:X. q;
+⊢ false_is_bool : False [Bool] False ≔ Λ X . λ p : X . λ q : X . q;
 
 -- =============================================================================
 -- PROVEN THEOREMS - NEGATION PROPERTIES
 -- =============================================================================
 
 -- Not True is False
-⊢ not_true_is_false : (Not True) [Bool] False := (Not True) ⇃ false_is_bool ⇂ False;
+⊢ not_true_is_false : (Not True) [Bool] False ≔ (Not True) ⇃ false_is_bool ⇂ False;
 
 -- Not False is True
-⊢ not_false_is_true : (Not False) [Bool] True := (Not False) ⇃ true_is_bool ⇂ True;
+⊢ not_false_is_true : (Not False) [Bool] True ≔ (Not False) ⇃ true_is_bool ⇂ True;
 
 -- Double negation (Provable directly due to eta-equivalence)
-⊢ double_neg (x : Term) (p : x [Bool] x) : (Not (Not x)) [Bool] x := (Not (Not x)) ⇃ p ⇂ x;
+⊢ double_neg (x : Term) (p : x [Bool] x) : (Not (Not x)) [Bool] x ≔ (Not (Not x)) ⇃ p ⇂ x;
 
 -- =============================================================================
 -- PROVEN THEOREMS - CONJUNCTION PROPERTIES
 -- =============================================================================
 
 -- True AND True is True
-⊢ true_and_true : (True && True) [Bool] True := (True && True) ⇃ true_is_bool ⇂ True;
+⊢ true_and_true : (True && True) [Bool] True ≔ (True && True) ⇃ true_is_bool ⇂ True;
 
 -- True AND False is False
-⊢ true_and_false : (True && False) [Bool] False := (True && False) ⇃ false_is_bool ⇂ False;
+⊢ true_and_false : (True && False) [Bool] False ≔ (True && False) ⇃ false_is_bool ⇂ False;
 
 -- False AND True is False
-⊢ false_and_true : (False && True) [Bool] False := (False && True) ⇃ false_is_bool ⇂ False;
+⊢ false_and_true : (False && True) [Bool] False ≔ (False && True) ⇃ false_is_bool ⇂ False;
 
 -- False AND False is False
-⊢ false_and_false : (False && False) [Bool] False := (False && False) ⇃ false_is_bool ⇂ False;
+⊢ false_and_false : (False && False) [Bool] False ≔ (False && False) ⇃ false_is_bool ⇂ False;
 
 -- =============================================================================
 -- PROVEN THEOREMS - DISJUNCTION PROPERTIES
 -- =============================================================================
 
 -- True OR True is True
-⊢ true_or_true : (True || True) [Bool] True := (True || True) ⇃ true_is_bool ⇂ True;
+⊢ true_or_true : (True || True) [Bool] True ≔ (True || True) ⇃ true_is_bool ⇂ True;
 
 -- True OR False is True
-⊢ true_or_false : (True || False) [Bool] True := (True || False) ⇃ true_is_bool ⇂ True;
+⊢ true_or_false : (True || False) [Bool] True ≔ (True || False) ⇃ true_is_bool ⇂ True;
 
 -- False OR True is True
-⊢ false_or_true : (False || True) [Bool] True := (False || True) ⇃ true_is_bool ⇂ True;
+⊢ false_or_true : (False || True) [Bool] True ≔ (False || True) ⇃ true_is_bool ⇂ True;
 
 -- False OR False is False
-⊢ false_or_false : (False || False) [Bool] False := (False || False) ⇃ false_is_bool ⇂ False;
+⊢ false_or_false : (False || False) [Bool] False ≔ (False || False) ⇃ false_is_bool ⇂ False;
 
 -- =============================================================================
 -- PROVEN THEOREMS - IMPLICATION PROPERTIES
 -- =============================================================================
 
 -- True implies True is True
-⊢ true_implies_true : (Implies True True) [Bool] True := (Implies True True) ⇃ true_is_bool ⇂ True;
+⊢ true_implies_true : (Implies True True) [Bool] True ≔ (Implies True True) ⇃ true_is_bool ⇂ True;
 
 -- True implies False is False
-⊢ true_implies_false : (Implies True False) [Bool] False := (Implies True False) ⇃ false_is_bool ⇂ False;
+⊢ true_implies_false : (Implies True False) [Bool] False ≔ (Implies True False) ⇃ false_is_bool ⇂ False;
 
 -- False implies True is True
-⊢ false_implies_true : (Implies False True) [Bool] True := (Implies False True) ⇃ true_is_bool ⇂ True;
+⊢ false_implies_true : (Implies False True) [Bool] True ≔ (Implies False True) ⇃ true_is_bool ⇂ True;
 
 -- False implies False is True
-⊢ false_implies_false : (Implies False False) [Bool] True := (Implies False False) ⇃ true_is_bool ⇂ True;
+⊢ false_implies_false : (Implies False False) [Bool] True ≔ (Implies False False) ⇃ true_is_bool ⇂ True;
 
 -- =============================================================================
 -- PROVEN THEOREMS - XOR PROPERTIES
 -- =============================================================================
 
 -- True XOR True is False
-⊢ true_xor_true : (Xor True True) [Bool] False := (Xor True True) ⇃ false_is_bool ⇂ False;
+⊢ true_xor_true : (Xor True True) [Bool] False ≔ (Xor True True) ⇃ false_is_bool ⇂ False;
 
 -- True XOR False is True
-⊢ true_xor_false : (Xor True False) [Bool] True := (Xor True False) ⇃ true_is_bool ⇂ True;
+⊢ true_xor_false : (Xor True False) [Bool] True ≔ (Xor True False) ⇃ true_is_bool ⇂ True;
 
 -- False XOR True is True
-⊢ false_xor_true : (Xor False True) [Bool] True := (Xor False True) ⇃ true_is_bool ⇂ True;
+⊢ false_xor_true : (Xor False True) [Bool] True ≔ (Xor False True) ⇃ true_is_bool ⇂ True;
 
 -- False XOR False is False
-⊢ false_xor_false : (Xor False False) [Bool] False := (Xor False False) ⇃ false_is_bool ⇂ False;
+⊢ false_xor_false : (Xor False False) [Bool] False ≔ (Xor False False) ⇃ false_is_bool ⇂ False;
 
 -- =============================================================================
 -- PROVEN THEOREMS - CONDITIONAL PROPERTIES
 -- =============================================================================
 
 -- If True then True else False is True
-⊢ if_true_then_true_else_false : (if True then True else False) [Bool] True := (if True then True else False) ⇃ true_is_bool ⇂ True;
+⊢ if_true_then_true_else_false : (if True then True else False) [Bool] True ≔ (if True then True else False) ⇃ true_is_bool ⇂ True;
 
 -- If False then True else False is False
-⊢ if_false_then_true_else_false : (if False then True else False) [Bool] False := (if False then True else False) ⇃ false_is_bool ⇂ False;
+⊢ if_false_then_true_else_false : (if False then True else False) [Bool] False ≔ (if False then True else False) ⇃ false_is_bool ⇂ False;
 
 -- =============================================================================
 -- PROVEN THEOREMS - DERIVED FUNCTION PROPERTIES
 -- =============================================================================
 
 -- NAND of True and True is False
-⊢ nand_true_true : (Nand True True) [Bool] False := (Nand True True) ⇃ false_is_bool ⇂ False;
+⊢ nand_true_true : (Nand True True) [Bool] False ≔ (Nand True True) ⇃ false_is_bool ⇂ False;
 
 -- NOR of False and False is True
-⊢ nor_false_false : (Nor False False) [Bool] True := (Nor False False) ⇃ true_is_bool ⇂ True;
+⊢ nor_false_false : (Nor False False) [Bool] True ≔ (Nor False False) ⇃ true_is_bool ⇂ True;
 
 -- =============================================================================
 -- PROVEN THEOREMS - LOGICAL LAWS
 -- =============================================================================
 
 -- Law of excluded middle: A or Not A is always True
-⊢ excluded_middle_true : (True || (Not True)) [Bool] True := (True || (Not True)) ⇃ true_is_bool ⇂ True;
-⊢ excluded_middle_false : (False || (Not False)) [Bool] True := (False || (Not False)) ⇃ true_is_bool ⇂ True;
+⊢ excluded_middle_true : (True || (Not True)) [Bool] True ≔ (True || (Not True)) ⇃ true_is_bool ⇂ True;
+⊢ excluded_middle_false : (False || (Not False)) [Bool] True ≔ (False || (Not False)) ⇃ true_is_bool ⇂ True;
 
 -- Law of non-contradiction: A and Not A is always False
-⊢ non_contradiction_true : (True && (Not True)) [Bool] False := (True && (Not True)) ⇃ false_is_bool ⇂ False;
-⊢ non_contradiction_false : (False && (Not False)) [Bool] False := (False && (Not False)) ⇃ false_is_bool ⇂ False;
+⊢ non_contradiction_true : (True && (Not True)) [Bool] False ≔ (True && (Not True)) ⇃ false_is_bool ⇂ False;
+⊢ non_contradiction_false : (False && (Not False)) [Bool] False ≔ (False && (Not False)) ⇃ false_is_bool ⇂ False;
 
 -- =============================================================================
 -- EQUIVALENCE RELATION PROPERTIES
 -- =============================================================================
 
 -- Bool is reflexive: every boolean value is equal to itself
--- ⊢ bool_reflexivity (b d : Term) (p : b [Bool] d) : b [Bool] b := ???;
---  b ⇃ (ΛX. λx:X. λy:X. ??? x y) ⇂ b;
+-- ⊢ bool_reflexivity (b d : Term) (p : b [Bool] d) : b [Bool] b ≔ ???;
+--  b ⇃ (Λ X . λ x : X . λ y : X . ??? x y) ⇂ b;
 
 -- Bool is symmetric: if two booleans are equal, then they are equal in reverse order
---⊢ bool_symmetry (x : Term) (y : Term) (p : x [Bool] y) : y [Bool] x := ???
+--⊢ bool_symmetry (x : Term) (y : Term) (p : x [Bool] y) : y [Bool] x ≔ ???
 
 -- Bool is transitive: if x equals y and y equals z, then x equals z
 --⊢ bool_transitivity (x : Term) (y : Term) (z : Term) 
---  (p : x [Bool] y) (q : y [Bool] z) : x [Bool] z := ???;
+--  (p : x [Bool] y) (q : y [Bool] z) : x [Bool] z ≔ ???;
 
 -- =============================================================================
 -- NEGATION FUNCTION TYPING
 -- =============================================================================
 
 -- For any boolean b, Not b is also a boolean
-⊢ not_type : (λx. Not x) [Bool → Bool] (λx. Not x) := 
-  λb:Bool. ΛX. λx:X. λy:X. (b{X} y x);
+⊢ not_type : (λ x . Not x) [Bool → Bool] (λ x . Not x) ≔ 
+  λb:Bool. Λ X . λ x : X . λ y : X . (b{X} y x);
 
 -- =============================================================================
 -- CONJUNCTION (AND) FUNCTION TYPING  
 -- =============================================================================
 
 -- Binary and function has type Bool → Bool → Bool
-⊢ and_type : (λx. λy. x && y) [Bool → Bool → Bool] (λx. λy. x && y) := 
-  λb1:Bool. λb2:Bool. ΛX. λx:X. λy:X. (b1{X} (b2{X} x y) y);
+⊢ and_type : (λ x . λ y . x && y) [Bool → Bool → Bool] (λ x . λ y . x && y) ≔ 
+  λ b1 : Bool . λ b2 : Bool . Λ X . λ x : X . λ y : X . (b1 { X } (b2 { X } x y) y);
 
 -- =============================================================================
 -- DISJUNCTION (OR) FUNCTION TYPING
 -- =============================================================================
 
 -- Binary or function has type Bool → Bool → Bool  
-⊢ or_type : (λx. λy. x || y) [Bool → Bool → Bool] (λx. λy. x || y) := 
-  λb1:Bool. λb2:Bool. ΛX. λx:X. λy:X. (b1{X} x (b2{X} x y));
+⊢ or_type : (λ x . λ y . x || y) [Bool → Bool → Bool] (λ x . λ y . x || y) ≔ 
+  λ b1 : Bool . λ b2 : Bool . Λ X . λ x : X . λ y : X . (b1 { X } x (b2 { X } x y));
 
 -- =============================================================================
 -- True not equal to false
 -- =============================================================================
 
 ⊢ true_not_false (x : Term) (y : Term) (x' : Term) (y' : Term) (R : Rel)
-                 (p : True [Bool] False) (h1 : x [R] x') (h2 : y [R] y') : x [R] y' :=
-  x ⇃ p{R} h1 h2 ⇂ y';
+                 (p : True [Bool] False) (h1 : x [R] x') (h2 : y [R] y') : x [R] y' ≔
+  x ⇃ p { R } h1 h2 ⇂ y';

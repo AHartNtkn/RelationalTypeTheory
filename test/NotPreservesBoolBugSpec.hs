@@ -21,10 +21,10 @@ parseAndRunBoolRttContentSpec = describe "Parse and run bool.rtt content" $ do
   it "verifies that the not_preserves_bool theorem type checks successfully" $ do
     let boolRttContent =
           unlines
-            [ "Bool := ∀X. X → X → X;",
-              "Not b := (λt. λf. b f t);",
-              "⊢ not_preserves_bool (b : Term) (p : b [Bool] b) : (Not b) [Bool] (Not b) :=",
-              "  ΛX. λx:X. λy:X. (p{X} y x);"
+            [ "Bool ≔ ∀ X . X → X → X;",
+              "Not b ≔ (λ t . λ f . b f t);",
+              "⊢ not_preserves_bool (b : Term) (p : b [Bool] b) : (Not b) [Bool] (Not b) ≔",
+              "  Λ X . λ x : X . λ y : X . (p { X } y x);"
             ]
 
     case parseFileDeclarations boolRttContent of
@@ -70,7 +70,7 @@ extractAndTestJudgmentComparisonSpec = describe "Judgment comparison focus" $ do
             (TMacro "Not" [Var "b" 0 pos] pos)
 
         -- Actual judgment (expanded form with correct indices after macro expansion)
-        -- The macro expands to λt. λf. b f t where b has index 0 (the substituted argument)
+        -- The macro expands to λ t . λ f . b f t where b has index 0 (the substituted argument)
         actualJudgment =
           RelJudgment
             (Lam "t" (Lam "f" (App (App (Var "b" 0 pos) (Var "f" 0 pos) pos) (Var "t" 1 pos) pos) pos) pos)

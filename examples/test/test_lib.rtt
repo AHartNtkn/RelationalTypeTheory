@@ -1,11 +1,11 @@
 -- Test library file for TwoPhaseParsingSpec tests
 
 -- Boolean type definition
-Bool := ∀X. X → X → X;
+Bool ≔ ∀ X . X → X → X;
 
 -- Boolean constructors  
-True := λX. λt. λf. t;
-False := λX. λt. λf. f;
+True ≔ λ X . λ t . λ f . t;
+False ≔ λ X . λ t . λ f . f;
 
 -- Boolean conjunction
-And b1 b2 := λX. λt. λf. b1 X (b2 X t f) f;
+And b1 b2 ≔ λ X . λ t . λ f . b1 X (b2 X t f) f;

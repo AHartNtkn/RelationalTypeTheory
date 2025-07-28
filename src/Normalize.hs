@@ -12,11 +12,15 @@ module Normalize
     NormalizationResult (..),
     TermExpansionResult (..),
     TermExpansionMode (..),
+    renameBinderVars,
+    substituteMacroArgs,
   )
 where
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Data.List (foldl')
+import Control.Monad (when)
 import Errors
 import Lib
 import Shifting
@@ -131,7 +135,7 @@ normalizeSteps strategy steps maxSteps term
 oneStepReduce :: NormalizationStrategy -> Term -> Maybe Term
 oneStepReduce strategy term = case term of
   App (Lam _ body _) arg _ ->
-    -- β-reduction: (λx.t) s → [s/x]t
+    -- β-reduction: (λ x .t) s → [s/x]t
     case substituteAtIndex 0 arg body of
       Right result -> Just result
       Left _ -> Nothing -- Substitution failed
@@ -157,7 +161,7 @@ oneStepReduce strategy term = case term of
   Var _ _ _ -> Nothing -- Variables can't be reduced
   TMacro _ _ _ -> Nothing -- Term macros should be expanded before normalization
 
--- | Perform η-reduction if possible: λx. t x → t (when x not free in t)
+-- | Perform η-reduction if possible: λ x . t x → t (when x not free in t)
 etaReduce :: Term -> Maybe Term
 etaReduce term = case term of
   Lam name (App body (Var varName idx _) _) _
@@ -252,43 +256,56 @@ alphaEquivalentLazy env t1 t2 depth1 depth2 = case (t1, t2) of
 
 -- | Expand a term macro one step only - just substitute arguments into macro body
 expandTermMacrosOneStep :: MacroEnvironment -> Term -> Either RelTTError Term
-expandTermMacrosOneStep env term = case term of
-  TMacro name args pos -> do
-    case Map.lookup name (macroDefinitions env) of
-      Nothing ->
-        Left $ UnboundMacro name (ErrorContext pos "term macro expansion")
-      Just (params, body) -> do
-        case body of
-          TermMacro termBody -> do
-            if length params /= length args
-              then
-                Left $
-                  MacroArityMismatch
-                    name
-                    (length params)
-                    (length args)
-                    (ErrorContext pos "term macro expansion")
-              else do
-                -- Substitute arguments into macro body using de Bruijn indices
-                -- Parameters are bound in reverse order: first param gets highest index
-                let expandedBody = substituteMacroArgs (length params - 1) args termBody
-                return expandedBody
-          RelMacro _ ->
-            Left $ UnboundMacro name (ErrorContext pos "expected term macro but found relational macro")
-  _ -> Right term -- Not a macro, return as-is
+expandTermMacrosOneStep env (TMacro name args pos) =
+  case Map.lookup name (macroDefinitions env) of
+    Nothing -> Left $ UnboundMacro name (ErrorContext pos "macro expansion")
+    Just (sig, TermMacro body) -> do
+      when (length sig /= length args) $
+        Left $ MacroArityMismatch name (length sig) (length args) (ErrorContext pos "macro expansion")
+      let body1 = renameBinderVars sig args body
+          body2 = substituteMacroArgs sig args body1
+      Right body2
+    Just _ -> Left $ UnboundMacro name (ErrorContext pos "expected term macro")
+expandTermMacrosOneStep _ t = Right t
 
--- | Substitute macro arguments using de Bruijn indices
--- The first parameter has the highest index, last parameter has index 0
-substituteMacroArgs :: Int -> [Term] -> Term -> Term
-substituteMacroArgs maxIdx args term =
-  foldl
-    ( \t (idx, arg) ->
-        case substituteAtIndex idx arg t of
-          Right result -> result
-          Left _ -> error "Macro substitution failed"
-    )
-    term
-    (zip [maxIdx, maxIdx - 1 .. 0] args)
+-- | Count how many binders are to the left of a parameter
+binderPrefixCount :: [ParamInfo] -> Int -> Int
+binderPrefixCount pis j = length [ () | (k,ParamInfo{pBinds=True}) <- zip [0..] pis , k < j ]
+
+-- | Substitute macro arguments respecting binder-parameters
+substituteMacroArgs
+  :: [ParamInfo]   -- ^ macro signature  (length = n)
+  -> [Term]        -- ^ elaborated actuals (length = n)
+  -> Term          -- ^ macro body (already de Bruijn indexed)
+  -> Term
+substituteMacroArgs sig actuals body =
+  foldl' step body (zip3 [0..] sig actuals)
+  where
+    step acc (j,pi,arg) =
+      if pBinds pi
+        then acc               -- binder-params are NOT substituted; they only rename binders
+        else let k = binderPrefixCount sig j
+                 arg' = shiftTerm k arg
+             in  case substituteAtIndex (length sig - 1 - j) arg' acc of
+                   Right r -> r
+                   Left  _ -> error "macro subst failed"
+
+-- | Rename binder variables based on actual arguments
+renameBinderVars :: [ParamInfo] -> [Term] -> Term -> Term
+renameBinderVars sig actuals = go
+  where
+    nameOfActual j = case actuals !! j of
+                       Var s _ _ -> s
+                       _         -> error "binder argument must be a variable"
+    go t = case t of
+      Lam v b p ->
+        case lookupIdx v of
+          Just j | pBinds (sig!!j) -> Lam (nameOfActual j) (go b) p
+          _                        -> Lam v (go b) p
+      App f x p   -> App (go f) (go x) p
+      TMacro n as p -> TMacro n (map go as) p
+      _           -> t
+    lookupIdx v = lookup v (zip (map pName sig) [0..])
 
 -- | Expand terms with a step limit to prevent infinite loops
 expandTermWithStepLimit :: MacroEnvironment -> TermExpansionMode -> Int -> Term -> Either RelTTError TermExpansionResult
@@ -305,44 +322,41 @@ expandTermWithMode env mode maxSteps term = case term of
       Nothing ->
         -- Undefined macro - this is an error
         Left $ UnboundMacro name (ErrorContext pos "term macro expansion")
-      Just (params, body) -> do
-        -- It's a macro - check if it's a term macro
-        case body of
-          TermMacro termBody -> do
-            if length params /= length args
-              then
-                Left $
-                  MacroArityMismatch
-                    name
-                    (length params)
-                    (length args)
-                    (ErrorContext pos "term macro expansion")
-              else do
-                -- Expand arguments first
-                expandedArgs <- mapM (expandTermWithMode env mode maxSteps) args
-                let resultArgs = map expandedTerm expandedArgs
-                    argSteps = sum (map termExpansionSteps expandedArgs)
+      Just (sig, TermMacro termBody) -> do
+        if length sig /= length args
+          then
+            Left $
+              MacroArityMismatch
+                name
+                (length sig)
+                (length args)
+                (ErrorContext pos "term macro expansion")
+          else do
+            -- Expand arguments first
+            expandedArgs <- mapM (expandTermWithMode env mode maxSteps) args
+            let resultArgs = map expandedTerm expandedArgs
+                argSteps = sum (map termExpansionSteps expandedArgs)
 
-                -- Substitute arguments into macro body using de Bruijn indices
-                -- Parameters are bound in reverse order: first param gets highest index
-                let expandedBody = substituteMacroArgs (length params - 1) resultArgs termBody
+            -- Apply binder renaming and substitution
+            let body1 = renameBinderVars sig resultArgs termBody
+                expandedBody = substituteMacroArgs sig resultArgs body1
 
-                case mode of
-                  NoTermExpansion ->
-                    return $ TermExpansionResult (TMacro name resultArgs pos) argSteps True
-                  WeakHeadTermExpansion ->
-                    -- For WHNF, just return the substituted body without further expansion
-                    return $ TermExpansionResult expandedBody (argSteps + 1) True
-                  FullTermExpansion -> do
-                    -- Recursively expand the substituted body
-                    bodyResult <- expandTermWithMode env mode (maxSteps - 1) expandedBody
-                    return $
-                      TermExpansionResult
-                        (expandedTerm bodyResult)
-                        (argSteps + 1 + termExpansionSteps bodyResult)
-                        True
-          RelMacro _ ->
-            Left $ UnboundMacro name (ErrorContext pos "expected term macro but found relational macro")
+            case mode of
+              NoTermExpansion ->
+                return $ TermExpansionResult (TMacro name resultArgs pos) argSteps True
+              WeakHeadTermExpansion ->
+                -- For WHNF, just return the substituted body without further expansion
+                return $ TermExpansionResult expandedBody (argSteps + 1) True
+              FullTermExpansion -> do
+                -- Recursively expand the substituted body
+                bodyResult <- expandTermWithMode env mode (maxSteps - 1) expandedBody
+                return $
+                  TermExpansionResult
+                    (expandedTerm bodyResult)
+                    (argSteps + 1 + termExpansionSteps bodyResult)
+                    True
+      Just _ ->
+        Left $ UnboundMacro name (ErrorContext pos "expected term macro")
   Var _ _ _ ->
     -- Variables don't expand
     return $ TermExpansionResult term 0 False

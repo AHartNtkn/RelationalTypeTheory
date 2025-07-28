@@ -1,11 +1,10 @@
 module Main (main) where
 
-import Context (emptyTypingContext, extendMacroEnvironment, extendProofContext, extendRelContext, extendTermContext, extendTheoremEnvironment, noMacros, noTheorems)
+import Context (emptyTypingContext, extendProofContext, extendRelContext, extendTermContext, extendTheoremEnvironment)
 import Control.Monad (when)
 import Errors
 import Lib
 import ModuleSystem (parseModuleWithDependencies, ModuleLoadError(..))
-import qualified Data.Text as T
 import Elaborate
 import qualified RawAst as Raw
 import RawParser
@@ -15,7 +14,7 @@ import ProofChecker
 import qualified REPL
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
-import Text.Megaparsec (errorBundlePretty, initialPos)
+import Text.Megaparsec (initialPos)
 
 data Mode = ParseOnly | ProofCheck | Verbose | Interactive
   deriving (Eq, Show)
@@ -86,9 +85,9 @@ checkTheoremInEnvironment _ _ _ = Left $ InternalError "Expected theorem declara
 parseOnlyMode :: String -> IO ()
 parseOnlyMode filename = do
   content <- readFile filename
-  case runParser parseFile filename (T.pack content) of
+  case runParser parseFile filename content of
     Left parseErr -> putStrLn $ "Parse error: " ++ errorBundlePretty parseErr
-    Right rawDecls -> case elaborateDeclarationsSequentially emptyElaborateContext rawDecls [] of
+    Right rawDecls -> case elaborateDeclarationsSequentially emptyCtxWithBuiltins rawDecls [] of
       Left elaborateErr -> putStrLn $ "Elaboration error: " ++ elaborateErr
       Right decls -> mapM_ (putStrLn . prettyDeclaration) decls
   where
@@ -109,6 +108,9 @@ parseOnlyMode filename = do
     updateContextWithDeclaration (TheoremDef name bindings judgment proof) ctx =
       let newTheoremEnv = extendTheoremEnvironment name bindings judgment proof (theoremEnv ctx)
       in ctx { theoremEnv = newTheoremEnv }
+    updateContextWithDeclaration (ImportDecl _) ctx = ctx
+    updateContextWithDeclaration (ExportDecl _) ctx = ctx
+    updateContextWithDeclaration (FixityDecl _ _) ctx = ctx
 
 -- Proof checking mode (using import-aware parsing)
 proofCheckMode :: String -> Bool -> IO ()
@@ -121,11 +123,14 @@ proofCheckMode filename verbose = do
     Left (ModuleSystem.ParseError path err) -> do
       putStrLn $ "Parse error in " ++ path ++ ": " ++ err
       exitFailure
-    Left (CircularDependency cycle) -> do
-      putStrLn $ "Circular dependency detected: " ++ show cycle
+    Left (CircularDependency depCycle) -> do
+      putStrLn $ "Circular dependency detected: " ++ show depCycle
       exitFailure
     Left (ImportResolutionError path err) -> do
       putStrLn $ "Import resolution error in " ++ path ++ ": " ++ err
+      exitFailure
+    Left (DuplicateExport path name) -> do
+      putStrLn $ "Duplicate export in " ++ path ++ ": " ++ name
       exitFailure
     Right decls -> do
       let (macroDefs, theoremDefs) = extractDeclarations decls

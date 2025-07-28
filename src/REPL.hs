@@ -8,14 +8,14 @@ module REPL
   )
 where
 
-import Context (emptyTypingContext, extendMacroEnvironment, extendProofContext, extendRelContext, extendTermContext, lookupMacro, lookupTerm, noMacros, noTheorems)
+import Context (emptyTypingContext, extendProofContext, extendRelContext, extendTermContext, lookupMacro, lookupTerm)
 import Control.Monad.State
 import qualified Data.Map as Map
 import Errors
 import Lib
 import ModuleSystem (ModuleLoadError (..), ModuleRegistry, emptyModuleRegistry, loadModuleWithDependenciesIntegrated)
 import Parser.Legacy
-import PrettyPrint (prettyDeclaration, prettyError, prettyExportDeclaration, prettyImportDeclaration, prettyRType, prettyRelJudgment, prettyTerm)
+import PrettyPrint (prettyDeclaration, prettyError, prettyExportDeclaration, prettyImportDeclaration, prettyProof, prettyRType, prettyRelJudgment, prettyTerm)
 import ProofChecker
 import System.IO (hFlush, hSetEncoding, stdin, stdout, utf8)
 import Text.Megaparsec (initialPos)
@@ -109,8 +109,8 @@ executeREPLCommand cmd = case cmd of
           "  :history                         Show command history",
           "",
           "You can also enter macro definitions and theorems directly:",
-          "  Macro := Definition;",
-          "  ⊢ theorem : judgment := proof;"
+          "  Macro ≔ Definition;",
+          "  ⊢ theorem : judgment ≔ proof;"
         ]
   LoadFile filename -> do
     currentState <- get
@@ -166,10 +166,11 @@ executeREPLCommand cmd = case cmd of
                 bodyStr = case body of
                   TermMacro term -> prettyTerm term
                   RelMacro rtype -> prettyRType rtype
+                  ProofMacro proof -> prettyProof proof
                 fixityStr = case Map.lookup name (macroFixities (replMacroEnv currentState)) of
                   Nothing -> ""
                   Just fixity -> "\nFixity: " ++ show fixity
-             in "Macro " ++ name ++ paramStr ++ " := " ++ bodyStr ++ fixityStr
+             in "Macro " ++ name ++ paramStr ++ " ≔ " ++ bodyStr ++ fixityStr
           Left _ -> "No macro named " ++ name
     let contextInfo = case lookupTerm name (replContext currentState) of
           Right (_, rtype) -> "Term " ++ name ++ " : " ++ prettyRType rtype

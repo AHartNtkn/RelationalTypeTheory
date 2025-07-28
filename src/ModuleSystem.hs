@@ -19,14 +19,16 @@ module ModuleSystem
   )
 where
 
-import Context (extendMacroEnvironment, extendTheoremEnvironment, noMacros, noTheorems)
+import Context (extendTheoremEnvironment)
 import Control.Exception (IOException, catch)
 import Data.Either (partitionEithers)
 import Data.List (intercalate)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Lib
-import Parser.Legacy (parseFile, parseImportsOnly, runParserEmpty)
+import RawParser (parseFile)
+import Text.Megaparsec (runParser)
+import Elaborate (elaborateDeclarations, emptyCtxWithBuiltins)
 import System.Directory (doesFileExist)
 import System.FilePath (normalise, takeDirectory, (</>))
 import Text.Megaparsec (errorBundlePretty)
@@ -74,29 +76,32 @@ loadModuleFromFile registry filePath = do
   case result of
     Left _ -> return $ Left (FileNotFound filePath)
     Right content -> do
-      case runParserEmpty parseFile content of
+      case runParser parseFile filePath content of
         Left parseErr -> return $ Left (ParseError filePath (errorBundlePretty parseErr))
-        Right declarations -> do
-          -- Extract imports, exports, macros, and theorems
-          let (imports, exports, macros, theorems) = partitionDeclarations declarations
+        Right rawDeclarations -> do
+          case elaborateDeclarations emptyCtxWithBuiltins rawDeclarations of
+            Left elaborateErr -> return $ Left (ParseError filePath (show elaborateErr))
+            Right declarations -> do
+              -- Extract imports, exports, macros, and theorems
+              let (imports, exports, macros, theorems) = partitionDeclarations declarations
 
-          -- Build environments
-          let macroEnv = buildMacroEnvironment macros
-              theoremEnv = buildTheoremEnvironment theorems
-              exportList = extractExportList exports declarations
+              -- Build environments
+              let macroEnv = buildMacroEnvironment macros
+                  theoremEnv = buildTheoremEnvironment theorems
+                  exportList = extractExportList exports declarations
 
-          let moduleInfo =
-                ModuleInfo
-                  { modulePath = filePath,
-                    moduleAlias = Nothing,
-                    loadedMacros = macroEnv,
-                    loadedTheorems = theoremEnv,
-                    exportedSymbols = exportList,
-                    importDeclarations = imports
-                  }
+              let moduleInfo =
+                    ModuleInfo
+                      { modulePath = filePath,
+                        moduleAlias = Nothing,
+                        loadedMacros = macroEnv,
+                        loadedTheorems = theoremEnv,
+                        exportedSymbols = exportList,
+                        importDeclarations = imports
+                      }
 
-          let newRegistry = registry {loadedModules = Map.insert filePath moduleInfo (loadedModules registry)}
-          return $ Right (newRegistry, moduleInfo)
+              let newRegistry = registry {loadedModules = Map.insert filePath moduleInfo (loadedModules registry)}
+              return $ Right (newRegistry, moduleInfo)
 
 -- | Resolve module path using search paths
 resolveModulePath :: [FilePath] -> ModulePath -> IO (Maybe FilePath)
@@ -286,9 +291,14 @@ buildCompleteImportGraph searchPathsArg entryFile = do
       case result of
         Left _ -> return $ Left (FileNotFound filePath)
         Right content -> do
-          case runParserEmpty parseImportsOnly content of
+          case runParser parseFile filePath content of
             Left parseErr -> return $ Left (ParseError filePath (errorBundlePretty parseErr))
-            Right imports -> return $ Right imports
+            Right rawDeclarations -> do
+              case elaborateDeclarations emptyCtxWithBuiltins rawDeclarations of
+                Left elaborateErr -> return $ Left (ParseError filePath (show elaborateErr))
+                Right declarations -> do
+                  let (imports, _, _, _) = partitionDeclarations declarations
+                  return $ Right imports
 
     resolveImportPaths :: [FilePath] -> FilePath -> [ImportDeclaration] -> IO (Either ModuleLoadError [FilePath])
     resolveImportPaths searchPathsLocal currentFile imports = do
@@ -373,9 +383,12 @@ parseModuleWithDependencies searchPathsArg entryFile = do
   case contentResult of
     Left err -> return $ Left err
     Right concatenatedContent -> do
-      case runParserEmpty parseFile concatenatedContent of
+      case runParser parseFile entryFile concatenatedContent of
         Left parseErr -> return $ Left (ParseError entryFile (errorBundlePretty parseErr))
-        Right declarations -> return $ Right declarations
+        Right rawDeclarations -> do
+          case elaborateDeclarations emptyCtxWithBuiltins rawDeclarations of
+            Left elaborateErr -> return $ Left (ParseError entryFile (show elaborateErr))
+            Right declarations -> return $ Right declarations
 
 -- | Graph-based module loading that integrates with ModuleRegistry
 loadModuleWithDependenciesIntegrated :: ModuleRegistry -> ModulePath -> IO (Either ModuleLoadError (ModuleRegistry, ModuleInfo))

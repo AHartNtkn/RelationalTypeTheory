@@ -1,27 +1,27 @@
 -- Church-encoded trits (ternary values)
 -- A trit has three possible values: Zero, One, Two  
--- Church encoding: Trit := ∀X. X → X → X → X
+-- Church encoding: Trit ≔ ∀ X . X → X → X → X
 -- This tests triple-nested lambda abstractions
 
 -- Define the Trit type
-Trit := ∀X. X → X → X → X;
+Trit ≔ ∀ X . X → X → X → X;
 
 -- Define the three trit constructors as term macros
 -- These are the key tests: triple-nested LamP should produce correct de Bruijn indices
 
--- Zero: λz. λo. λt. z (selects first argument)
--- Should generate λx.λy.λw.x where x has de Bruijn index 2
-Zero := λz. λo. λt. z;
+-- Zero: λ z . λ o . λ t . z (selects first argument)
+-- Should generate λ x . λ y . λ w . x where x has de Bruijn index 2
+Zero ≔ λ z . λ o . λ t . z;
 
--- One: λz. λo. λt. o (selects second argument)
--- Should generate λx.λy.λw.y where y has de Bruijn index 1  
-One := λz. λo. λt. o;
+-- One: λ z . λ o . λ t . o (selects second argument)
+-- Should generate λ x . λ y . λ w . y where y has de Bruijn index 1  
+One ≔ λ z . λ o . λ t . o;
 
--- Two: λz. λo. λt. t (selects third argument)
--- Should generate λx.λy.λw.w where w has de Bruijn index 0
-Two := λz. λo. λt. t;
+-- Two: λ z . λ o . λ t . t (selects third argument)
+-- Should generate λ x . λ y . λ w . w where w has de Bruijn index 0
+Two ≔ λ z . λ o . λ t . t;
 
 -- Now prove they have the Trit type using type lambda + proof lambda nesting
-⊢ zero_is_trit : Zero [Trit] Zero := ΛX. λz:X. λo:X. λt:X. z;
-⊢ one_is_trit : One [Trit] One := ΛX. λz:X. λo:X. λt:X. o;
-⊢ two_is_trit : Two [Trit] Two := ΛX. λz:X. λo:X. λt:X. t;
+⊢ zero_is_trit : Zero [Trit] Zero ≔ Λ X . λ z : X . λ o : X . λ t : X . z;
+⊢ one_is_trit : One [Trit] One ≔ Λ X . λ z : X . λ o : X . λ t : X . o;
+⊢ two_is_trit : Two [Trit] Two ≔ Λ X . λ z : X . λ o : X . λ t : X . t;

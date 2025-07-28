@@ -16,12 +16,14 @@ module TestHelpers
     buildContextFromBindings,
     parseFileDeclarations,
     buildEnvironmentsFromDeclarations,
+    simpleParamInfo,
+    simpleTermMacro,
+    simpleRelMacro,
   )
 where
 
 import Context
 import Control.Monad (unless)
-import qualified Data.Text as T
 import Elaborate
 import Lib
 import qualified RawAst as Raw
@@ -166,9 +168,9 @@ buildContextFromBindings bindings = buildContext emptyTypingContext bindings
 -- | Parse file content using new parser pipeline
 parseFileDeclarations :: String -> Either String [Declaration]
 parseFileDeclarations content = 
-  case runParser parseFile "test" (T.pack content) of
+  case runParser parseFile "test" content of
     Left parseErr -> Left $ "Parse error: " ++ errorBundlePretty parseErr
-    Right rawDecls -> elaborateDeclarationsSequentially emptyElaborateContext rawDecls []
+    Right rawDecls -> elaborateDeclarationsSequentially emptyCtxWithBuiltins rawDecls []
   where
     elaborateDeclarationsSequentially :: ElaborateContext -> [Raw.RawDeclaration] -> [Declaration] -> Either String [Declaration]
     elaborateDeclarationsSequentially _ [] acc = Right (reverse acc)
@@ -195,10 +197,26 @@ buildEnvironmentsFromDeclarations :: [Declaration] -> (MacroEnvironment, Theorem
 buildEnvironmentsFromDeclarations decls = 
   let macros = [(name, params, body) | MacroDef name params body <- decls]
       theorems = [(name, bindings, judgment, proof) | TheoremDef name bindings judgment proof <- decls]
-      macroEnv = foldl (\env (name, params, body) -> 
+      macroEnv' = foldl (\env (name, params, body) -> 
                          extendMacroEnvironment name params body (defaultFixity "TEST") env) 
                        noMacros macros
-      theoremEnv = foldl (\env (name, bindings, judgment, proof) -> 
+      theoremEnv' = foldl (\env (name, bindings, judgment, proof) -> 
                            extendTheoremEnvironment name bindings judgment proof env) 
                          noTheorems theorems
-  in (macroEnv, theoremEnv)
+  in (macroEnv', theoremEnv')
+
+-- | Helper functions for creating test macro signatures
+simpleParamInfo :: String -> VarKind -> ParamInfo
+simpleParamInfo name kind = ParamInfo name kind False []
+
+-- | Create a simple term macro sig for testing
+simpleTermMacro :: [String] -> Term -> MacroSig
+simpleTermMacro params body = ([simpleParamInfo p TermK | p <- params], TermMacro body)
+
+-- | Create a simple rel macro sig for testing
+simpleRelMacro :: [String] -> RType -> MacroSig
+simpleRelMacro params body = ([simpleParamInfo p RelK | p <- params], RelMacro body)
+
+-- | Create a simple proof macro sig for testing
+simpleProofMacro :: [String] -> Proof -> MacroSig
+simpleProofMacro params body = ([simpleParamInfo p ProofK | p <- params], ProofMacro body)

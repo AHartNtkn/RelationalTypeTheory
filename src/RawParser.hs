@@ -7,27 +7,57 @@ module RawParser
   , rawJudgment
   , rawBinding
   , parseFile
-  , mixfixIdentifier
   ) where
 
-import Data.Text (Text)
-import qualified Data.Text as T
 import Data.Void
-import Data.Char (isSpace)
-import Control.Monad (void, when)
-import           Lexer hiding (isMixfixChar)
-import qualified Lexer (isMixfixChar)
+import Control.Monad (when)
+import           Lexer
 import RawAst
 import Text.Megaparsec
-import Text.Megaparsec.Char (char, spaceChar)
-import qualified Control.Monad.Combinators.Expr as E
+-- application is now parsed explicitly, so we do not need Expr here
 import qualified Text.Megaparsec.Char.Lexer as L
+import Data.List     (foldl1')
 
-type P = Parsec Void Text
+type P = Parsec Void String
+
+-- =====================================================================
+-- Helpers: extract the SourcePos carried by the *right‑hand* operand.
+-- We put them here (parser layer) to avoid orphan instances elsewhere.
+-- =====================================================================
+
+posT :: RawTerm  -> SourcePos
+posT (RTVar   _ p)   = p
+posT (RTLam   _ _ p) = p
+posT (RTApp   _ _ p) = p
+posT (RTMacro _ _ p) = p
+
+posR :: RawRType -> SourcePos
+posR (RRVar   _ p)   = p
+posR (RRArr   _ _ p) = p
+posR (RRAll   _ _ p) = p
+posR (RRComp  _ _ p) = p
+posR (RRConv  _   p) = p
+posR (RRMacro _ _ p) = p
+posR (RRApp   _ _ p) = p
+posR (RRProm  _   p) = p
+
+posP :: RawProof -> SourcePos
+posP (RPVar         _ p) = p
+posP (RPApp         _ _ p) = p
+posP (RPTheorem     _ _ p) = p
+posP (RPLamP        _ _ _ p) = p
+posP (RPLamT        _ _ p) = p
+posP (RPAppT        _ _ p) = p
+posP (RPConv        _ _ _ p) = p
+posP (RPIota        _ _ p) = p
+posP (RPRho         _ _ _ _ _ p) = p
+posP (RPPi          _ _ _ _ _ p) = p
+posP (RPConvIntro   _ p) = p
+posP (RPConvElim    _ p) = p
+posP (RPPair        _ _ p) = p
+posP (RPMixfix      _ _ p) = p
 
 -- Helper to capture position information
-withPos :: (a -> SourcePos -> b) -> P a -> P b
-withPos ctor p = ctor <$> p <*> getSourcePos
 
 -- | Run a sub-parser and attach the source position *after*
 --   that sub-parser. Gives the position of the first character
@@ -53,7 +83,7 @@ rawProof :: P RawProof
 rawProof = proofExpr
 
 rawDeclaration :: P RawDeclaration
-rawDeclaration = fixityDecl <|> rawTheorem <|> rawMacro
+rawDeclaration = fixityDecl <|> rawTheorem <|> rawMacro <|> rawImportDecl
 
 rawJudgment :: P RawJudgment
 rawJudgment = do
@@ -80,37 +110,25 @@ parseFile = do
   return decls
 
 -------------------------------------------------------------------------------
--- Term expressions (Pratt parsing)
+-- Term expressions
 -------------------------------------------------------------------------------
 
 termExpr :: P RawTerm
-termExpr = E.makeExprParser termAtom termTable <?> "term"
+termExpr = do
+  atoms <- some termAtom         -- 1 +  atoms
+  pure (foldl1' mk atoms)
+  where
+    mk l r = RTApp l r (posT r)
 
 termAtom :: P RawTerm
 termAtom = choice
-  [ withPosAfter (\(name,body) -> RTLam name body) $ do
-      _    <- lambda
-      name <- identName
-      _    <- dot
-      body <- termExpr
-      pure (name,body)
-  , withPosAfter RTVar $ do
-      name <- identName
-      pure name
+  [ withPosAfter RTVar (identName <* notFollowedBy (symbol ":")) -- avoid "x :"
   , parens termExpr
   ] <?> "term atom"
-  where 
-    lambda = symbol "λ" <|> symbol "\\"
-    dot = symbol "."
-
-termTable :: [[E.Operator P RawTerm]]
-termTable = 
-  --   ordinary term application  t u
-  [ [E.InfixL (do pos <- getSourcePos; return (\l r -> RTApp l r pos))]
-  ]
+-- no termTable needed any more
 
 -------------------------------------------------------------------------------
--- Relational type expressions (Pratt parsing)  
+-- Relational type expressions
 -------------------------------------------------------------------------------
 
 -- | A *simple* relational‑type atom – something that **cannot** absorb further
@@ -118,146 +136,36 @@ termTable =
 rtypeSimpleAtom :: P RawRType
 rtypeSimpleAtom = choice
   [ withPosAfter RRVar identName
-
-  , withPosAfter (\(name,body) -> RRAll name body) $ do
-      _    <- forAll
-      name <- identName
-      _    <- dot
-      body <- rtypeExpr
-      pure (name,body)
-
-
   , parens rtypeExpr
   ] <?> "relational type basic atom"
-  where
-    forAll    = symbol "∀" <|> symbol "forall"
-    dot       = symbol "."
 
 rtypeExpr :: P RawRType
-rtypeExpr = E.makeExprParser rtypeAtom rtypeTable <?> "relational type"
+rtypeExpr = do
+  atoms <- some rtypeAtom
+  pure (foldl1' (\l r -> RRApp l r (posR r)) atoms)
 
--- from now on an atom is *just* an atom
 rtypeAtom :: P RawRType
 rtypeAtom = rtypeSimpleAtom
+-- no rtypeTable needed
 
-rtypeTable :: [[E.Operator P RawRType]]
-rtypeTable =
-  [ [E.Postfix (do pos <- getSourcePos; _ <- (symbol "˘" <|> symbol "~"); return (\r -> RRConv r pos))]
-  -- ***NEW***  ordinary application  R S
-  , [E.InfixL (do pos <- getSourcePos
-                  return (\l r -> RRApp l r pos))]
-  , [E.InfixL (do pos <- getSourcePos
-                  _   <- compOp
-                  return (\l r -> RRComp l r pos))]
-  , [E.InfixR (do pos <- getSourcePos; _ <- (symbol "→" <|> symbol "->"); return (\l r -> RRArr l r pos))]
-  ]
-
--- | Relational‑composition operator.
-compOp :: P Text
-compOp = symbol "∘"
 
 -------------------------------------------------------------------------------
--- Proof expressions (Pratt parsing)
+-- Proof expressions
 -------------------------------------------------------------------------------
 
 proofExpr :: P RawProof
-proofExpr = E.makeExprParser proofAtom proofTable <?> "proof"
+proofExpr = do
+  atoms <- some proofAtom
+  pure (foldl1' mk atoms)
+  where
+    mk l r = RPApp l r (posP r)
 
 proofAtom :: P RawProof
 proofAtom = choice
-  [ withPosAfter (\(name,rtype,body) -> RPLamP name rtype body) $ do
-      _     <- lambda
-      name  <- identName
-      _     <- colon
-      rtype <- rtypeExpr
-      _     <- dot
-      body  <- proofExpr
-      pure (name,rtype,body)
-  , withPosAfter (\(name,body) -> RPLamT name body) $ do
-      _    <- typeLambda
-      name <- identName
-      _    <- dot
-      body <- proofExpr
-      pure (name,body)
-  , withPosAfter (\(t1,t2) -> RPIota t1 t2) $ do
-      _       <- iota
-      (t1,t2) <- angles (commaSep2 termExpr)
-      pure (t1,t2)
-  -- (no longer here – handled as prefix ops in table)
-  , withPosAfter (\(x,t1,t2,p1,p2) -> RPRho x t1 t2 p1 p2) $ do
-      _       <- rho
-      (x,t1,t2) <- braces $ do
-        x       <- identName
-        _       <- dot
-        (t1,t2) <- commaSep2 termExpr
-        pure (x,t1,t2)
-      p1      <- proofExpr
-      _       <- symbol "-"
-      p2      <- proofExpr
-      pure (x,t1,t2,p1,p2)
-  , withPosAfter (\(p,x,u,v,q) -> RPPi p x u v q) $ do
-      _ <- piSymbol
-      parsePiDash
-  , withPosAfter (\(p1,p2) -> RPPair p1 p2) . try $ do
-      (p1,p2) <- parens (commaSep2 proofExpr)
-      pure (p1,p2)
-  , withPosAfter RPVar $ do
-      name <- identName
-      pure name
+  [ withPosAfter RPVar identName
   , parens proofExpr
-  , withPosAfter (\(t1,p,t2) -> RPConv t1 p t2) . try $ do
-      t1 <- termExpr
-      _  <- convUp
-      p  <- proofExpr
-      _  <- convDown
-      t2 <- termExpr
-      pure (t1,p,t2)
   ] <?> "proof atom"
-  where
-    parsePiDash = do
-      p   <- proofExpr          -- no parentheses
-      _   <- symbol "-"
-      x   <- identName          -- term variable x
-      _   <- dot
-      u   <- identName          -- proof variable u
-      _   <- dot
-      v   <- identName          -- proof variable v
-      _   <- dot
-      q   <- proofExpr
-      pure (p,x,u,v,q)
-
-    lambda = symbol "λ" <|> symbol "\\"
-    typeLambda = symbol "Λ" <|> symbol "/\\"
-    dot = symbol "."
-    colon = symbol ":"
-    iota = symbol "ι" <|> symbol "iota"  
-    rho = symbol "ρ" <|> symbol "rho"
-    piSymbol = symbol "π" <|> symbol "pi"
-    convUp = symbol "⇃" <|> symbol "conv_up"
-    convDown = symbol "⇂" <|> symbol "conv_down"
-
-convIntro, convElim :: P Text
-convIntro = symbol "∪ᵢ" <|> symbol "conv_intro"
-convElim  = symbol "∪ₑ" <|> symbol "conv_elim"
-
-proofTable :: [[E.Operator P RawProof]]
-proofTable =
-  -- ∪ᵢ p    ∪ₑ p
-  [ [ E.Prefix $ do pos <- getSourcePos
-                    _   <- convIntro
-                    pure (\p -> RPConvIntro p pos)
-    , E.Prefix $ do pos <- getSourcePos
-                    _   <- convElim
-                    pure (\p -> RPConvElim  p pos) ]
-  -- p {T}
-  , [E.Postfix $ do
-        rty <- braces rtypeExpr
-        pos <- getSourcePos
-        pure (\p -> RPAppT p rty pos)]
-  -- Ordinary proof application  p q
-  , [E.InfixL (do pos <- getSourcePos
-                  pure (\l r -> RPApp l r pos))]
-  ]
+-- no proofTable needed
 
 -------------------------------------------------------------------------------
 -- Declaration parsing
@@ -265,7 +173,7 @@ proofTable =
 
 rawMacro :: P RawDeclaration
 rawMacro = do
-  name <- mixfixIdentifier
+  name <- identName
   params <- many identName
   _ <- coloneqq
   body <- rawMacroBody
@@ -305,7 +213,7 @@ fixityDecl = label "fixity declaration" $ do
     , Prefix  <$> prefix "prefix"
     , Postfix <$> prefix "postfix"
     ]
-  name <- mixfixIdentifier
+  name <- identName
   _ <- symbol ";"
   pure (RawFixityDecl fixity name)
  where
@@ -323,18 +231,16 @@ fixityDecl = label "fixity declaration" $ do
 identName :: P Name
 identName = Name <$> ident
 
-mixfixIdentifier :: P Name
-mixfixIdentifier = lexeme . try $ do
-  txt <- T.pack <$> some (satisfy Lexer.isMixfixChar) <?> "mixfix identifier"
-  pure (Name txt)
 
-angles :: P a -> P a
-angles = between (symbol "⟨" <|> symbol "<") (symbol "⟩" <|> symbol ">")
 
--- Parse two comma-separated items of the same type
-commaSep2 :: P a -> P (a, a)
-commaSep2 p = do
-  a <- p
-  _ <- symbol ","
-  b <- p
-  return (a, b)
+-- Import declaration parser
+rawImportDecl :: P RawDeclaration
+rawImportDecl = label "import declaration" $ do
+  _ <- symbol "import"
+  path <- stringLiteral
+  _ <- symbol ";"
+  pure (RawImportDecl (RawImportModule path))
+
+-- String literal parser  
+stringLiteral :: P String
+stringLiteral = stringLit

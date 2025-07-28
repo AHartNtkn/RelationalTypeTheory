@@ -2,12 +2,12 @@
 
 module NormalizeSpec (spec) where
 
-import Context (noMacros)
 import qualified Data.Map as Map
 import Errors
 import Lib
 import Normalize
 import Test.Hspec
+import TestHelpers (simpleTermMacro)
 import Text.Megaparsec (initialPos)
 
 -- Test helpers - use empty macro environment for tests that don't need macros
@@ -30,7 +30,7 @@ spec = do
 -- | Test β-reduction functionality
 betaReductionSpec :: Spec
 betaReductionSpec = describe "β-reduction" $ do
-  it "reduces basic application: (λx. x) a → a" $ do
+  it "reduces basic application: (λ x . x) a → a" $ do
     let term = App (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (Var "a" (-1) (initialPos "test")) (initialPos "test")
     case normalizeTermBetaEta term of
       Right result -> do
@@ -38,19 +38,19 @@ betaReductionSpec = describe "β-reduction" $ do
         wasNormalized result `shouldBe` True
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
 
-  it "reduces nested applications: (λx. λy. x) a b → a" $ do
+  it "reduces nested applications: (λ x . λ y . x) a b → a" $ do
     let term = App (App (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "a" (-1) (initialPos "test")) (initialPos "test")) (Var "b" (-1) (initialPos "test")) (initialPos "test")
     case normalizeTermBetaEta term of
       Right result -> normalizedTerm result `shouldBe` Var "a" (-1) (initialPos "test")
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
 
-  it "reduces complex substitution: (λx. λy. x y) f a → f a" $ do
+  it "reduces complex substitution: (λ x . λ y . x y) f a → f a" $ do
     let term = App (App (Lam "x" (Lam "y" (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "f" (-1) (initialPos "test")) (initialPos "test")) (Var "a" (-1) (initialPos "test")) (initialPos "test")
     case normalizeTermBetaEta term of
       Right result -> normalizedTerm result `shouldBe` App (Var "f" (-1) (initialPos "test")) (Var "a" (-1) (initialPos "test")) (initialPos "test")
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
 
-  it "handles de Bruijn index shifting: (λx. λy. x) (λz. z) → λy. λz. z" $ do
+  it "handles de Bruijn index shifting: (λ x . λ y . x) (λ z . z) → λ y . λ z . z" $ do
     let term = App (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Lam "z" (Var "z" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
     case normalizeTermBetaEta term of
       Right result -> normalizedTerm result `shouldBe` Lam "y" (Lam "z" (Var "z" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
@@ -59,21 +59,21 @@ betaReductionSpec = describe "β-reduction" $ do
 -- | Test η-reduction functionality
 etaReductionSpec :: Spec
 etaReductionSpec = describe "η-reduction" $ do
-  it "reduces basic eta: λx. f x → f (when x not free in f)" $ do
+  it "reduces basic eta: λ x . f x → f (when x not free in f)" $ do
     let term = Lam "x" (App (Var "f" (-1) (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
     case normalizeTermBetaEta term of
       Right result -> normalizedTerm result `shouldBe` Var "f" (-1) (initialPos "test")
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
 
-  it "does not reduce when variable is free: λx. f x y" $ do
+  it "does not reduce when variable is free: λ x . f x y" $ do
     let term = Lam "x" (App (App (Var "f" (-1) (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (Var "y" (-1) (initialPos "test")) (initialPos "test")) (initialPos "test")
     case normalizeTermBetaEta term of
       Right result ->
-        -- Should not eta-reduce because the lambda is not of the form λx. t x
+        -- Should not eta-reduce because the lambda is not of the form λ x . t x
         normalizedTerm result `shouldBe` term
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
 
-  it "reduces nested lambda eta: λx. λy. f x y → f" $ do
+  it "reduces nested lambda eta: λ x . λ y . f x y → f" $ do
     let term = Lam "x" (Lam "y" (App (App (Var "f" (-1) (initialPos "test")) (Var "x" 1 (initialPos "test")) (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")
     case normalizeTermBetaEta term of
       Right result -> normalizedTerm result `shouldBe` Var "f" (-1) (initialPos "test")
@@ -115,21 +115,21 @@ substitutionSpec = describe "substitution" $ do
 -- | Test equality checking
 equalitySpec :: Spec
 equalitySpec = describe "equality checking" $ do
-  it "recognizes alpha equivalence: λx. x ≡ λy. y" $ do
+  it "recognizes alpha equivalence: λ x . x ≡ λ y . y" $ do
     let term1 = Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")
         term2 = Lam "y" (Var "y" 0 (initialPos "test")) (initialPos "test")
     case termEqualityBetaEta term1 term2 of
       Right result -> result `shouldBe` True
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
 
-  it "recognizes beta-eta equivalence: (λx. x) a ≡ a" $ do
+  it "recognizes beta-eta equivalence: (λ x . x) a ≡ a" $ do
     let term1 = App (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (Var "a" (-1) (initialPos "test")) (initialPos "test")
         term2 = Var "a" (-1) (initialPos "test")
     case termEqualityBetaEta term1 term2 of
       Right result -> result `shouldBe` True
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
 
-  it "rejects non-equivalent terms: λx. x ≢ λx. x x" $ do
+  it "rejects non-equivalent terms: λ x . x ≢ λ x . x x" $ do
     let term1 = Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")
         term2 = Lam "x" (App (Var "x" 0 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
     case termEqualityBetaEta term1 term2 of
@@ -176,8 +176,8 @@ macroExpansionAlphaEqualitySpec = describe "macro expansion in alpha equality" $
     let macroEnv =
           MacroEnvironment
             ( Map.fromList
-                [ ("Const", (["x"], TermMacro (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")))),
-                  ("a", ([], TermMacro (Var "a_const" (-1) (initialPos "test"))))
+                [ ("Const", simpleTermMacro ["x"] (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test"))),
+                  ("a", simpleTermMacro [] (Var "a_const" (-1) (initialPos "test")))
                 ]
             )
             Map.empty
@@ -197,14 +197,14 @@ normalizationStrategySpec = describe "normalization strategies" $ do
     let term = App (Lam "x" (App (Lam "y" (Var "y" 0 (initialPos "test")) (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "a" (-1) (initialPos "test")) (initialPos "test")
     case normalizeTermWHNF noMacros term of
       Right result -> do
-        -- WHNF reduces: (λx. (λy. y) x) a → (λy. y) a → a
+        -- WHNF reduces: (λ x . (λ y . y) x) a → (λ y . y) a → a
         -- Both reductions happen because both are at the top level
         let expected = Var "a" (-1) (initialPos "test")
         normalizedTerm result `shouldBe` expected
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
 
   it "weak head normal form stops at lambda (does not reduce under lambda)" $ do
-    -- This term has a redex under a lambda: λz. (λx. x) a
+    -- This term has a redex under a lambda: λ z . (λ x . x) a
     let term = Lam "z" (App (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (Var "a" (-1) (initialPos "test")) (initialPos "test")) (initialPos "test")
     case normalizeTermWHNF noMacros term of
       Right result -> do
@@ -256,25 +256,25 @@ normalizationStrategySpec = describe "normalization strategies" $ do
 normalizationEdgeCasesSpec :: Spec
 normalizationEdgeCasesSpec = describe "normalization edge cases" $ do
   it "handles deeply nested lambda applications" $ do
-    -- Create a deeply nested term: (λx. (λy. (λz. z) y) x) a
+    -- Create a deeply nested term: (λ x . (λ y . (λ z . z) y) x) a
     let deepTerm = App (Lam "x" (App (Lam "y" (App (Lam "z" (Var "z" 0 (initialPos "test")) (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "a" (-1) (initialPos "test")) (initialPos "test")
     case normalizeTermBetaEta deepTerm of
       Right result -> normalizedTerm result `shouldBe` Var "a" (-1) (initialPos "test")
       Left err -> expectationFailure $ "Deep nested term failed: " ++ show err
 
   it "handles variable capture scenarios correctly" $ do
-    -- Test: (λx. λy. x) y should become λz. y (avoiding capture)
+    -- Test: (λ x . λ y . x) y should become λ z . y (avoiding capture)
     let term = App (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "y" (-1) (initialPos "test")) (initialPos "test")
     case normalizeTermBetaEta term of
       Right result -> do
-        -- The result should be λy. y but with adjusted indices to avoid capture
+        -- The result should be λ y . y but with adjusted indices to avoid capture
         case normalizedTerm result of
           Lam "y" (Var "y" _ _) _ -> return () -- Index might be adjusted
           other -> expectationFailure $ "Expected lambda avoiding capture, got: " ++ show other
       Left err -> expectationFailure $ "Variable capture test failed: " ++ show err
 
   it "handles complex substitution with many free variables" $ do
-    -- (λx. f x g x h) a where f, g, h are free
+    -- (λ x . f x g x h) a where f, g, h are free
     let term = App (Lam "x" (App (App (App (Var "f" (-1) (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (Var "g" (-1) (initialPos "test")) (initialPos "test")) (App (Var "x" 0 (initialPos "test")) (Var "h" (-1) (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "a" (-1) (initialPos "test")) (initialPos "test")
     case normalizeTermBetaEta term of
       Right result -> do
@@ -283,14 +283,14 @@ normalizationEdgeCasesSpec = describe "normalization edge cases" $ do
       Left err -> expectationFailure $ "Complex substitution failed: " ++ show err
 
   it "handles terms that create new reduction opportunities" $ do
-    -- (λf. f (λx. x)) (λg. λy. g y) -> λy. (λx. x) y -> λy. y
+    -- (λ f . f (λ x . x)) (λg. λ y . g y) -> λ y . (λ x . x) y -> λ y . y
     let term = App (Lam "f" (App (Var "f" 0 (initialPos "test")) (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Lam "g" (Lam "y" (App (Var "g" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")
     case normalizeTermBetaEta term of
       Right result -> normalizedTerm result `shouldBe` Lam "y" (Var "y" 0 (initialPos "test")) (initialPos "test")
       Left err -> expectationFailure $ "Cascading reduction failed: " ++ show err
 
   it "handles eta-reduction with complex bodies" $ do
-    -- λx. (λy. f y g) x should eta-reduce to something alpha-equivalent to λy. f y g
+    -- λ x . (λ y . f y g) x should eta-reduce to something alpha-equivalent to λ y . f y g
     let term = Lam "x" (App (Lam "y" (App (App (Var "f" (-1) (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (Var "g" (-1) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
     case normalizeTermBetaEta term of
       Right result -> do
@@ -301,7 +301,7 @@ normalizationEdgeCasesSpec = describe "normalization edge cases" $ do
       Left err -> expectationFailure $ "Complex eta-reduction failed: " ++ show err
 
   it "handles terms with multiple consecutive reductions" $ do
-    -- ((λx. λy. x) a) b -> (λy. a) b -> a
+    -- ((λ x . λ y . x) a) b -> (λ y . a) b -> a
     let term = App (App (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "a" (-1) (initialPos "test")) (initialPos "test")) (Var "b" (-1) (initialPos "test")) (initialPos "test")
     case normalizeTermBetaEta term of
       Right result -> do

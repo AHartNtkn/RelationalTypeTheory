@@ -53,6 +53,10 @@ RelTT-Haskell is a Haskell implementation of Relational Type Theory (RelTT). The
 
 Any code that violates these standards will be considered broken and must be fixed immediately. These standards exist to maintain code quality and prevent the accumulation of technical debt.
 
+## Development Tips
+
+- If you need a function for testing but it isn't exported, just add it to the export list.
+
 ## Build and Development Commands
 
 ### Building

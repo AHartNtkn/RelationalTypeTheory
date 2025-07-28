@@ -16,9 +16,7 @@ module Context
     isFreshInContext,
     contextSize,
     validateContext,
-    freeVarsInContext,
-    freeVarsInRType,
-    freeVarsInTerm,
+    boundVarsInContext,
     freshVar,
     freshVarPair,
     -- Re-export from Lib to avoid conflicts
@@ -32,11 +30,10 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Errors
 import Lib
+import Lib.FreeVars (freeVarsInTerm, freeVarsInRType)
 import Shifting (shiftTerm, shiftTermsInRType)
 import Text.Megaparsec (initialPos)
 
--- Re-export these from Lib to avoid duplication
-import Lib (noMacros, noTheorems, extendMacroEnvironment)
 
 -- | Create an empty typing context
 emptyTypingContext :: TypingContext
@@ -125,7 +122,7 @@ lookupTypeVar name env =
 lookupMacro :: String -> MacroEnvironment -> Either RelTTError ([String], MacroBody)
 lookupMacro name env =
   case Map.lookup name (macroDefinitions env) of
-    Just def -> Right def
+    Just (sig, body) -> Right (map pName sig, body)
     Nothing -> Left $ throwMacroError name (initialPos "<context>") "macro lookup"
 
 -- | Look up a theorem in the environment
@@ -175,40 +172,14 @@ validateContext ctx = do
         then Left $ InvalidDeBruijnIndex maxIndex (ErrorContext (initialPos "<context>") "context validation")
         else Right ()
 
--- | Free variables in relational types (for freshness checking)
-freeVarsInRType :: RType -> Set.Set String
-freeVarsInRType ty = case ty of
-  RVar name _ _ -> Set.singleton name
-  RMacro name args _ -> Set.insert name $ Set.unions (map freeVarsInRType args)
-  Arr ty1 ty2 _ -> Set.union (freeVarsInRType ty1) (freeVarsInRType ty2)
-  All name body _ -> Set.delete name (freeVarsInRType body)
-  Conv ty' _ -> freeVarsInRType ty'
-  Comp ty1 ty2 _ -> Set.union (freeVarsInRType ty1) (freeVarsInRType ty2)
-  Prom term _ -> freeVarsInTerm term
 
--- | Free variables in terms (for freshness checking)
-freeVarsInTerm :: Term -> Set.Set String
-freeVarsInTerm term = case term of
-  Var name _ _ -> Set.singleton name
-  Lam name body _ -> Set.delete name (freeVarsInTerm body)
-  App t1 t2 _ -> Set.union (freeVarsInTerm t1) (freeVarsInTerm t2)
-  TMacro _ args _ -> Set.unions (map freeVarsInTerm args)
-
--- | Get all free variables in a typing context
-freeVarsInContext :: TypingContext -> Set.Set String
-freeVarsInContext ctx =
-  let termTypeVars = Set.unions [freeVarsInRType rt | (_, (_, rt)) <- Map.toList (termBindings ctx)]
-      proofTermVars =
-        Set.unions
-          [ Set.union (freeVarsInTerm t1) (freeVarsInTerm t2)
-            | (_, (_, _, RelJudgment t1 _ t2)) <- Map.toList (proofBindings ctx)
-          ]
-      proofTypeVars =
-        Set.unions
-          [ freeVarsInRType rt
-            | (_, (_, _, RelJudgment _ rt _)) <- Map.toList (proofBindings ctx)
-          ]
-   in Set.unions [termTypeVars, proofTermVars, proofTypeVars]
+-- | Get all bound variable names in a typing context
+boundVarsInContext :: TypingContext -> Set.Set String
+boundVarsInContext ctx =
+  Set.unions [ Set.fromList (Map.keys (termBindings ctx))
+             , Set.fromList (Map.keys (relBindings ctx))
+             , Set.fromList (Map.keys (proofBindings ctx))
+             ]
 
 -- | Generate a fresh variable name and return updated context
 freshVar :: String -> TypingContext -> (String, TypingContext)

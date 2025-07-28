@@ -23,7 +23,7 @@ spec = describe "PTheoremApp Proof Checking" $ do
   describe "theorem with no arguments" $ do
     it "correctly types theorem with no parameters" $ do
       let theoremName = "identity_thm"
-          -- Theorem: ⊢ identity_thm : x [λy.y] x
+          -- Theorem: ⊢ identity_thm : x [λ y . y] x
           theoremJudgment = RelJudgment (Var "x" 0 dummyPos) (Prom (Lam "y" (Var "y" 0 dummyPos) dummyPos) dummyPos) (Var "x" 0 dummyPos)
           theoremProof = Iota (Var "x" 0 dummyPos) (Lam "y" (Var "y" 0 dummyPos) dummyPos) dummyPos
           theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, ([], theoremJudgment, theoremProof))]
@@ -38,7 +38,7 @@ spec = describe "PTheoremApp Proof Checking" $ do
   describe "theorem with single term argument" $ do
     it "correctly types theorem with one term parameter" $ do
       let theoremName = "simple_thm"
-          -- Theorem: ⊢ simple_thm (x : Term) : x [λy.y] x
+          -- Theorem: ⊢ simple_thm (x : Term) : x [λ y . y] x
           theoremBindings = [TermBinding "x"]
           theoremJudgment = RelJudgment (Var "x" 0 dummyPos) (Prom (Lam "y" (Var "y" 0 dummyPos) dummyPos) dummyPos) (Var "x" 0 dummyPos)
           theoremProof = Iota (Var "x" 0 dummyPos) (Lam "y" (Var "y" 0 dummyPos) dummyPos) dummyPos
@@ -48,7 +48,7 @@ spec = describe "PTheoremApp Proof Checking" $ do
           argTerm = Var "a" 0 dummyPos
           theoremApp = PTheoremApp theoremName [TermArg argTerm] dummyPos
 
-          -- Expected result: a [λy.y] a
+          -- Expected result: a [λ y . y] a
           expectedJudgment = RelJudgment argTerm (Prom (Lam "y" (Var "y" 0 dummyPos) dummyPos) dummyPos) argTerm
 
       case inferProofType emptyCtx emptyMacroEnv theoremEnv theoremApp of
