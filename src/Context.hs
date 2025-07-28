@@ -20,9 +20,6 @@ module Context
     freshVar,
     freshVarPair,
     -- Re-export from Lib to avoid conflicts
-    noMacros,
-    noTheorems,
-    extendMacroEnvironment,
   )
 where
 
@@ -30,8 +27,9 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Errors
 import Lib
-import Lib.FreeVars (freeVarsInTerm, freeVarsInRType)
-import Shifting (shiftTerm, shiftTermsInRType)
+import Environment (noMacros, noTheorems, extendMacroEnvironment)
+import Generic.FreeVars (freeVarsInTerm, freeVarsInRType)
+import Generic.Shift (shift, shiftTermsInRType)
 import Text.Megaparsec (initialPos)
 
 
@@ -105,9 +103,9 @@ lookupProof name ctx =
           RelJudgment t1 rt t2 = judgment
           shiftedJudgment =
             RelJudgment
-              (shiftTerm termShift t1)
+              (shift termShift t1)
               (shiftTermsInRType termShift rt)
-              (shiftTerm termShift t2)
+              (shift termShift t2)
       Right (proofIdx, shiftedJudgment)
     Nothing -> Left $ throwUnboundVar name (initialPos "<context>") "proof lookup"
 

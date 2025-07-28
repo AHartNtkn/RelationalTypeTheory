@@ -13,13 +13,16 @@ import Control.Monad.State
 import qualified Data.Map as Map
 import Errors
 import Lib
-import ModuleSystem (ModuleLoadError (..), ModuleRegistry, emptyModuleRegistry, loadModuleWithDependenciesIntegrated)
+import Environment (noMacros, noTheorems, extendMacroEnvironment)
+import AST.Mixfix (defaultFixity)
+import ModuleSystem (ModuleRegistry, emptyModuleRegistry, loadModuleWithDependenciesIntegrated)
 import Parser.Legacy
 import PrettyPrint (prettyDeclaration, prettyError, prettyExportDeclaration, prettyImportDeclaration, prettyProof, prettyRType, prettyRelJudgment, prettyTerm)
 import ProofChecker
 import System.IO (hFlush, hSetEncoding, stdin, stdout, utf8)
 import Text.Megaparsec (initialPos)
 import TypeOps
+import Generic.Expansion (ExpansionResult(..))
 
 -- REPL State holds the current session state
 data REPLState = REPLState
@@ -117,11 +120,12 @@ executeREPLCommand cmd = case cmd of
     -- Use graph-based loading that handles all dependencies automatically
     result <- liftIO $ loadModuleWithDependenciesIntegrated (replModuleRegistry currentState) filename
     case result of
-      Left (FileNotFound path) -> return $ "File not found: " ++ path
-      Left (ParseError path err) -> return $ "Parse error in " ++ path ++ ": " ++ err
-      Left (CircularDependency cyclePath) -> return $ "Circular dependency detected: " ++ show cyclePath
-      Left (ImportResolutionError path err) -> return $ "Import resolution error in " ++ path ++ ": " ++ err
-      Left (DuplicateExport path sym) -> return $ "Duplicate export in " ++ path ++ ": " ++ sym
+      Left (FileNotFound path _) -> return $ "File not found: " ++ path
+      Left (ModuleParseError path err _) -> return $ "Parse error in " ++ path ++ ": " ++ err
+      Left (CircularDependency cyclePath _) -> return $ "Circular dependency detected: " ++ show cyclePath
+      Left (ImportResolutionError path err _) -> return $ "Import resolution error in " ++ path ++ ": " ++ err
+      Left (DuplicateExport path sym _) -> return $ "Duplicate export in " ++ path ++ ": " ++ sym
+      Left otherError -> return $ "Module loading error: " ++ formatError otherError
       Right (newRegistry, moduleInfo) -> do
         -- The new system already loaded all dependencies and built complete environments
         put $
@@ -157,7 +161,7 @@ executeREPLCommand cmd = case cmd of
       Right rtype -> do
         case expandMacros (replMacroEnv currentState) rtype of
           Left err -> return $ "Expansion error: " ++ prettyError err
-          Right result -> return $ "Original: " ++ prettyRType rtype ++ "\nExpanded: " ++ prettyRType (expandedType result)
+          Right result -> return $ "Original: " ++ prettyRType rtype ++ "\nExpanded: " ++ prettyRType (expandedValue result)
   ShowInfo name -> do
     currentState <- get
     let macroInfo = case lookupMacro name (replMacroEnv currentState) of

@@ -42,6 +42,9 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Void
 import Lib
+import Parser.Mixfix (MixfixPart(..))
+import Environment (noMacros, noTheorems, extendMacroEnvironment)
+import AST.Mixfix (parseMixfixPattern, mixfixKeywords, holes, defaultFixity)
 import Parser.Mixfix
 import Text.Megaparsec
 import qualified Text.Megaparsec as MP (getSourcePos)

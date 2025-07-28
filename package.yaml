@@ -46,21 +46,36 @@ library:
   - -Wno-unused-matches
   exposed-modules:
   - Lib
-  - Parser.Legacy
   - Lexer
   - RawAst  
   - RawParser
   - Elaborate
-  - Mixfix
+  - ElaborateTypes
   - Normalize
   - TypeOps
-  - Shifting
   - Context
   - Errors
   - ProofChecker
   - REPL
   - PrettyPrint
   - ModuleSystem
+  # New module structure
+  - AST.Term
+  - AST.RType  
+  - AST.Mixfix
+  - AST.Macro
+  - Generic.FreeVars
+  - Generic.Macro
+  - Generic.Mixfix
+  - Generic.Shift
+  - Generic.Substitution
+  - Generic.Expansion
+  - Environment
+  - Builtins
+  - Utils
+  # Parser modules (needed by tests)
+  - Parser.Legacy
+  - Parser.Mixfix
 
 executables:
   reltt-haskell-exe:

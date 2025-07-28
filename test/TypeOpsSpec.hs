@@ -5,9 +5,13 @@ module TypeOpsSpec (spec) where
 import Context
 import Errors
 import Lib
+import Environment (noMacros, extendMacroEnvironment)
+import AST.Mixfix (defaultFixity)
 import Test.Hspec
 import Text.Megaparsec (initialPos)
 import TypeOps
+import Generic.Expansion (ExpansionResult(..))
+import Generic.FreeVars (freeVarsInRType)
 
 spec :: Spec
 spec = do
@@ -77,7 +81,7 @@ macroExpansionSpec = describe "macro expansion" $ do
         macroType = RMacro "Id" [] (initialPos "test")
     case expandMacros env' macroType of
       Right result -> do
-        expandedType result `shouldBe` Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
+        expandedValue result `shouldBe` Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
         wasExpanded result `shouldBe` True
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
 
@@ -86,7 +90,7 @@ macroExpansionSpec = describe "macro expansion" $ do
         env' = extendMacroEnvironment "Comp" ["R", "S"] (RelMacro (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"))) (defaultFixity "ID") env
         macroType = RMacro "Comp" [RMacro "A" [] (initialPos "test"), RMacro "B" [] (initialPos "test")] (initialPos "test")
     case expandMacros env' macroType of
-      Right result -> expandedType result `shouldBe` Comp (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")
+      Right result -> expandedValue result `shouldBe` Comp (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
 
   it "expands nested macros" $ do
@@ -95,7 +99,7 @@ macroExpansionSpec = describe "macro expansion" $ do
         env2 = extendMacroEnvironment "IdApp" ["A"] (RelMacro (RMacro "Id" [] (initialPos "test"))) (defaultFixity "ID") env1
         macroType = RMacro "IdApp" [RMacro "Int" [] (initialPos "test")] (initialPos "test")
     case expandMacros env2 macroType of
-      Right result -> expandedType result `shouldBe` Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
+      Right result -> expandedValue result `shouldBe` Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
 
   it "weak head expansion vs full expansion" $ do
@@ -105,8 +109,8 @@ macroExpansionSpec = describe "macro expansion" $ do
         macroType = RMacro "Outer" [] (initialPos "test")
     case (expandMacrosWHNF env2 macroType, expandMacros env2 macroType) of
       (Right whnfResult, Right fullResult) -> do
-        expandedType whnfResult `shouldBe` RMacro "Inner" [] (initialPos "test")
-        expandedType fullResult `shouldBe` RMacro "Base" [] (initialPos "test")
+        expandedValue whnfResult `shouldBe` RMacro "Inner" [] (initialPos "test")
+        expandedValue fullResult `shouldBe` RMacro "Base" [] (initialPos "test")
       (Left err, _) -> expectationFailure $ "WHNF expansion failed: " ++ show err
       (_, Left err) -> expectationFailure $ "Full expansion failed: " ++ show err
 
@@ -221,7 +225,7 @@ deBruijnMacroSubstitutionSpec = describe "de Bruijn macro substitution" $ do
     case expandMacros env' macroApp of
       Right result -> do
         let expected = All "Y" (Arr (RVar "Z" 4 (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test") -- Z shifted from 3 to 4 under ∀Y
-        expandedType result `shouldBe` expected
+        expandedValue result `shouldBe` expected
       Left err -> expectationFailure $ "Macro expansion failed: " ++ show err
 
   it "complex macro with nested bindings and multiple substitutions" $ do
@@ -275,7 +279,7 @@ deBruijnMacroSubstitutionSpec = describe "de Bruijn macro substitution" $ do
                     (initialPos "test")
                 )
                 (initialPos "test")
-        expandedType result `shouldBe` expected
+        expandedValue result `shouldBe` expected
       Left err -> expectationFailure $ "Complex macro expansion failed: " ++ show err
 
 -- | Test structural equality
@@ -347,7 +351,7 @@ typeOpsErrorEdgeCasesSpec = describe "type operations error edge cases" $ do
       Left err -> expectationFailure $ "Expected UnboundMacro error, got: " ++ show err
       Right result ->
         -- If it succeeds, it means "NonExistent" was treated as a non-macro type
-        expandedType result `shouldBe` RMacro "NonExistent" [] (initialPos "test")
+        expandedValue result `shouldBe` RMacro "NonExistent" [] (initialPos "test")
 
   it "handles macro arity mismatches with complex arguments" $ do
     -- Macro expects 2 args but gets complex nested args as 1
@@ -393,9 +397,9 @@ typeOpsErrorEdgeCasesSpec = describe "type operations error edge cases" $ do
   it "handles free variable preservation in complex substitutions" $ do
     -- Ensure free variables are correctly preserved during complex substitutions
     let complexType = Comp (All "X" (Comp (RVar "X" 0 (initialPos "test")) (RVar "Free1" (-1) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Conv (RVar "Free2" (-1) (initialPos "test")) (initialPos "test")) (initialPos "test")
-        beforeVars = freeTypeVariables complexType
+        beforeVars = freeVarsInRType noMacros complexType
         afterType = substituteTypeVar 0 (RMacro "Something" [] (initialPos "test")) complexType
-        afterVars = freeTypeVariables afterType
+        afterVars = freeVarsInRType noMacros afterType
     beforeVars `shouldBe` afterVars -- Free vars should be preserved
   it "handles error propagation through complex type operations" $ do
     -- Test that errors bubble up correctly through nested operations
@@ -407,7 +411,7 @@ typeOpsErrorEdgeCasesSpec = describe "type operations error edge cases" $ do
       Right expanded -> do
         -- Now try to use this in a failing context (macro equality with non-existent macro)
         let badType = RMacro "NonExistent" [] (initialPos "test")
-        case typeEquality env' (expandedType expanded) badType of
+        case typeEquality env' (expandedValue expanded) badType of
           Right False -> return () -- Should not be equal (not an error, just false)
           Left err -> expectationFailure $ "Unexpected error in chained operation: " ++ show err
           Right True -> expectationFailure "Should not be equal"

@@ -25,6 +25,7 @@ data ErrorContext = ErrorContext
   }
   deriving (Show, Eq)
 
+
 -- | Comprehensive error types for RelTT operations
 data RelTTError
   = -- Variable and binding errors
@@ -36,6 +37,11 @@ data RelTTError
     TypeMismatch RType RType ErrorContext -- expected, actual
   | InvalidTypeApplication RType ErrorContext
   | MacroArityMismatch String Int Int ErrorContext -- macro name, expected, actual
+  | UnknownMacro String ErrorContext
+  | UnknownTheorem String ErrorContext
+  | TheoremArityMismatch String Int Int ErrorContext
+  | InvalidMixfixPattern String ErrorContext
+  | CircularMacroReference String ErrorContext
   | -- Term normalization errors
     InfiniteNormalization Term ErrorContext
   | SubstitutionError String Term ErrorContext -- variable name, term
@@ -51,6 +57,13 @@ data RelTTError
   | RhoEliminationNonPromotedError Proof RelJudgment ErrorContext -- proof, actual judgment
   | RhoEliminationTypeMismatchError Proof RelJudgment RelJudgment ErrorContext -- proof, expected, actual
   | CompositionError Proof Proof Term Term ErrorContext -- proof1, proof2, middle term1, middle term2
+  | -- Module system errors
+    FileNotFound String ErrorContext -- module path
+  | ModuleParseError String String ErrorContext -- module path, parse error message  
+  | CircularDependency [String] ErrorContext -- module paths
+  | ImportResolutionError String String ErrorContext -- module path, error message
+  | DuplicateExport String String ErrorContext -- module path, export name
+  | ModuleElaborationError String String ErrorContext -- module path, elaboration error
   | -- General errors
     InternalError String ErrorContext
   deriving (Show, Eq)
@@ -82,6 +95,22 @@ formatError err = case err of
         ++ show expected
         ++ " arguments, but got "
         ++ show actual
+  UnknownMacro name ctx ->
+    formatWithContext ctx $ "Unknown macro: " ++ name
+  UnknownTheorem name ctx ->
+    formatWithContext ctx $ "Unknown theorem: " ++ name
+  TheoremArityMismatch name expected actual ctx ->
+    formatWithContext ctx $
+      "Theorem "
+        ++ name
+        ++ " expects "
+        ++ show expected
+        ++ " arguments, but got "
+        ++ show actual
+  InvalidMixfixPattern msg ctx ->
+    formatWithContext ctx $ "Invalid mixfix pattern: " ++ msg
+  CircularMacroReference name ctx ->
+    formatWithContext ctx $ "Circular macro reference in: " ++ name
   InfiniteNormalization term ctx ->
     formatWithContext ctx $ "Infinite normalization for term: " ++ show term
   SubstitutionError var term ctx ->
@@ -137,6 +166,18 @@ formatError err = case err of
   CompositionError proof1 proof2 term1 term2 ctx ->
     formatWithContext ctx $
       "Composition error: proofs " ++ show proof1 ++ " and " ++ show proof2 ++ " have mismatched middle terms: " ++ show term1 ++ " ≢ " ++ show term2
+  FileNotFound path ctx ->
+    formatWithContext ctx $ "Module file not found: " ++ path
+  ModuleParseError path msg ctx ->
+    formatWithContext ctx $ "Parse error in module " ++ path ++ ":\\n" ++ msg
+  CircularDependency paths ctx ->
+    formatWithContext ctx $ "Circular dependency detected: " ++ show paths
+  ImportResolutionError path msg ctx ->
+    formatWithContext ctx $ "Import resolution error in " ++ path ++ ": " ++ msg
+  DuplicateExport path name ctx ->
+    formatWithContext ctx $ "Duplicate export '" ++ name ++ "' in module " ++ path
+  ModuleElaborationError path msg ctx ->
+    formatWithContext ctx $ "Elaboration error in module " ++ path ++ ": " ++ msg
   InternalError msg ctx ->
     formatWithContext ctx $ "Internal error: " ++ msg
 

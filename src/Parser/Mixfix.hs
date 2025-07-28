@@ -5,6 +5,7 @@ module Parser.Mixfix
     generalMixfix,
     buildMixfixOps,
     HasMacroEnv (..),
+    MixfixPart(..)
   )
 where
 
@@ -14,7 +15,8 @@ import qualified Data.List as L
 import qualified Data.Map as M
 import Data.Ord (comparing)
 import Debug.Trace
-import Lib (MacroEnvironment(..), MacroBody(..), Fixity(..), MixfixPart(..), parseMixfixPattern, splitMixfix, holes)
+import Lib (MacroEnvironment(..), MacroBody(..), Fixity(..))
+import AST.Mixfix (MixfixPart(..), parseMixfixPattern, splitMixfix, holes)
 import Text.Megaparsec hiding (getSourcePos)
 
 -- | Everything that changes between terms vs. relations.

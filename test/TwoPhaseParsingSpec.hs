@@ -3,6 +3,7 @@ module TwoPhaseParsingSpec (spec) where
 import qualified Data.Map as Map
 import Lib
 import ModuleSystem
+import Errors (RelTTError(..))
 import Test.Hspec
 
 spec :: Spec

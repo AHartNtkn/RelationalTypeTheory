@@ -186,11 +186,13 @@ rawMacro = do
 -- error.  Switching the order fixes bug #4.
 rawMacroBody :: P RawMacroBody
 rawMacroBody =
-  -- A term body must be followed immediately by ';'.  If not, we
-  -- back‑track and let the relational‑type parser have a go.  This
-  -- prevents inputs such as "A → B" from being mis‑classified.
-  (RawTermBody <$> try (termExpr <* lookAhead (symbol ";")))
-    <|> (RawRelBody <$> rtypeExpr)
+  -- Try term first (must be followed immediately by ';')
+  -- Then try relational type (must be followed immediately by ';')  
+  -- Finally try proof (must be followed immediately by ';')
+  -- This prevents ambiguous parses and ensures correct classification
+      (RawTermBody  <$> try (termExpr  <* lookAhead (symbol ";")))
+  <|> (RawRelBody   <$> try (rtypeExpr <* lookAhead (symbol ";")))
+  <|> (RawProofBody <$> (proofExpr <* lookAhead (symbol ";")))
 
 rawTheorem :: P RawDeclaration  
 rawTheorem = do

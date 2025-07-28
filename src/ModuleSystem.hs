@@ -15,7 +15,6 @@ module ModuleSystem
     loadModuleWithDependenciesIntegrated,
     topologicalSort,
     detectCircularDependencies,
-    ModuleLoadError (..),
   )
 where
 
@@ -31,16 +30,13 @@ import Text.Megaparsec (runParser)
 import Elaborate (elaborateDeclarations, emptyCtxWithBuiltins)
 import System.Directory (doesFileExist)
 import System.FilePath (normalise, takeDirectory, (</>))
-import Text.Megaparsec (errorBundlePretty)
+import Text.Megaparsec (errorBundlePretty, initialPos)
+import Environment (noMacros, noTheorems, extendMacroEnvironment)
+import AST.Mixfix (defaultFixity)
+import Errors (RelTTError(..), ErrorContext(..))
 
--- | Module system error types
-data ModuleLoadError
-  = FileNotFound ModulePath
-  | ParseError ModulePath String
-  | CircularDependency [ModulePath]
-  | ImportResolutionError ModulePath String
-  | DuplicateExport ModulePath String
-  deriving (Show, Eq)
+-- | Module system error types (now using unified RelTTError)
+type ModuleLoadError = RelTTError
 
 -- | Registry of loaded modules
 data ModuleRegistry = ModuleRegistry
@@ -62,7 +58,7 @@ loadModule registry modulePathArg = do
   -- First resolve the file path
   resolvedPath <- resolveModulePath (searchPaths registry) modulePathArg
   case resolvedPath of
-    Nothing -> return $ Left (FileNotFound modulePathArg)
+    Nothing -> return $ Left (FileNotFound modulePathArg (ErrorContext (initialPos "<resolve>") "module path resolution"))
     Just filePath -> do
       -- Check if already loaded
       case Map.lookup filePath (loadedModules registry) of
@@ -74,13 +70,13 @@ loadModuleFromFile :: ModuleRegistry -> FilePath -> IO (Either ModuleLoadError (
 loadModuleFromFile registry filePath = do
   result <- catch (Right <$> readFile filePath) (\e -> return $ Left $ show (e :: IOException))
   case result of
-    Left _ -> return $ Left (FileNotFound filePath)
+    Left _ -> return $ Left (FileNotFound filePath (ErrorContext (initialPos filePath) "module loading"))
     Right content -> do
       case runParser parseFile filePath content of
-        Left parseErr -> return $ Left (ParseError filePath (errorBundlePretty parseErr))
+        Left parseErr -> return $ Left (ModuleParseError filePath (errorBundlePretty parseErr) (ErrorContext (initialPos filePath) "module parsing"))
         Right rawDeclarations -> do
           case elaborateDeclarations emptyCtxWithBuiltins rawDeclarations of
-            Left elaborateErr -> return $ Left (ParseError filePath (show elaborateErr))
+            Left elaborateErr -> return $ Left (ModuleElaborationError filePath (show elaborateErr) (ErrorContext (initialPos filePath) "module elaboration"))
             Right declarations -> do
               -- Extract imports, exports, macros, and theorems
               let (imports, exports, macros, theorems) = partitionDeclarations declarations
@@ -261,7 +257,7 @@ buildCompleteImportGraph :: [FilePath] -> ModulePath -> IO (Either ModuleLoadErr
 buildCompleteImportGraph searchPathsArg entryFile = do
   resolvedEntry <- resolveModulePath searchPathsArg entryFile
   case resolvedEntry of
-    Nothing -> return $ Left (FileNotFound entryFile)
+    Nothing -> return $ Left (FileNotFound entryFile (ErrorContext (initialPos entryFile) "dependency graph building"))
     Just entryPath -> buildGraphRecursive searchPathsArg Set.empty Map.empty [entryPath]
   where
     buildGraphRecursive :: [FilePath] -> Set.Set FilePath -> DependencyGraph -> [FilePath] -> IO (Either ModuleLoadError DependencyGraph)
@@ -289,13 +285,13 @@ buildCompleteImportGraph searchPathsArg entryFile = do
     parseFileImports filePath = do
       result <- catch (Right <$> readFile filePath) (\e -> return $ Left $ show (e :: IOException))
       case result of
-        Left _ -> return $ Left (FileNotFound filePath)
+        Left _ -> return $ Left (FileNotFound filePath (ErrorContext (initialPos filePath) "module loading"))
         Right content -> do
           case runParser parseFile filePath content of
-            Left parseErr -> return $ Left (ParseError filePath (errorBundlePretty parseErr))
+            Left parseErr -> return $ Left (ModuleParseError filePath (errorBundlePretty parseErr) (ErrorContext (initialPos filePath) "module parsing"))
             Right rawDeclarations -> do
               case elaborateDeclarations emptyCtxWithBuiltins rawDeclarations of
-                Left elaborateErr -> return $ Left (ParseError filePath (show elaborateErr))
+                Left elaborateErr -> return $ Left (ModuleElaborationError filePath (show elaborateErr) (ErrorContext (initialPos filePath) "module elaboration"))
                 Right declarations -> do
                   let (imports, _, _, _) = partitionDeclarations declarations
                   return $ Right imports
@@ -321,25 +317,25 @@ buildCompleteImportGraph searchPathsArg entryFile = do
       resolved <- resolveModulePath searchPathsNested modulePathNested
       case resolved of
         Just path -> return $ Right path
-        Nothing -> return $ Left (FileNotFound modulePathNested)
+        Nothing -> return $ Left (FileNotFound modulePathNested (ErrorContext (initialPos "<resolve>") "import path resolution"))
 
 -- | Validate a dependency graph for cycles and other issues
 validateDependencyGraph :: DependencyGraph -> Either ModuleLoadError [ModulePath]
 validateDependencyGraph graph = do
   -- Check for circular dependencies
   case detectCircularDependencies graph of
-    Just cyclePath -> Left (CircularDependency cyclePath)
+    Just cyclePath -> Left (CircularDependency cyclePath (ErrorContext (initialPos "<dependency>") "circular dependency check"))
     Nothing -> do
       -- Validate that all referenced modules exist in the graph
       let allNodes = Map.keys graph
           allReferencedNodes = concatMap snd (Map.toList graph)
           missingNodes = filter (`notElem` allNodes) allReferencedNodes
       case missingNodes of
-        (missing : _) -> Left (FileNotFound missing)
+        (missing : _) -> Left (FileNotFound missing (ErrorContext (initialPos "<validation>") "dependency validation"))
         [] -> do
           -- Return topological sort order
           case topologicalSort graph of
-            Left cyclePath -> Left (CircularDependency cyclePath)
+            Left cyclePath -> Left (CircularDependency cyclePath (ErrorContext (initialPos "<sort>") "topological sort"))
             Right sortedOrder -> Right sortedOrder
 
 -- | Build, validate, and sort complete dependency graph
@@ -365,7 +361,7 @@ loadFilesInOrder files = do
     loadSingleFile filePath = do
       result <- catch (Right <$> readFile filePath) (\e -> return $ Left $ show (e :: IOException))
       case result of
-        Left _ -> return $ Left (FileNotFound filePath)
+        Left _ -> return $ Left (FileNotFound filePath (ErrorContext (initialPos filePath) "module loading"))
         Right content -> return $ Right content
 
 -- | Complete graph-based module loading: build graph, validate, and concatenate files
@@ -384,10 +380,10 @@ parseModuleWithDependencies searchPathsArg entryFile = do
     Left err -> return $ Left err
     Right concatenatedContent -> do
       case runParser parseFile entryFile concatenatedContent of
-        Left parseErr -> return $ Left (ParseError entryFile (errorBundlePretty parseErr))
+        Left parseErr -> return $ Left (ModuleParseError entryFile (errorBundlePretty parseErr) (ErrorContext (initialPos entryFile) "module parsing"))
         Right rawDeclarations -> do
           case elaborateDeclarations emptyCtxWithBuiltins rawDeclarations of
-            Left elaborateErr -> return $ Left (ParseError entryFile (show elaborateErr))
+            Left elaborateErr -> return $ Left (ModuleElaborationError entryFile (show elaborateErr) (ErrorContext (initialPos entryFile) "module elaboration"))
             Right declarations -> return $ Right declarations
 
 -- | Graph-based module loading that integrates with ModuleRegistry

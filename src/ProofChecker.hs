@@ -3,12 +3,8 @@ module ProofChecker
     inferProofType,
     ProofCheckResult (..),
     relJudgmentEqual,
-    substituteTermVar,
     checkTheoremArgs,
     instantiateTheoremJudgment,
-    applySubstitutionsToTerm,
-    applySubstitutionsToRType,
-    applySubstToJudgment,
   )
 where
 
@@ -16,60 +12,16 @@ import Context
 import qualified Data.Set as Set
 import Errors
 import Lib
-import Lib.FreeVars (freeVarsInTerm, freeVarsInRType)
-import Normalize (TermExpansionResult (..), expandTermMacros, termEquality, termEqualityAlpha)
-import Shifting (shiftTerm, shiftTermWithBoundsCheck, shiftTermsInRType, shiftTermsInRTypeWithBoundsCheck)
+import Generic.FreeVars (freeVarsInTerm, freeVarsInRType)
+import Normalize (expandTermMacros)
+import Generic.BetaEta (betaEtaEquality)
+import Generic.Equality (alphaEquality)
+import Generic.Shift (ShiftAst(..), shift, shiftWithBoundsCheck, shiftTermsInRType, shiftTermsInRTypeWithBoundsCheck, shiftTermExcept, shiftRTypeExcept, shiftFreeRelVars)
+import Generic.Substitution (SubstAst(..), applyTheoremsSubsToTerm, applyTheoremSubsToRType, applyTheoremSubsToJudgment)
 import Elaborate (expandProofMacroOneStep)
-import TypeOps (ExpansionResult (..), expandMacrosWHNF, substituteTypeVar, typeEquality)
+import TypeOps (expandMacrosWHNF, substituteTypeVar, typeEquality)
+import Generic.Expansion (ExpansionResult(..))
 
--------------------------------------------------------------------------------
--- Utilities: "lift everything except the protected names"
--------------------------------------------------------------------------------
-
--- | shiftTermExcept 𝑃 d t
---   Shift indices by d exactly as 'shiftTerm' does, **except** for variables
---   whose printed name is in the protected set 𝑃.  Those are left unchanged.
-shiftTermExcept :: Set.Set String -> Int -> Term -> Term
-shiftTermExcept prot d = go 0
-  where
-    go cut tm = case tm of
-      Var v k p
-        | Set.member v prot -> Var v k p
-        | k >= cut -> Var v (k + d) p
-        | otherwise -> tm
-      Lam v b p -> Lam v (go (cut + 1) b) p
-      App f a p -> App (go cut f) (go cut a) p
-      TMacro n as p -> TMacro n (map (go cut) as) p
-
--- | The same idea for relational types (terms appear under 'Prom').
-shiftRTypeExcept :: Set.Set String -> Int -> RType -> RType
-shiftRTypeExcept prot d = go
-  where
-    go rt = case rt of
-      Arr a b p -> Arr (go a) (go b) p
-      All n b p -> All n (go b) p
-      Conv r p -> Conv (go r) p
-      Comp a b p -> Comp (go a) (go b) p
-      Prom t p -> Prom (shiftTermExcept prot d t) p
-      RMacro n as p -> RMacro n (map go as) p
-      other -> other
-
--- | shiftFreeRelVars x d τ bumps indices ≥0 by d, but
--- leaves occurrences of the bound variable x at index 0 unchanged.
-shiftFreeRelVars :: String -> Int -> RType -> RType
-shiftFreeRelVars x d = go 0
-  where
-    go lvl ty = case ty of
-      RVar y k p
-        | k == lvl && y == x -> ty -- bound occurrence
-        | k >= lvl -> RVar y (k + d) p -- free variable
-        | otherwise -> ty
-      All y b p -> All y (go (lvl + 1) b) p
-      Arr a b p -> Arr (go lvl a) (go lvl b) p
-      Comp a b p -> Comp (go lvl a) (go lvl b) p
-      Conv r p -> Conv (go lvl r) p
-      RMacro n as p -> RMacro n (map (go lvl) as) p
-      Prom t p -> Prom t p
 
 -- | Result of proof checking
 data ProofCheckResult = ProofCheckResult
@@ -190,7 +142,7 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
 
     -- Expand macros in the type before checking if it's universally quantified
     expandResult <- expandMacrosWHNF macroEnv rtype1
-    let expandedRType = expandedType expandResult
+    let expandedRType = expandedValue expandResult
 
     case expandedRType of
       All varName bodyType _ -> do
@@ -221,8 +173,8 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
     let RelJudgment term1 rtype term2 = resultJudgment result
 
     -- Check β-η equivalence with macro expansion
-    equiv1 <- termEquality macroEnv term1 term1'
-    equiv2 <- termEquality macroEnv term2 term2'
+    equiv1 <- betaEtaEquality macroEnv term1 term1'
+    equiv2 <- betaEtaEquality macroEnv term2 term2'
 
     case (equiv1, equiv2) of
       (True, True) -> do
@@ -270,21 +222,21 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
         -- From the first proof, we have: t[t'']t' where t'' = promotedTerm, t = proofTerm1, t' = proofTerm2
         -- We need to check that proof2 has type: [t'' t/x]t₁[R][t'' t/x]t₂
         let substitutedApp = App promotedTerm proofTerm1 pos -- t'' t
-            expectedSubstTerm1 = substituteTermVar varName substitutedApp term1 -- [t'' t/x]t₁
-            expectedSubstTerm2 = substituteTermVar varName substitutedApp term2 -- [t'' t/x]t₂
+            expectedSubstTerm1 = substIndex 0 substitutedApp term1 -- [t'' t/0]t₁
+            expectedSubstTerm2 = substIndex 0 substitutedApp term2 -- [t'' t/0]t₂
 
         -- Check second proof
         result2 <- inferProofType ctx macroEnv theoremEnv proof2
         let RelJudgment actualTerm1 actualRType actualTerm2 = resultJudgment result2
 
         -- Verify the second proof has the expected type (use syntactic equality)
-        termEq1 <- termEqualityAlpha macroEnv actualTerm1 expectedSubstTerm1
-        termEq2 <- termEqualityAlpha macroEnv actualTerm2 expectedSubstTerm2
+        let termEq1 = alphaEquality macroEnv actualTerm1 expectedSubstTerm1
+            termEq2 = alphaEquality macroEnv actualTerm2 expectedSubstTerm2
         case (termEq1, termEq2) of
           (True, True) -> do
-            -- Return the final judgment: [t'/x]t₁[R][t'/x]t₂
-            let resultSubstTerm1 = substituteTermVar varName proofTerm2 term1 -- [t'/x]t₁
-                resultSubstTerm2 = substituteTermVar varName proofTerm2 term2 -- [t'/x]t₂
+            -- Return the final judgment: [t'/0]t₁[R][t'/0]t₂
+            let resultSubstTerm1 = substIndex 0 proofTerm2 term1 -- [t'/0]t₁
+                resultSubstTerm2 = substIndex 0 proofTerm2 term2 -- [t'/0]t₂
                 finalJudgment = RelJudgment resultSubstTerm1 actualRType resultSubstTerm2
             return $ ProofCheckResult finalJudgment ctx
           _ ->
@@ -302,7 +254,7 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
         RelJudgment termMiddle' rtype2 term2 = resultJudgment result2
 
     -- Check that the middle terms are equal (use syntactic equality)
-    termsEqual <- termEqualityAlpha macroEnv termMiddle termMiddle'
+    let termsEqual = alphaEquality macroEnv termMiddle termMiddle'
     if termsEqual
       then do
         let compositionType = Comp rtype1 rtype2 pos
@@ -338,8 +290,8 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
             -- x should be a fresh term variable - we'll use index 0 and extend contexts appropriately
             let witnessTerm = Var varX 0 pos -- Fresh variable x
             -- Shift existing terms and types up by 1 for the new term variable
-                term1Shifted = shiftTerm 1 term1
-                term2Shifted = shiftTerm 1 term2
+                term1Shifted = shift 1 term1
+                term2Shifted = shift 1 term2
                 rtype1Shifted = shiftTermsInRType 1 rtype1
                 rtype2Shifted = shiftTermsInRType 1 rtype2
                 -- Extend context with term binding for x first
@@ -355,8 +307,8 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
             result2 <- inferProofType ctx2 macroEnv theoremEnv proof2
             -- The lookup already handles shifting, so bounds check the result as-is
             let RelJudgment resultTerm1 resultRType resultTerm2 = resultJudgment result2
-            case ( shiftTermWithBoundsCheck (-1) resultTerm1,
-                   shiftTermWithBoundsCheck (-1) resultTerm2,
+            case ( shiftWithBoundsCheck (-1) resultTerm1,
+                   shiftWithBoundsCheck (-1) resultTerm2,
                    shiftTermsInRTypeWithBoundsCheck (-1) resultRType
                  ) of
               (Just shiftedTerm1, Just shiftedTerm2, Just shiftedRType) -> do
@@ -384,7 +336,7 @@ normalizeJudgment macroEnv (RelJudgment t1 rtype t2) = do
   termResult1 <- expandTermMacros macroEnv t1
   termResult2 <- expandTermMacros macroEnv t2
   expandResult <- expandMacrosWHNF macroEnv rtype
-  return $ RelJudgment (expandedTerm termResult1) (expandedType expandResult) (expandedTerm termResult2)
+  return $ RelJudgment (expandedValue termResult1) (expandedValue expandResult) (expandedValue termResult2)
 
 -- | Check equality of relational judgments
 -- NOTE: Relational judgments must be syntactically equal, not β-η equivalent
@@ -392,28 +344,12 @@ normalizeJudgment macroEnv (RelJudgment t1 rtype t2) = do
 relJudgmentEqual :: MacroEnvironment -> RelJudgment -> RelJudgment -> Either RelTTError Bool
 relJudgmentEqual macroEnv (RelJudgment t1 r1 t1') (RelJudgment t2 r2 t2') = do
   -- Use syntactic equality (alpha equivalence) for terms, not β-η equivalence
-  termEq1 <- termEqualityAlpha macroEnv t1 t2
-  termEq2 <- termEqualityAlpha macroEnv t1' t2'
+  let termEq1 = alphaEquality macroEnv t1 t2
+      termEq2 = alphaEquality macroEnv t1' t2'
   typeEq <- typeEquality macroEnv r1 r2
   return $ termEq1 && termEq2 && typeEq
 
--- | Substitute a term for a variable in another term
-substituteTermVar :: String -> Term -> Term -> Term
-substituteTermVar var replacement term = case term of
-  Var name _ _ | name == var -> replacement
-  Var _ _ _ -> term
-  Lam name _ _ | name == var -> term -- Variable is shadowed
-  Lam name body pos -> Lam name (substituteTermVar var replacement body) pos
-  App t1 t2 pos -> App (substituteTermVar var replacement t1) (substituteTermVar var replacement t2) pos
-  TMacro name args pos -> TMacro name (map (substituteTermVar var replacement) args) pos
 
--- | Apply a (possibly partial) substitution list to a relational judgment
-applySubstToJudgment :: [(Binding, TheoremArg)] -> RelJudgment -> Either RelTTError RelJudgment
-applySubstToJudgment subs (RelJudgment t r t') = do
-  t1 <- applySubstitutionsToTerm subs t
-  r1 <- applySubstitutionsToRType subs r
-  t2 <- applySubstitutionsToTerm subs t'
-  return (RelJudgment t1 r1 t2)
 
 -- | Sequentially check theorem arguments, carrying the substitution that has
 --   already been established by earlier (term/rel/proof) arguments.
@@ -431,7 +367,7 @@ checkTheoremArgs bindings args ctx macroEnv theoremEnv pos =
         go (accSubs ++ [(bind, arg)]) (arg : accArgs) rest
       (ProofBinding _ templJudg, ProofArg p) -> do
         -- instantiate the template with what we already know
-        instTempl <- applySubstToJudgment accSubs templJudg
+        instTempl <- applyTheoremSubsToJudgment accSubs templJudg
 
         -- infer and compare
         ProofCheckResult {resultJudgment = actualJudg} <-
@@ -455,55 +391,7 @@ checkTheoremArgs bindings args ctx macroEnv theoremEnv pos =
 
 -- | Instantiate a theorem judgment by applying argument substitutions
 instantiateTheoremJudgment :: [Binding] -> [TheoremArg] -> RelJudgment -> Either RelTTError RelJudgment
-instantiateTheoremJudgment bindings args (RelJudgment leftTerm relType rightTerm) = do
+instantiateTheoremJudgment bindings args judgment = do
   let substitutions = zip bindings args
+  applyTheoremSubsToJudgment substitutions judgment
 
-  -- Apply all substitutions to each component of the judgment
-  leftTerm' <- applySubstitutionsToTerm substitutions leftTerm
-  relType' <- applySubstitutionsToRType substitutions relType
-  rightTerm' <- applySubstitutionsToTerm substitutions rightTerm
-
-  return (RelJudgment leftTerm' relType' rightTerm')
-
--- | Apply substitutions to a term
-applySubstitutionsToTerm :: [(Binding, TheoremArg)] -> Term -> Either RelTTError Term
-applySubstitutionsToTerm [] term = return term
-applySubstitutionsToTerm ((TermBinding name, TermArg replacement) : rest) term = do
-  substituted <- applySubstitutionsToTerm rest term
-  return $ substituteTermVar name replacement substituted
-applySubstitutionsToTerm (_ : rest) term = applySubstitutionsToTerm rest term
-
--- | Apply substitutions to a relation type
-applySubstitutionsToRType :: [(Binding, TheoremArg)] -> RType -> Either RelTTError RType
-applySubstitutionsToRType [] rtype = return rtype
-applySubstitutionsToRType ((RelBinding name, RelArg replacement) : rest) rtype = do
-  substituted <- applySubstitutionsToRType rest rtype
-  return $ substituteRelVar name replacement substituted
-applySubstitutionsToRType ((TermBinding name, TermArg termReplacement) : rest) rtype = do
-  substituted <- applySubstitutionsToRType rest rtype
-  return $ substituteTermInRType name termReplacement substituted
-applySubstitutionsToRType (_ : rest) rtype = applySubstitutionsToRType rest rtype
-
--- | Substitute a relation variable in a relation type
-substituteRelVar :: String -> RType -> RType -> RType
-substituteRelVar var replacement rtype = case rtype of
-  RVar name _ _ | name == var -> replacement
-  RVar _ _ _ -> rtype
-  RMacro name args pos -> RMacro name (map (substituteRelVar var replacement) args) pos
-  Arr r1 r2 pos -> Arr (substituteRelVar var replacement r1) (substituteRelVar var replacement r2) pos
-  All name r pos | name == var -> rtype -- Variable is shadowed
-  All name r pos -> All name (substituteRelVar var replacement r) pos
-  Conv r pos -> Conv (substituteRelVar var replacement r) pos
-  Comp r1 r2 pos -> Comp (substituteRelVar var replacement r1) (substituteRelVar var replacement r2) pos
-  Prom term pos -> Prom (substituteTermVar var (error "Cannot substitute relation for term in promotion") term) pos
-
--- | Substitute a term variable in a relation type (for promoted terms)
-substituteTermInRType :: String -> Term -> RType -> RType
-substituteTermInRType var replacement rtype = case rtype of
-  RVar _ _ _ -> rtype
-  RMacro name args pos -> RMacro name (map (substituteTermInRType var replacement) args) pos
-  Arr r1 r2 pos -> Arr (substituteTermInRType var replacement r1) (substituteTermInRType var replacement r2) pos
-  All name r pos -> All name (substituteTermInRType var replacement r) pos
-  Conv r pos -> Conv (substituteTermInRType var replacement r) pos
-  Comp r1 r2 pos -> Comp (substituteTermInRType var replacement r1) (substituteTermInRType var replacement r2) pos
-  Prom term pos -> Prom (substituteTermVar var replacement term) pos

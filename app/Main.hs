@@ -2,10 +2,13 @@ module Main (main) where
 
 import Context (emptyTypingContext, extendProofContext, extendRelContext, extendTermContext, extendTheoremEnvironment)
 import Control.Monad (when)
-import Errors
+import Errors (formatError, RelTTError(..), ErrorContext(..))
 import Lib
-import ModuleSystem (parseModuleWithDependencies, ModuleLoadError(..))
+import Environment (noMacros, noTheorems, extendMacroEnvironment)
+import AST.Mixfix (defaultFixity)
+import ModuleSystem (parseModuleWithDependencies)
 import Elaborate
+import ElaborateTypes
 import qualified RawAst as Raw
 import RawParser
 import Text.Megaparsec (runParser, errorBundlePretty)
@@ -95,8 +98,7 @@ parseOnlyMode filename = do
     elaborateDeclarationsSequentially _ [] acc = Right (reverse acc)
     elaborateDeclarationsSequentially ctx (rawDecl:rest) acc = do
       case elaborate ctx rawDecl of
-        Left (ElabError err) -> Left $ "Elaboration error: " ++ show err
-        Left (Elaborate.ParseError err) -> Left $ "Parse error: " ++ show err
+        Left err -> Left $ formatError err
         Right decl -> do
           let newCtx = updateContextWithDeclaration decl ctx
           elaborateDeclarationsSequentially newCtx rest (decl:acc)
@@ -117,20 +119,23 @@ proofCheckMode :: String -> Bool -> IO ()
 proofCheckMode filename verbose = do
   result <- parseModuleWithDependencies ["."] filename
   case result of
-    Left (FileNotFound path) -> do
+    Left (FileNotFound path _) -> do
       putStrLn $ "File not found: " ++ path
       exitFailure
-    Left (ModuleSystem.ParseError path err) -> do
+    Left (ModuleParseError path err _) -> do
       putStrLn $ "Parse error in " ++ path ++ ": " ++ err
       exitFailure
-    Left (CircularDependency depCycle) -> do
+    Left (CircularDependency depCycle _) -> do
       putStrLn $ "Circular dependency detected: " ++ show depCycle
       exitFailure
-    Left (ImportResolutionError path err) -> do
+    Left (ImportResolutionError path err _) -> do
       putStrLn $ "Import resolution error in " ++ path ++ ": " ++ err
       exitFailure
-    Left (DuplicateExport path name) -> do
+    Left (DuplicateExport path name _) -> do
       putStrLn $ "Duplicate export in " ++ path ++ ": " ++ name
+      exitFailure
+    Left otherError -> do
+      putStrLn $ "Module error: " ++ formatError otherError
       exitFailure
     Right decls -> do
       let (macroDefs, theoremDefs) = extractDeclarations decls

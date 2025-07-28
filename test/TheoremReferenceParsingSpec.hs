@@ -1,6 +1,7 @@
 module TheoremReferenceParsingSpec (spec) where
 
-import Context (emptyTypingContext, extendTheoremEnvironment, noMacros, noTheorems)
+import Context (emptyTypingContext, extendTheoremEnvironment)
+import Environment (noMacros, noTheorems)
 import Control.Monad.Reader (runReader)
 import qualified Data.Map as Map
 import Lib

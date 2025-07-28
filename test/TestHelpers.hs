@@ -25,7 +25,10 @@ where
 import Context
 import Control.Monad (unless)
 import Elaborate
+import ElaborateTypes
 import Lib
+import Environment (noMacros, noTheorems, extendMacroEnvironment)
+import AST.Mixfix (defaultFixity)
 import qualified RawAst as Raw
 import RawParser (parseFile)
 import Test.Hspec
@@ -176,8 +179,7 @@ parseFileDeclarations content =
     elaborateDeclarationsSequentially _ [] acc = Right (reverse acc)
     elaborateDeclarationsSequentially ctx (rawDecl:remaining) acc = do
       case elaborate ctx rawDecl of
-        Left (ElabError err) -> Left $ "Elaboration error: " ++ show err
-        Left (ParseError err) -> Left $ "Parse error: " ++ show err
+        Left err -> Left $ "Elaboration error: " ++ show err
         Right decl -> do
           -- Update context with the newly elaborated declaration
           let newCtx = updateContextWithDeclaration decl ctx

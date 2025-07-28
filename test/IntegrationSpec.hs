@@ -7,7 +7,9 @@ import qualified Data.Set as Set
 import Elaborate (elaborate, FrontEndError(..), ElaborateError(..), ElaborateContext(..), emptyCtxWithBuiltins)
 import Errors
 import Lib
-import Normalize
+import Normalize (normalizeTerm, NormalizationResult(..))
+import Generic.BetaEta (betaEtaEquality)
+import Generic.Substitution (substIndex)
 import ProofChecker
 import RawParser
 import Test.Hspec
@@ -32,7 +34,7 @@ normalizeTermBetaEta :: Term -> Either RelTTError NormalizationResult
 normalizeTermBetaEta = normalizeTerm noMacros
 
 termEqualityBetaEta :: Term -> Term -> Either RelTTError Bool
-termEqualityBetaEta = termEquality noMacros
+termEqualityBetaEta = betaEtaEquality noMacros
 
 spec :: Spec
 spec = do
@@ -839,13 +841,14 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
       Left err -> expectationFailure $ "Expected successful nested TMacro proof: " ++ show err
 
   it "handles TMacro substitution in lambda abstractions" $ do
-    -- Test lambda abstractions containing TMacros
-    let -- Lambda with TMacro: λ y . const a y
+    -- Test lambda abstractions containing TMacros using proper de Bruijn substitution
+    let -- Lambda with TMacro: λ y . const a y (where 'a' has de Bruijn index 1)
         lambdaWithTMacro = Lam "y" (App (TMacro "const" [Var "a" 1 ip] ip) (Var "y" 0 ip) ip) ip
 
-        -- Test substitution preserves TMacro structure
-        substituted = substituteTermVar "a" (Var "b" (-1) ip) lambdaWithTMacro
-        expected = Lam "y" (App (TMacro "const" [Var "b" (-1) ip] ip) (Var "y" 0 ip) ip) ip
+        -- Test substitution of index 1 with new term
+        replacement = Var "b" 0 ip  -- Replacement term
+        substituted = substIndex 1 replacement lambdaWithTMacro
+        expected = Lam "y" (App (TMacro "const" [Var "b" 0 ip] ip) (Var "y" 0 ip) ip) ip
 
     substituted `shouldBe` expected
 

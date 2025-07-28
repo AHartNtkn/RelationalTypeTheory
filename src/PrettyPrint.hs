@@ -22,8 +22,8 @@ where
 
 import Data.List (intercalate)
 import Errors
-import Lib (MixfixPart (..), parseMixfixPattern)
-import Lib hiding (MixfixPart, parseMixfixPattern, splitMixfix)
+import AST.Mixfix (MixfixPart (..), parseMixfixPattern)
+import Lib
 import Text.Megaparsec (sourceColumn, sourceLine, sourceName, unPos)
 
 -- Configuration for pretty printing
