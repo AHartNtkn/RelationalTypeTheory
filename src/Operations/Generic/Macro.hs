@@ -1,5 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-
 -- | Unified, binder-aware macro application for Term, RType and Proof.
 -- This module provides a generic infrastructure that eliminates code duplication
 -- across the three AST categories while maintaining identical public APIs.

@@ -48,8 +48,9 @@ bindProofVar p j ctx =
   ctx { boundProofVars = Map.insert p (0,j) (shiftProofMap (boundProofVars ctx))
       , proofDepth = proofDepth ctx + 1 }
 
--- | Helper function to look up a macro d
-
+-- | Helper function to look up a macro definition
+lookupMacro :: String -> MacroEnvironment -> SourcePos -> String -> Either RelTTError MacroSig
+lookupMacro name env pos context =
   case Map.lookup name (macroDefinitions env) of
     Nothing -> Left $ UnknownMacro name (ErrorContext pos context)
     Just sig -> Right sig
@@ -59,11 +60,19 @@ emptyCtxWithBuiltins = ElaborateContext
   { macroEnv = macroEnvWithBuiltins
   , theoremEnv = TheoremEnvironment Map.empty
   , termDepth = 0
-  ,
+  , relDepth = 0
+  , proofDepth = 0
+  , boundVars = Map.empty
+  , boundRelVars = Map.empty
+  , boundProofVars = Map.empty
+  }
 
 -- Check if an operator is postfix in the macro environment
 isPostfixOperator :: String -> MacroEnvironment -> Bool
 isPostfixOperator op env = 
+  case Map.lookup op (macroFixities env) of
+    Just (Postfix _) -> True
+    _ -> False 
 
 -- Main elaboration function
 elaborate :: ElaborateContext -> RawDeclaration
@@ -196,7 +205,7 @@ elaborateTerm raw@(RTApp _ _ pos) = do
       case flattened of
         (RTVar name _ : args) -> do
           let macroName = nameString name
-
+          case Map.lookup macroName (boundVars ctx) of
             Just _ -> elaborateAppLeft raw  -- Bound variable - regular function application
             Nothing -> 
               case Map.lookup macroName (macroDefinitions (macroEnv ctx)) of
