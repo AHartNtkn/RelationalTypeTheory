@@ -2,16 +2,38 @@
 
 module TypeOpsSpec (spec) where
 
-import Context
-import Errors
-import Lib
-import Environment (noMacros, extendMacroEnvironment)
-import AST.Mixfix (defaultFixity)
+import Core.Context
+import Core.Errors
+import Core.Syntax
+import Core.Environment (noMacros, extendMacroEnvironment)
+import Parser.Mixfix (defaultFixity)
 import Test.Hspec
 import Text.Megaparsec (initialPos)
-import TypeOps
-import Generic.Expansion (ExpansionResult(..))
-import Generic.FreeVars (freeVars)
+import Operations.Generic.Expansion (expandFully, expandWHNF, ExpansionResult(..))
+import Operations.Generic.FreeVars (freeVars)
+import Operations.Generic.Equality (alphaEquality)
+import Operations.Generic.Substitution (SubstAst(..))
+import Operations.Generic.Shift (ShiftAst(..))
+import qualified Data.Map as Map
+
+-- Type variable substitution using the generic infrastructure
+substituteTypeVar :: Int -> RType -> RType -> RType
+substituteTypeVar = substIndex
+
+-- Type equality using alpha-equivalence
+typeEquality :: MacroEnvironment -> RType -> RType -> Either RelTTError Bool
+typeEquality env a b = Right (alphaEquality env a b)
+
+-- Macro application normalization - try to expand and return the result
+normalizeMacroApplication :: MacroEnvironment -> String -> [RType] -> Either RelTTError RType
+normalizeMacroApplication env name args = 
+  case Map.lookup name (macroDefinitions env) of
+    Nothing -> Left (UnboundMacro name (ErrorContext (initialPos "test") "macro normalization"))
+    Just (paramInfo, RelMacro body) -> 
+      if length args /= length paramInfo
+      then Left (MacroArityMismatch name (length paramInfo) (length args) (ErrorContext (initialPos "test") "macro normalization"))
+      else expandFully env (RMacro name args (initialPos "test")) >>= Right . expandedValue
+    Just (_, _) -> Left (InternalError "Expected RelMacro body" (ErrorContext (initialPos "test") "macro normalization"))
 
 spec :: Spec
 spec = do
@@ -79,7 +101,7 @@ macroExpansionSpec = describe "macro expansion" $ do
     let env = noMacros
         env' = extendMacroEnvironment "Id" [] (RelMacro (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))) (defaultFixity "ID") env
         macroType = RMacro "Id" [] (initialPos "test")
-    case expandMacros env' macroType of
+    case expandFully env' macroType of
       Right result -> do
         expandedValue result `shouldBe` Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
         wasExpanded result `shouldBe` True
@@ -89,7 +111,7 @@ macroExpansionSpec = describe "macro expansion" $ do
     let env = noMacros
         env' = extendMacroEnvironment "Comp" ["R", "S"] (RelMacro (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"))) (defaultFixity "ID") env
         macroType = RMacro "Comp" [RMacro "A" [] (initialPos "test"), RMacro "B" [] (initialPos "test")] (initialPos "test")
-    case expandMacros env' macroType of
+    case expandFully env' macroType of
       Right result -> expandedValue result `shouldBe` Comp (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
 
@@ -98,7 +120,7 @@ macroExpansionSpec = describe "macro expansion" $ do
         env1 = extendMacroEnvironment "Id" [] (RelMacro (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))) (defaultFixity "ID") env
         env2 = extendMacroEnvironment "IdApp" ["A"] (RelMacro (RMacro "Id" [] (initialPos "test"))) (defaultFixity "ID") env1
         macroType = RMacro "IdApp" [RMacro "Int" [] (initialPos "test")] (initialPos "test")
-    case expandMacros env2 macroType of
+    case expandFully env2 macroType of
       Right result -> expandedValue result `shouldBe` Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
 
@@ -107,7 +129,7 @@ macroExpansionSpec = describe "macro expansion" $ do
         env1 = extendMacroEnvironment "Inner" [] (RelMacro (RMacro "Base" [] (initialPos "test"))) ((defaultFixity "ID")) env
         env2 = extendMacroEnvironment "Outer" [] (RelMacro (RMacro "Inner" [] (initialPos "test"))) (defaultFixity "Outer") env1
         macroType = RMacro "Outer" [] (initialPos "test")
-    case (expandMacrosWHNF env2 macroType, expandMacros env2 macroType) of
+    case (expandWHNF env2 macroType, expandFully env2 macroType) of
       (Right whnfResult, Right fullResult) -> do
         expandedValue whnfResult `shouldBe` RMacro "Inner" [] (initialPos "test")
         expandedValue fullResult `shouldBe` RMacro "Base" [] (initialPos "test")
@@ -222,7 +244,7 @@ deBruijnMacroSubstitutionSpec = describe "de Bruijn macro substitution" $ do
             env
         macroApp = RMacro "Container" [RVar "Z" 3 (initialPos "test")] (initialPos "test")
 
-    case expandMacros env' macroApp of
+    case expandFully env' macroApp of
       Right result -> do
         let expected = All "Y" (Arr (RVar "Z" 4 (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test") -- Z shifted from 3 to 4 under ∀Y
         expandedValue result `shouldBe` expected
@@ -258,7 +280,7 @@ deBruijnMacroSubstitutionSpec = describe "de Bruijn macro substitution" $ do
             env
         macroApp = RMacro "TripleNest" [RVar "P" 1 (initialPos "test"), RVar "Q" 2 (initialPos "test")] (initialPos "test")
 
-    case expandMacros env' macroApp of
+    case expandFully env' macroApp of
       Right result -> do
         -- Expected: ∀A. ∀B. ((RVar "P" 3 (initialPos "test")) → (RVar "A" 1 (initialPos "test"))) → ((RVar "Q" 4 (initialPos "test")) → (RVar "B" 0 (initialPos "test"))) → ((RVar "A" 1 (initialPos "test")) → (RVar "B" 0 (initialPos "test")))
         -- P shifted from 1 to 3 and Q shifted from 2 to 4 (both under two quantifiers)
@@ -346,7 +368,7 @@ typeOpsErrorEdgeCasesSpec = describe "type operations error edge cases" $ do
         env2 = extendMacroEnvironment "B" [] (RelMacro (RMacro "C" [] (initialPos "test"))) (defaultFixity "ID") env1
         env3 = extendMacroEnvironment "C" [] (RelMacro (RMacro "NonExistent" [] (initialPos "test"))) (defaultFixity "ID") env2 -- This should fail
         macroType = RMacro "A" [] (initialPos "test")
-    case expandMacros env3 macroType of
+    case expandFully env3 macroType of
       Left (UnboundMacro "NonExistent" _) -> return () -- Expected specific error type
       Left err -> expectationFailure $ "Expected UnboundMacro error, got: " ++ show err
       Right result ->
@@ -407,7 +429,7 @@ typeOpsErrorEdgeCasesSpec = describe "type operations error edge cases" $ do
         env' = extendMacroEnvironment "Good" [] (RelMacro (RMacro "Fine" [] (initialPos "test"))) (defaultFixity "Good") env
         -- Try to expand good macro, then use result in failed operation
         goodType = RMacro "Good" [] (initialPos "test")
-    case expandMacros env' goodType of
+    case expandFully env' goodType of
       Right expanded -> do
         -- Now try to use this in a failing context (macro equality with non-existent macro)
         let badType = RMacro "NonExistent" [] (initialPos "test")

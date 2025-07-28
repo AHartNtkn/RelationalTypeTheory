@@ -22,15 +22,17 @@ module TestHelpers
   )
 where
 
-import Context
+import Core.Context
 import Control.Monad (unless)
-import Elaborate
-import ElaborateTypes
-import Lib
-import Environment (noMacros, noTheorems, extendMacroEnvironment)
-import AST.Mixfix (defaultFixity)
-import qualified RawAst as Raw
-import RawParser (parseFile)
+import Parser.Elaborate
+import Parser.Elaborate (emptyCtxWithBuiltins)
+import Parser.Context (ElaborateContext(..))
+import Core.Context (extendTheoremEnvironment)
+import Core.Syntax
+import Core.Environment (noMacros, noTheorems, extendMacroEnvironment)
+import Parser.Mixfix (defaultFixity)
+import qualified Core.Raw as Raw
+import Parser.Raw (parseFile)
 import Test.Hspec
 import Text.Megaparsec (initialPos, runParser, errorBundlePretty)
 

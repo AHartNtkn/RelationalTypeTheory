@@ -2,8 +2,8 @@
 
 module ErrorsSpec (spec) where
 
-import Errors
-import Lib
+import Core.Errors
+import Core.Syntax
 import Test.Hspec
 import Text.Megaparsec (SourcePos (..), initialPos, mkPos, sourceColumn, sourceLine, sourceName, unPos)
 

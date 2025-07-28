@@ -1,9 +1,9 @@
 module PTheoremAppSpec (spec) where
 
 import qualified Data.Map as Map
-import Errors
-import Lib
-import ProofChecker
+import Core.Errors
+import Core.Syntax
+import TypeCheck.Proof
 import Test.Hspec
 import Text.Megaparsec (initialPos)
 

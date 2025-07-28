@@ -1,9 +1,10 @@
 module TheoremArgValidationSpec (spec) where
 
 import qualified Data.Map as Map
-import Errors
-import Lib
-import ProofChecker
+import Core.Errors
+import Core.Syntax
+import TypeCheck.Proof
+import Operations.Generic.Substitution (applyTheoremsSubsToTerm, applyTheoremSubsToRType)
 import Test.Hspec
 import Text.Megaparsec (initialPos)
 
@@ -102,25 +103,25 @@ spec = describe "Theorem Argument Validation" $ do
       result <- return $ instantiateTheoremJudgment bindings args originalJudgment
       result `shouldBe` Right expectedJudgment
 
-  describe "applySubstitutionsToTerm" $ do
+  describe "applyTheoremsSubsToTerm" $ do
     it "handles empty substitutions" $ do
       let term = Var "x" 0 dummyPos
           substitutions = []
-      result <- return $ applySubstitutionsToTerm substitutions term
+      result <- return $ applyTheoremsSubsToTerm substitutions term
       result `shouldBe` Right term
 
     it "substitutes term variable correctly" $ do
       let originalTerm = Var "x" 0 dummyPos
           replacementTerm = Var "a" 0 dummyPos
           substitutions = [(TermBinding "x", TermArg replacementTerm)]
-      result <- return $ applySubstitutionsToTerm substitutions originalTerm
+      result <- return $ applyTheoremsSubsToTerm substitutions originalTerm
       result `shouldBe` Right replacementTerm
 
     it "preserves non-matching variables" $ do
       let term = Var "y" 0 dummyPos
           replacementTerm = Var "a" 0 dummyPos
           substitutions = [(TermBinding "x", TermArg replacementTerm)]
-      result <- return $ applySubstitutionsToTerm substitutions term
+      result <- return $ applyTheoremsSubsToTerm substitutions term
       result `shouldBe` Right term
 
     it "handles complex term substitutions" $ do
@@ -128,21 +129,21 @@ spec = describe "Theorem Argument Validation" $ do
           replacementTerm = Var "a" 0 dummyPos
           substitutions = [(TermBinding "x", TermArg replacementTerm)]
           expectedTerm = App (Var "f" 0 dummyPos) replacementTerm dummyPos
-      result <- return $ applySubstitutionsToTerm substitutions originalTerm
+      result <- return $ applyTheoremsSubsToTerm substitutions originalTerm
       result `shouldBe` Right expectedTerm
 
-  describe "applySubstitutionsToRType" $ do
+  describe "applyTheoremSubsToRType" $ do
     it "handles empty substitutions" $ do
       let rtype = RVar "R" 0 dummyPos
           substitutions = []
-      result <- return $ applySubstitutionsToRType substitutions rtype
+      result <- return $ applyTheoremSubsToRType substitutions rtype
       result `shouldBe` Right rtype
 
     it "substitutes relation variable correctly" $ do
       let originalRType = RVar "R" 0 dummyPos
           replacementRType = RVar "S" 0 dummyPos
           substitutions = [(RelBinding "R", RelArg replacementRType)]
-      result <- return $ applySubstitutionsToRType substitutions originalRType
+      result <- return $ applyTheoremSubsToRType substitutions originalRType
       result `shouldBe` Right replacementRType
 
     it "handles complex relation substitutions" $ do
@@ -150,7 +151,7 @@ spec = describe "Theorem Argument Validation" $ do
           replacementRType = RVar "T" 0 dummyPos
           substitutions = [(RelBinding "R", RelArg replacementRType)]
           expectedRType = Comp replacementRType (RVar "S" 1 dummyPos) dummyPos
-      result <- return $ applySubstitutionsToRType substitutions originalRType
+      result <- return $ applyTheoremSubsToRType substitutions originalRType
       result `shouldBe` Right expectedRType
 
 isLeft :: Either a b -> Bool

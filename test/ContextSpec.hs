@@ -2,10 +2,12 @@
 
 module ContextSpec (spec) where
 
-import Context
+import Core.Context
 import qualified Data.Map as Map
-import Errors
-import Lib
+import Core.Errors
+import Core.Syntax
+import Core.Environment (noMacros, noTheorems, extendMacroEnvironment)
+import Parser.Mixfix (defaultFixity)
 import Test.Hspec
 import Text.Megaparsec (initialPos)
 

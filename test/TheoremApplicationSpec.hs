@@ -1,6 +1,7 @@
 module TheoremApplicationSpec (spec) where
 
-import Parser.Legacy (parseFile, runParserEmpty)
+import Parser.Raw (parseFile)
+import Text.Megaparsec (runParser, errorBundlePretty)
 import Test.Hspec
 
 -- Test the fundamental theorem application bug
@@ -13,7 +14,7 @@ spec = describe "Theorem Application" $ do
             [ "⊢ simple_thm (x : Term) : x [λ y . y] x ≔ ι⟨ x ,(λ y . y)⟩;",
               "⊢ use_simple (a : Term) : a [λ y . y] a ≔ simple_thm a;"
             ]
-    let result = runParserEmpty parseFile fileContent
+    let result = runParser parseFile "test" fileContent
     result `shouldSatisfy` isRight
 
   it "should parse theorem application with multiple arguments" $ do
@@ -23,7 +24,7 @@ spec = describe "Theorem Application" $ do
             [ "⊢ two_arg_thm (x : Term) (y : Term) : x [λ z . z] y ≔ ι⟨ x ,(λ z . z)⟩;",
               "⊢ use_two_args (a : Term) (b : Term) : a [λ z . z] b ≔ two_arg_thm a b;"
             ]
-    let result = runParserEmpty parseFile fileContent
+    let result = runParser parseFile "test" fileContent
     result `shouldSatisfy` isRight
 
   it "should parse theorem application as direct proof term" $ do
@@ -33,7 +34,7 @@ spec = describe "Theorem Application" $ do
             [ "⊢ identity_thm (t : Term) : t [λ x . x] t ≔ ι⟨t,(λ x . x)⟩;",
               "⊢ use_identity : (λ w . w) [λ x . x] (λ w . w) ≔ identity_thm (λ w . w);"
             ]
-    let result = runParserEmpty parseFile fileContent
+    let result = runParser parseFile "test" fileContent
     result `shouldSatisfy` isRight
 
   it "should parse theorem application in lambda abstraction" $ do
@@ -43,7 +44,7 @@ spec = describe "Theorem Application" $ do
             [ "⊢ base_thm (x : Term) : x [λ y . y] x ≔ ι⟨ x ,(λ y . y)⟩;",
               "⊢ lambda_test (z : Term) : z [λ y . y] z ≔ λp:(λ y . y). base_thm z;"
             ]
-    let result = runParserEmpty parseFile fileContent
+    let result = runParser parseFile "test" fileContent
     result `shouldSatisfy` isRight
 
   it "should parse theorem application in pair" $ do
@@ -54,7 +55,7 @@ spec = describe "Theorem Application" $ do
               "⊢ id_thm (t : Term) : t [id] t ≔ ι⟨t,id⟩;",
               "⊢ compose_test (a : Term) (b : Term) : a [id ∘ id] b ≔ (id_thm a, id_thm b);"
             ]
-    let result = runParserEmpty parseFile fileContent
+    let result = runParser parseFile "test" fileContent
     result `shouldSatisfy` isRight
 
   it "should parse theorem application in parentheses" $ do
@@ -64,7 +65,7 @@ spec = describe "Theorem Application" $ do
             [ "⊢ paren_thm (x : Term) : x [λ y . y] x ≔ ι⟨ x ,(λ y . y)⟩;",
               "⊢ use_parens (a : Term) : a [λ y . y] a ≔ (paren_thm a);"
             ]
-    let result = runParserEmpty parseFile fileContent
+    let result = runParser parseFile "test" fileContent
     result `shouldSatisfy` isRight
 
 isRight :: Either a b -> Bool

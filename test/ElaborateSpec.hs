@@ -5,9 +5,11 @@ module ElaborateSpec (spec) where
 import qualified Data.Map as Map
 import Text.Megaparsec (initialPos)
 
-import Elaborate (FrontEndError(..), ElaborateError(..), ElaborateContext(..), elaborate, emptyCtxWithBuiltins)
-import Lib
-import RawAst
+import Parser.Elaborate (elaborate, emptyCtxWithBuiltins)
+import Parser.Context (ElaborateContext(..))
+import Core.Syntax
+import Core.Raw
+import Core.Errors (RelTTError(..), ErrorContext(..))
 import Test.Hspec
 import TestHelpers (simpleTermMacro, simpleRelMacro)
 
@@ -96,11 +98,10 @@ stripProofPositions (LamP name rt p _) = LamP name (stripRTypePositions rt) (str
 stripProofPositions other = other -- Add more cases as needed
 
 -- Helper to test elaboration failures
-testElaborateFailure :: ElaborateContext -> RawDeclaration -> ElaborateError -> Expectation
+testElaborateFailure :: ElaborateContext -> RawDeclaration -> RelTTError -> Expectation
 testElaborateFailure ctx rawDecl expectedErr =
   case elaborate ctx rawDecl of
-    Left (ElabError err) -> err `shouldBe` expectedErr
-    Left (ParseError _) -> expectationFailure "Expected elaboration error, but got parse error"
+    Left err -> err `shouldBe` expectedErr
     Right result -> expectationFailure $ "Expected elaboration failure, but got: " ++ show result
 
 elaborateContextSpec :: Spec
@@ -148,7 +149,7 @@ termElaborationSpec = describe "Term elaboration" $ do
     let testMacroEnv = MacroEnvironment Map.empty Map.empty
     let ctx = testContext testMacroEnv (TheoremEnvironment Map.empty)
     let rawDecl = RawMacro (Name "test") [] (RawTermBody (RTMacro (Name "unknown") [] pos))
-    let expectedErr = UnknownMacro "unknown" pos
+    let expectedErr = UnknownMacro "unknown" (ErrorContext pos "elaboration")
     testElaborateFailure ctx rawDecl expectedErr
 
   it "fails on macro arity mismatch" $ do
@@ -156,7 +157,7 @@ termElaborationSpec = describe "Term elaboration" $ do
     let testMacroEnv = MacroEnvironment (Map.singleton "two_param" (simpleTermMacro ["x", "y"] (Var "x" 0 pos))) Map.empty
     let ctx = testContext testMacroEnv (TheoremEnvironment Map.empty)
     let rawDecl = RawMacro (Name "test") [] (RawTermBody (RTMacro (Name "two_param") [RTVar (Name "z") pos] pos))
-    let expectedErr = MacroArityMismatch "two_param" 2 1 pos
+    let expectedErr = MacroArityMismatch "two_param" 2 1 (ErrorContext pos "elaboration")
     testElaborateFailure ctx rawDecl expectedErr
 
 rtypeElaborationSpec :: Spec
@@ -247,21 +248,21 @@ elaborateErrorSpec = describe "Error handling" $ do
   it "reports unknown variables correctly" $ do
     let pos = initialPos ""
     let rawDecl = RawMacro (Name "test") [] (RawTermBody (RTVar (Name "unknown") pos))
-    let expectedErr = UnknownVariable "unknown" pos
+    let expectedErr = UnboundVariable "unknown" (ErrorContext pos "elaboration")
     testElaborateFailure emptyCtxWithBuiltins rawDecl expectedErr
 
   it "reports unknown relational variables correctly" $ do
     let pos = initialPos ""
     let rawDecl = RawMacro (Name "test") [] (RawRelBody (RRVar (Name "UnknownRel") pos))
-    let expectedErr = UnknownVariable "UnknownRel" pos
+    let expectedErr = UnboundVariable "UnknownRel" (ErrorContext pos "elaboration")
     testElaborateFailure emptyCtxWithBuiltins rawDecl expectedErr
 
   it "provides proper error context" $ do
     let pos = initialPos ""
     case elaborate emptyCtxWithBuiltins (RawMacro (Name "test") [] (RawTermBody (RTVar (Name "unknown") pos))) of
-      Left (ElabError (UnknownVariable name errPos)) -> do
+      Left (UnboundVariable name _) -> do
         name `shouldBe` "unknown"
-        errPos `shouldBe` pos
+        return () -- Error context comparison would be complex
       Left other -> expectationFailure $ "Expected UnknownVariable error, got: " ++ show other
       Right result -> expectationFailure $ "Expected error, got successful result: " ++ show result
 

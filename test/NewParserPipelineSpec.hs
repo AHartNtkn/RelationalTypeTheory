@@ -4,10 +4,10 @@ module NewParserPipelineSpec (spec) where
 
 import Text.Megaparsec (runParser, errorBundlePretty)
 
-import Elaborate
-import Lib
-import RawAst
-import RawParser
+import Parser.Elaborate
+import Core.Syntax
+import Core.Raw
+import Parser.Raw
 import Test.Hspec
 
 spec :: Spec

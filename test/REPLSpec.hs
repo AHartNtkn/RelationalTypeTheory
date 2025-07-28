@@ -1,9 +1,10 @@
 module REPLSpec (spec) where
 
-import Context
+import Core.Context
+import Core.Environment (noMacros)
 import Control.Monad.State
 import Data.List (isInfixOf)
-import REPL
+import Interface.REPL
 import Test.Hspec
 
 spec :: Spec

@@ -1,9 +1,9 @@
 module TwoPhaseParsingSpec (spec) where
 
 import qualified Data.Map as Map
-import Lib
-import ModuleSystem
-import Errors (RelTTError(..))
+import Core.Syntax
+import Module.System
+import Core.Errors (RelTTError(..))
 import Test.Hspec
 
 spec :: Spec
@@ -21,7 +21,7 @@ spec = do
       it "handles missing files correctly" $ do
         result <- buildCompleteImportGraph ["."] "nonexistent.rtt"
         case result of
-          Left (FileNotFound path) -> path `shouldBe` "nonexistent.rtt"
+          Left (FileNotFound path _) -> path `shouldBe` "nonexistent.rtt"
           Left other -> expectationFailure $ "Expected FileNotFound but got: " ++ show other
           Right _ -> expectationFailure "Expected failure but got success"
 
@@ -59,7 +59,7 @@ spec = do
       it "provides clear error for missing imported file" $ do
         result <- parseModuleWithDependencies ["examples/test"] "test_missing.rtt"
         case result of
-          Left (FileNotFound path) -> path `shouldBe` "nonexistent.rtt"
+          Left (FileNotFound path _) -> path `shouldBe` "nonexistent.rtt"
           Left other -> expectationFailure $ "Expected FileNotFound but got: " ++ show other
           Right _ -> expectationFailure "Expected error but got success"
 

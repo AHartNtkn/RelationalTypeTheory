@@ -2,12 +2,17 @@
 
 module ProofCheckerSpec (spec) where
 
-import Context
+import Core.Context
 import qualified Data.Map as Map
-import Errors
-import Lib
-import Parser.Legacy (parseDeclaration, runParserEmpty)
-import ProofChecker
+import Core.Errors
+import Core.Raw (RawDeclaration(..))
+import Core.Syntax
+import Core.Environment (noMacros, noTheorems, extendMacroEnvironment)
+import Parser.Mixfix (defaultFixity)
+import Parser.Raw (rawDeclaration)
+import Parser.Elaborate (elaborate, emptyCtxWithBuiltins)
+import TypeCheck.Proof
+import Text.Megaparsec (runParser)
 import Test.Hspec
 import TestHelpers (buildContextFromBindings, simpleRelMacro)
 import Text.Megaparsec (initialPos)
@@ -1911,23 +1916,29 @@ quantifierDeBruijnBugProofSpec = describe "quantifier de Bruijn bug in proof che
     let nestedTheorem = "⊢ nested_test (a : Term) (b : Term) (R : Rel) (S : Rel) (T : Rel) (p : a [∀ X . ∀ Y .(X ∘ T)] b) : a [R ∘ T] b ≔ (p { R }){ S };"
         simpleTheorem = "⊢ simple_test (a : Term) (b : Term) (R : Rel) (S : Rel) (p : a [∀ X . S] b) : a [S] b ≔ p { R };"
 
-    case runParserEmpty parseDeclaration nestedTheorem of
+    case runParser rawDeclaration "test" nestedTheorem of
       Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr
-      Right (TheoremDef _ bindings judgment proof) -> do
-        let ctx = buildContextFromBindings bindings
-        case checkProof ctx noMacros noTheorems proof judgment of
-          Right _ -> return () -- Should succeed
-          Left err -> expectationFailure $ "Nested quantifier theorem should work: " ++ show err
-      _ -> expectationFailure "Expected theorem declaration"
+      Right rawDecl -> 
+        case elaborate emptyCtxWithBuiltins rawDecl of
+          Left elabErr -> expectationFailure $ "Elaboration should succeed: " ++ show elabErr
+          Right (TheoremDef _ bindings judgment proof) -> do
+            let ctx = buildContextFromBindings bindings
+            case checkProof ctx noMacros noTheorems proof judgment of
+              Right _ -> return () -- Should succeed
+              Left err -> expectationFailure $ "Nested quantifier theorem should work: " ++ show err
+          _ -> expectationFailure "Expected theorem declaration"
 
-    case runParserEmpty parseDeclaration simpleTheorem of
+    case runParser rawDeclaration "test" simpleTheorem of
       Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr
-      Right (TheoremDef _ bindings judgment proof) -> do
-        let ctx = buildContextFromBindings bindings
-        case checkProof ctx noMacros noTheorems proof judgment of
-          Right _ -> return () -- Should succeed
-          Left err -> expectationFailure $ "Simple quantifier theorem should work: " ++ show err
-      _ -> expectationFailure "Expected theorem declaration"
+      Right rawDecl ->
+        case elaborate emptyCtxWithBuiltins rawDecl of
+          Left elabErr -> expectationFailure $ "Elaboration should succeed: " ++ show elabErr
+          Right (TheoremDef _ bindings judgment proof) -> do
+            let ctx = buildContextFromBindings bindings
+            case checkProof ctx noMacros noTheorems proof judgment of
+              Right _ -> return () -- Should succeed
+              Left err -> expectationFailure $ "Simple quantifier theorem should work: " ++ show err
+          _ -> expectationFailure "Expected theorem declaration"
 
   it "expands both term and relation macros together" $ do
     let macroEnv =

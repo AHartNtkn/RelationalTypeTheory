@@ -4,9 +4,8 @@ module MacroBinderSpec (spec) where
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Lib
-import Normalize (renameBinderVars, substituteMacroArgs)
-import TypeOps (renameBinderVarsRType, substituteMacroArgsRType)
+import Core.Syntax
+import Operations.Generic.Macro (renameBinderVarsG, substituteArgsG, inferParamInfosG)
 import TestHelpers (simpleTermMacro, simpleRelMacro)
 import Test.Hspec
 import Text.Megaparsec (initialPos)
@@ -25,7 +24,7 @@ paramInfoInferenceSpec = describe "Parameter inference" $ do
   it "detects lambda binders in term macros" $ do
     let params = ["x", "t"]
         body = Lam "x" (Var "t" 0 (initialPos "test")) (initialPos "test")
-        inferred = inferParamInfosTerm params body
+        inferred = inferParamInfosG params body
     
     -- x should be detected as a binder
     pBinds (inferred !! 0) `shouldBe` True
@@ -38,7 +37,7 @@ paramInfoInferenceSpec = describe "Parameter inference" $ do
   it "detects forall binders in relational macros" $ do
     let params = ["X", "T"]
         body = All "X" (RVar "T" 0 (initialPos "test")) (initialPos "test")
-        inferred = inferParamInfosRel params body
+        inferred = inferParamInfosG params body
     
     -- X should be detected as a binder
     pBinds (inferred !! 0) `shouldBe` True
@@ -51,7 +50,7 @@ paramInfoInferenceSpec = describe "Parameter inference" $ do
   it "detects no binders in composition macros" $ do
     let params = ["R", "S"]
         body = Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test")
-        inferred = inferParamInfosRel params body
+        inferred = inferParamInfosG params body
     
     -- Neither R nor S should be binders
     pBinds (inferred !! 0) `shouldBe` False
@@ -64,7 +63,7 @@ paramInfoInferenceSpec = describe "Parameter inference" $ do
   it "detects proof binders in proof macros" $ do
     let params = ["x", "R", "p"]
         body = LamP "x" (RVar "R" 1 (initialPos "test")) (PVar "p" 0 (initialPos "test")) (initialPos "test")
-        inferred = inferParamInfosProof params body
+        inferred = inferParamInfosG params body
     
     -- x should be detected as a proof binder
     pBinds (inferred !! 0) `shouldBe` True
@@ -76,7 +75,7 @@ paramInfoInferenceSpec = describe "Parameter inference" $ do
   it "detects multiple binders in Pi" $ do
     let params = ["p1", "x", "u", "v", "p2"]
         body = Pi (PVar "p1" 4 (initialPos "test")) "x" "u" "v" (PVar "p2" 0 (initialPos "test")) (initialPos "test")
-        inferred = inferParamInfosProof params body
+        inferred = inferParamInfosG params body
     
     -- x should be a term binder
     pBinds (inferred !! 1) `shouldBe` True
@@ -100,7 +99,7 @@ binderAwareSubstitutionSpec = describe "Binder-aware substitution" $ do
     let sig = [ParamInfo "x" TermK True [], ParamInfo "t" TermK False [0]]
         actuals = [Var "y" 0 (initialPos "test"), Var "body" 0 (initialPos "test")]
         body = Lam "x" (Var "t" 0 (initialPos "test")) (initialPos "test")
-        result = renameBinderVars sig actuals body
+        result = renameBinderVarsG sig actuals body
     
     case result of
       Lam name _ _ -> name `shouldBe` "y"  -- x should be renamed to y
@@ -110,8 +109,8 @@ binderAwareSubstitutionSpec = describe "Binder-aware substitution" $ do
     let sig = [ParamInfo "x" TermK True [], ParamInfo "t" TermK False [0]]
         actuals = [Var "y" 0 (initialPos "test"), Var "body" 0 (initialPos "test")]
         body = Lam "x" (Var "t" 0 (initialPos "test")) (initialPos "test")
-        renamed = renameBinderVars sig actuals body
-        result = substituteMacroArgs sig actuals renamed
+        renamed = renameBinderVarsG sig actuals body
+        result = substituteArgsG sig actuals renamed
     
     case result of
       Lam _ (Var name idx _) _ -> do
@@ -123,7 +122,7 @@ binderAwareSubstitutionSpec = describe "Binder-aware substitution" $ do
     let sig = [ParamInfo "R" RelK False [], ParamInfo "S" RelK False []]
         actuals = [RVar "A" 0 (initialPos "test"), RVar "B" 0 (initialPos "test")]
         body = Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test")
-        result = substituteMacroArgsRType sig actuals body
+        result = substituteArgsG sig actuals body
     
     case result of
       Comp (RVar name1 _ _) (RVar name2 _ _) _ -> do
@@ -138,8 +137,8 @@ mixfixBinderOrderSpec = describe "Mix-fix parameter order independence" $ do
     let sig = [ParamInfo "x" TermK True [], ParamInfo "t" TermK False [0]]
         actuals = [Var "var" 0 (initialPos "test"), Var "expr" 0 (initialPos "test")]
         body = Lam "x" (Var "t" 0 (initialPos "test")) (initialPos "test")
-        renamed = renameBinderVars sig actuals body
-        result = substituteMacroArgs sig actuals renamed
+        renamed = renameBinderVarsG sig actuals body
+        result = substituteArgsG sig actuals renamed
     
     case result of
       Lam name (Var bodyName bodyIdx _) _ -> do
@@ -155,8 +154,8 @@ mixfixBinderOrderSpec = describe "Mix-fix parameter order independence" $ do
         macroBody = App (Var "arg" 2 (initialPos "test")) 
                        (Lam "x" (Var "body" 0 (initialPos "test")) (initialPos "test"))
                        (initialPos "test")
-        renamed = renameBinderVars sig actuals macroBody
-        result = substituteMacroArgs sig actuals renamed
+        renamed = renameBinderVarsG sig actuals macroBody
+        result = substituteArgsG sig actuals renamed
     
     case result of
       App (Var argName argIdx _) (Lam binderName (Var bodyName bodyIdx _) _) _ -> do
@@ -174,8 +173,8 @@ nestedBinderSpec = describe "Nested binder handling" $ do
     let sig = [ParamInfo "x" TermK True [], ParamInfo "y" TermK True [], ParamInfo "body" TermK False [0,1]]
         actuals = [Var "a" 0 (initialPos "test"), Var "b" 0 (initialPos "test"), Var "expr" 0 (initialPos "test")]
         macroBody = Lam "x" (Lam "y" (Var "body" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
-        renamed = renameBinderVars sig actuals macroBody
-        result = substituteMacroArgs sig actuals renamed
+        renamed = renameBinderVarsG sig actuals macroBody
+        result = substituteArgsG sig actuals renamed
     
     case result of
       Lam outerName (Lam innerName (Var bodyName bodyIdx _) _) _ -> do
@@ -188,7 +187,7 @@ nestedBinderSpec = describe "Nested binder handling" $ do
   it "tracks dependencies correctly with multiple binders" $ do
     let params = ["x", "y", "body"]
         astBody = Lam "x" (Lam "y" (Var "body" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
-        inferred = inferParamInfosTerm params astBody
+        inferred = inferParamInfosG params astBody
     
     -- x is a binder
     pBinds (inferred !! 0) `shouldBe` True
@@ -206,13 +205,13 @@ nestedBinderSpec = describe "Nested binder handling" $ do
 errorHandlingSpec :: Spec
 errorHandlingSpec = describe "Error handling" $ do
   it "handles empty parameter lists" $ do
-    let inferred = inferParamInfosTerm [] (Var "x" 0 (initialPos "test"))
+    let inferred = inferParamInfosG [] (Var "x" 0 (initialPos "test"))
     inferred `shouldBe` []
 
   it "handles unknown variables in macro body" $ do
     let params = ["x"]
         body = Var "unknown" 0 (initialPos "test")
-        inferred = inferParamInfosTerm params body
+        inferred = inferParamInfosG params body
     
     -- unknown variable should not affect inference
     pBinds (inferred !! 0) `shouldBe` False
@@ -221,7 +220,7 @@ errorHandlingSpec = describe "Error handling" $ do
   it "maintains correct indices with gaps" $ do
     let params = ["a", "b", "c"]
         body = Lam "a" (Var "c" 0 (initialPos "test")) (initialPos "test") -- skips b
-        inferred = inferParamInfosTerm params body
+        inferred = inferParamInfosG params body
     
     -- a is a binder
     pBinds (inferred !! 0) `shouldBe` True

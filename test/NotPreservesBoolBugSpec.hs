@@ -2,10 +2,12 @@
 
 module NotPreservesBoolBugSpec (spec) where
 
-import Context
-import Lib
-import Normalize (expandTermMacrosOneStep)
-import ProofChecker
+import Core.Context
+import Core.Syntax
+import Core.Environment (noMacros, extendMacroEnvironment)
+import Operations.Generic.Expansion (expandFully)
+import Parser.Mixfix (defaultFixity)
+import TypeCheck.Proof
 import Test.Hspec
 import TestHelpers
 import Text.Megaparsec (initialPos)
@@ -79,7 +81,7 @@ extractAndTestJudgmentComparisonSpec = describe "Judgment comparison focus" $ do
 
     -- First test: can we expand the macro correctly?
     let notMacro = TMacro "Not" [Var "b" 0 pos] pos
-    case expandTermMacrosOneStep macrEnv notMacro of
+    case expandFully macrEnv notMacro of
       Left err -> expectationFailure $ "Macro expansion failed: " ++ show err
       Right expanded -> do
         -- Test the comparison - should now succeed with lazy macro expansion

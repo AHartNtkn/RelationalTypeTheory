@@ -2,8 +2,8 @@
 
 module RawParserSpec (spec) where
 
-import RawAst
-import RawParser
+import Core.Raw
+import Parser.Raw
 import Test.Hspec
 import Text.Megaparsec
 

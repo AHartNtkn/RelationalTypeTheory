@@ -1,7 +1,7 @@
 module TheoremArgSpec (spec) where
 
-import Lib
-import PrettyPrint
+import Core.Syntax
+import Interface.PrettyPrint
 import Test.Hspec
 import Text.Megaparsec (SourcePos, initialPos)
 

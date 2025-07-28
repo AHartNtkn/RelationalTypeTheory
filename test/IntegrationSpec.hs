@@ -2,36 +2,62 @@
 
 module IntegrationSpec (spec) where
 
-import Context
+import Core.Context
 import qualified Data.Set as Set
-import Elaborate (elaborate, FrontEndError(..), ElaborateError(..), ElaborateContext(..), emptyCtxWithBuiltins)
-import Errors
-import Lib
-import Normalize (normalizeTerm, NormalizationResult(..))
-import Generic.BetaEta (betaEtaEquality)
-import Generic.Substitution (substIndex)
-import ProofChecker
-import RawParser
+import Parser.Elaborate (elaborate, emptyCtxWithBuiltins)
+import Parser.Context (ElaborateContext(..))
+import Core.Errors
+import Core.Syntax
+import Core.Environment (noMacros, noTheorems, extendMacroEnvironment)
+import Parser.Mixfix (defaultFixity)
+import Operations.Generic.BetaEta (betaEtaEquality, normalizeForBetaEta)
+import Operations.Generic.Expansion (expandFully, ExpansionResult(..))
+import Operations.Generic.Equality (alphaEquality)
+import Operations.Generic.FreeVars (freeVars)
+import Operations.Generic.Substitution (substIndex)
+import TypeCheck.Proof
+import Parser.Raw
 import Test.Hspec
 import TestHelpers
 import Text.Megaparsec (initialPos, runParser, errorBundlePretty)
-import TypeOps
 
 ip :: SourcePos
 ip = (initialPos "test")
+
+-- Wrapper functions to match old API
+expandMacros :: MacroEnvironment -> RType -> Either RelTTError (ExpansionResult RType)
+expandMacros env rtype = expandFully env rtype
+
+expandedType :: ExpansionResult RType -> RType
+expandedType = expandedValue
+
+-- Use the record field accessors directly
+-- wasExpanded :: ExpansionResult a -> Bool (already available)
+-- expansionSteps :: ExpansionResult a -> Int (already available)
+
+typeEquality :: MacroEnvironment -> RType -> RType -> Either RelTTError Bool
+typeEquality env t1 t2 = Right $ alphaEquality env t1 t2
+
+substituteTypeVar :: Int -> RType -> RType -> RType
+substituteTypeVar = substIndex
+
+normalizedTerm :: Term -> Term
+normalizedTerm = id  -- Simplified - would need proper normalization wrapper
+
+freeTypeVariables :: RType -> Set.Set String
+freeTypeVariables rtype = freeVars noMacros rtype
 
 parseDeclaration :: String -> Either String Declaration  
 parseDeclaration content =
   case runParser rawDeclaration "test" (content) of
     Left parseErr -> Left $ "Parse error: " ++ errorBundlePretty parseErr
     Right rawDecl -> case elaborate emptyCtxWithBuiltins rawDecl of
-      Left (ElabError err) -> Left $ "Elaboration error: " ++ show err
-      Left (ParseError err) -> Left $ "Parse error: " ++ show err
+      Left err -> Left $ "Error: " ++ show err
       Right decl -> Right decl
 
 -- Helper functions for tests that don't use macros
-normalizeTermBetaEta :: Term -> Either RelTTError NormalizationResult
-normalizeTermBetaEta = normalizeTerm noMacros
+normalizeTermBetaEta :: MacroEnvironment -> Term -> Either RelTTError Term
+normalizeTermBetaEta env term = normalizeForBetaEta env term
 
 termEqualityBetaEta :: Term -> Term -> Either RelTTError Bool
 termEqualityBetaEta = betaEtaEquality noMacros
@@ -57,7 +83,7 @@ endToEndWorkflowSpec = describe "end-to-end workflows" $ do
         term2 = App (Var "f" 0 ip) (Var "a" (-1) ip) ip
 
     -- Normalize and compare
-    case (normalizeTermBetaEta term1, normalizeTermBetaEta term2, termEqualityBetaEta term1 term2) of
+    case (normalizeTermBetaEta noMacros term1, normalizeTermBetaEta noMacros term2, termEqualityBetaEta term1 term2) of
       (Right norm1, Right norm2, Right equality) -> do
         -- Both should normalize to the same result
         normalizedTerm norm1 `shouldBe` normalizedTerm norm2
@@ -317,7 +343,7 @@ booleanDistinctionSpec = describe "boolean distinction" $ do
         ffTerm = Lam "x" (Lam "y" (Var "y" 0 ip) ip) ip
 
     -- Verify the structural difference that prevents trivialization
-    case (normalizeTermBetaEta ttTerm, normalizeTermBetaEta ffTerm) of
+    case (normalizeTermBetaEta noMacros ttTerm, normalizeTermBetaEta noMacros ffTerm) of
       (Right ttNorm, Right ffNorm) -> do
         -- The key assertion: tt and ff have different normal forms
         normalizedTerm ttNorm `shouldNotBe` normalizedTerm ffNorm
