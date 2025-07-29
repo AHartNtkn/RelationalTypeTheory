@@ -17,7 +17,7 @@ import Core.Environment (noMacros, noTheorems, extendMacroEnvironment)
 import Parser.Mixfix (defaultFixity)
 import Module.System (ModuleRegistry, emptyModuleRegistry, loadModuleWithDependenciesIntegrated)
 import Operations.Generic.PrettyPrint (prettyDefault)
-import Interface.PrettyPrint (prettyDeclaration, prettyError, prettyExportDeclaration, prettyImportDeclaration, prettyRelJudgment)
+import Interface.PrettyPrint (prettyDeclaration, prettyExportDeclaration, prettyImportDeclaration, prettyRelJudgment)
 import TypeCheck.Proof
 import System.IO (hFlush, hSetEncoding, stdin, stdout, utf8)
 import Text.Megaparsec (initialPos, parse, errorBundlePretty, Parsec)
@@ -199,7 +199,7 @@ executeREPLCommand cmd = case cmd of
           Left err -> return $ "Parse error in judgment: " ++ show err
           Right judgment -> do
             case checkProof (replContext currentState) (replMacroEnv currentState) (replTheoremEnv currentState) proof judgment of
-              Left err -> return $ "Proof checking failed: " ++ prettyError err
+              Left err -> return $ "Proof checking failed: " ++ formatError err
               Right _ -> return $ "Proof is valid for judgment: " ++ prettyRelJudgment judgment
   InferProof proofStr -> do
     currentState <- get
@@ -207,7 +207,7 @@ executeREPLCommand cmd = case cmd of
       Left err -> return $ "Parse error: " ++ show err
       Right proof -> do
         case inferProofType (replContext currentState) (replMacroEnv currentState) (replTheoremEnv currentState) proof of
-          Left err -> return $ "Type inference failed: " ++ prettyError err
+          Left err -> return $ "Type inference failed: " ++ formatError err
           Right result -> return $ "Inferred judgment: " ++ prettyRelJudgment (resultJudgment result)
   ExpandMacro macroStr -> do
     currentState <- get
@@ -215,7 +215,7 @@ executeREPLCommand cmd = case cmd of
       Left err -> return $ "Parse error: " ++ show err
       Right rtype -> do
         case expandFully (replMacroEnv currentState) rtype of
-          Left err -> return $ "Expansion error: " ++ prettyError err
+          Left err -> return $ "Expansion error: " ++ formatError err
           Right result -> return $ "Original: " ++ prettyDefault rtype ++ "\nExpanded: " ++ prettyDefault (expandedValue result)
   ShowInfo name -> do
     currentState <- get

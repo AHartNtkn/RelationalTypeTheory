@@ -143,7 +143,7 @@ proofCheckMode filename verbose = do
 
       case buildMacroEnvironmentFromDeclarations macroDefs of
         Left err -> do
-          putStrLn $ "Macro environment error: " ++ prettyError err
+          putStrLn $ "Macro environment error: " ++ formatError err
           exitFailure
         Right macroEnvironment -> do
           when verbose $ putStrLn "Macro environment built successfully"
@@ -162,7 +162,7 @@ proofCheckMode filename verbose = do
               exitSuccess
             else do
               putStrLn $ "Found " ++ show (length errors) ++ " errors:"
-              mapM_ (\err -> putStrLn (prettyError err) >> putStrLn "") errors
+              mapM_ (\err -> putStrLn (formatError err) >> putStrLn "") errors
               exitFailure
 
 main :: IO ()

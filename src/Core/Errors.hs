@@ -17,6 +17,12 @@ import Control.Exception (IOException, catch)
 import Core.Syntax
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Megaparsec (SourcePos, sourceColumn, sourceLine, sourceName, unPos)
+import Operations.Generic.PrettyPrint (prettyDefault)
+
+-- | Pretty print a relational judgment
+prettyRelJudgment :: RelJudgment -> String
+prettyRelJudgment (RelJudgment t1 rtype t2) =
+  prettyDefault t1 ++ " [" ++ prettyDefault rtype ++ "] " ++ prettyDefault t2
 
 -- | Context information for where an error occurred
 data ErrorContext = ErrorContext
@@ -81,11 +87,11 @@ formatError err = case err of
   TypeMismatch expected actual ctx ->
     formatWithContext ctx $
       "Type mismatch:\n  Expected: "
-        ++ show expected
+        ++ prettyDefault expected
         ++ "\n  Actual:   "
-        ++ show actual
+        ++ prettyDefault actual
   InvalidTypeApplication ty ctx ->
-    formatWithContext ctx $ "Invalid type application: " ++ show ty
+    formatWithContext ctx $ "Invalid type application: " ++ prettyDefault ty
   MacroArityMismatch name expected actual ctx ->
     formatWithContext ctx $
       "Macro "
@@ -111,10 +117,10 @@ formatError err = case err of
   CircularMacroReference name ctx ->
     formatWithContext ctx $ "Circular macro reference in: " ++ name
   InfiniteNormalization term ctx ->
-    formatWithContext ctx $ "Infinite normalization for term: " ++ show term
+    formatWithContext ctx $ "Infinite normalization for term: " ++ prettyDefault term
   SubstitutionError var term ctx ->
     formatWithContext ctx $
-      "Substitution error for variable " ++ var ++ " in term: " ++ show term
+      "Substitution error for variable " ++ var ++ " in term: " ++ prettyDefault term
   InvalidDeBruijnIndex idx ctx ->
     formatWithContext ctx $ "Invalid de Bruijn index: " ++ show idx
   InvalidContext msg ctx ->
@@ -124,47 +130,47 @@ formatError err = case err of
   ProofTypingError proof expected actual normalizedForms ctx ->
     formatWithContext ctx $
       "Proof error: proof "
-        ++ show proof
+        ++ prettyDefault proof
         ++ " has wrong judgment\n  Expected judgment: "
-        ++ show expected
+        ++ prettyRelJudgment expected
         ++ "\n  Actual judgment:   "
-        ++ show actual
+        ++ prettyRelJudgment actual
         ++ case normalizedForms of
           Nothing -> ""
           Just (normExpected, normActual) ->
             "\n  Expected judgment (normalized): "
-              ++ show normExpected
+              ++ prettyRelJudgment normExpected
               ++ "\n  Actual judgment (normalized):   "
-              ++ show normActual
+              ++ prettyRelJudgment normActual
   LeftConversionError expected actual ctx ->
     formatWithContext ctx $
       "Left conversion error: expected "
-        ++ show expected
+        ++ prettyDefault expected
         ++ " but got "
-        ++ show actual
+        ++ prettyDefault actual
         ++ " - these terms are not β-η equivalent"
   RightConversionError expected actual ctx ->
     formatWithContext ctx $
       "Right conversion error: expected "
-        ++ show expected
+        ++ prettyDefault expected
         ++ " but got "
-        ++ show actual
+        ++ prettyDefault actual
         ++ " - these terms are not β-η equivalent"
-  ConverseError proof (RelJudgment t1 rtype t2) ctx ->
-    formatWithContext ctx $ "Converse elimination error: proof " ++ show proof ++ " must prove judgment with converse relation, but proves " ++ show t1 ++ " [" ++ show rtype ++ "] " ++ show t2
-  RhoEliminationNonPromotedError proof (RelJudgment t1 rtype t2) ctx ->
-    formatWithContext ctx $ "Rho elimination error: first proof " ++ show proof ++ " must prove a judgment with promoted relation, but proves " ++ show t1 ++ " [" ++ show rtype ++ "] " ++ show t2
+  ConverseError proof judgment ctx ->
+    formatWithContext ctx $ "Converse elimination error: proof " ++ prettyDefault proof ++ " must prove judgment with converse relation, but proves " ++ prettyRelJudgment judgment
+  RhoEliminationNonPromotedError proof judgment ctx ->
+    formatWithContext ctx $ "Rho elimination error: first proof " ++ prettyDefault proof ++ " must prove a judgment with promoted relation, but proves " ++ prettyRelJudgment judgment
   RhoEliminationTypeMismatchError proof expected actual ctx ->
     formatWithContext ctx $
       "Rho elimination error: second proof "
-        ++ show proof
+        ++ prettyDefault proof
         ++ " proves wrong judgment\n  Expected judgment: "
-        ++ show expected
+        ++ prettyRelJudgment expected
         ++ "\n  Actual judgment:   "
-        ++ show actual
+        ++ prettyRelJudgment actual
   CompositionError proof1 proof2 term1 term2 ctx ->
     formatWithContext ctx $
-      "Composition error: proofs " ++ show proof1 ++ " and " ++ show proof2 ++ " have mismatched middle terms: " ++ show term1 ++ " ≢ " ++ show term2
+      "Composition error: proofs " ++ prettyDefault proof1 ++ " and " ++ prettyDefault proof2 ++ " have mismatched middle terms: " ++ prettyDefault term1 ++ " ≢ " ++ prettyDefault term2
   FileNotFound path ctx ->
     formatWithContext ctx $ "Module file not found: " ++ path
   ModuleParseError path msg ctx ->

@@ -19,31 +19,9 @@ import Core.Syntax
 import Core.Raw
 import qualified Operations.Generic.Elaborate as Generic
 import Core.Errors (RelTTError(..))
-import Parser.Context
+import Parser.Context (ElaborateM, ElaborateContext(..), bindTermVar, bindRelVar, bindProofVar)
 import Operations.Builtins (macroEnvWithBuiltins)
 
-shiftIntMap :: Map.Map k Int -> Map.Map k Int
-shiftIntMap = Map.map (+1)
-
-
-shiftProofMap :: Map.Map String (Int,RelJudgment)
-              -> Map.Map String (Int,RelJudgment)
-shiftProofMap = Map.map (\(i,j) -> (i+1,j))
-
-bindTermVar :: String -> ElaborateContext -> ElaborateContext
-bindTermVar x ctx =
-  ctx { boundVars = Map.insert x 0 (shiftIntMap (boundVars ctx))
-      , termDepth = termDepth ctx + 1 }
-
-bindRelVar :: String -> ElaborateContext -> ElaborateContext
-bindRelVar r ctx =
-  ctx { boundRelVars = Map.insert r 0 (shiftIntMap (boundRelVars ctx))
-      , relDepth  = relDepth  ctx + 1 }
-
-bindProofVar :: String -> RelJudgment -> ElaborateContext -> ElaborateContext
-bindProofVar p j ctx =
-  ctx { boundProofVars = Map.insert p (0,j) (shiftProofMap (boundProofVars ctx))
-      , proofDepth = proofDepth ctx + 1 }
 
 emptyCtxWithBuiltins :: ElaborateContext  
 emptyCtxWithBuiltins = ElaborateContext
