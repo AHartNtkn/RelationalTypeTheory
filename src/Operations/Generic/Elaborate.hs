@@ -100,6 +100,8 @@ instance ElaborateAst RawTerm Term where
   elaborateSpecial = \case
     RTVar name pos -> handleVar @RawTerm @Term name pos
     
+    RTParens inner _pos -> elaborate inner  -- Simply elaborate the inner term, parentheses preserve structure during mixfix
+    
     RTLam name rawBody pos -> do
       ctx <- ask
       let varName = nameString name
@@ -153,6 +155,8 @@ instance ElaborateAst RawRType RType where
   
   elaborateSpecial = \case
     RRVar name pos -> handleVar @RawRType @RType name pos
+    
+    RRParens inner _pos -> elaborate inner  -- Simply elaborate the inner relation type, parentheses preserve structure during mixfix
     
     RRArr rawLeft rawRight pos -> do
       left <- elaborate rawLeft
@@ -224,6 +228,8 @@ instance ElaborateAst RawProof Proof where
   
   elaborateSpecial = \case
     RPVar name pos -> handleVar @RawProof @Proof name pos
+    
+    RPParens inner _pos -> elaborate inner  -- Simply elaborate the inner proof, parentheses preserve structure during mixfix
     
     raw@(RPApp _ _ pos) ->
       handleAppGeneric raw pos proofFallback proofMacroHandler

@@ -31,6 +31,7 @@ posT (RTVar   _ p)   = p
 posT (RTLam   _ _ p) = p
 posT (RTApp   _ _ p) = p
 posT (RTMacro _ _ p) = p
+posT (RTParens _ p)  = p
 
 posR :: RawRType -> SourcePos
 posR (RRVar   _ p)   = p
@@ -41,6 +42,7 @@ posR (RRConv  _   p) = p
 posR (RRMacro _ _ p) = p
 posR (RRApp   _ _ p) = p
 posR (RRProm  _   p) = p
+posR (RRParens _ p)  = p
 
 posP :: RawProof -> SourcePos
 posP (RPVar         _ p) = p
@@ -57,6 +59,7 @@ posP (RPConvIntro   _ p) = p
 posP (RPConvElim    _ p) = p
 posP (RPPair        _ _ p) = p
 posP (RPMixfix      _ _ p) = p
+posP (RPParens      _ p) = p
 
 -- Helper to capture position information
 
@@ -124,7 +127,7 @@ termExpr = do
 termAtom :: P RawTerm
 termAtom = choice
   [ withPosAfter RTVar (identName <* notFollowedBy (symbol ":")) -- avoid "x :"
-  , parens termExpr
+  , withPosAfter RTParens (parens termExpr)
   ] <?> "term atom"
 -- no termTable needed any more
 
@@ -137,7 +140,7 @@ termAtom = choice
 rtypeSimpleAtom :: P RawRType
 rtypeSimpleAtom = choice
   [ withPosAfter RRVar identName
-  , parens rtypeExpr
+  , withPosAfter RRParens (parens rtypeExpr)
   ] <?> "relational type basic atom"
 
 rtypeExpr :: P RawRType
@@ -163,7 +166,7 @@ proofExpr = do
 proofAtom :: P RawProof
 proofAtom = choice
   [ withPosAfter RPVar identName
-  , parens proofExpr
+  , withPosAfter RPParens (parens proofExpr)
   ] <?> "proof atom"
 -- no proofTable needed
 

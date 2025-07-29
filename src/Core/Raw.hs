@@ -34,6 +34,7 @@ data RawTerm
   | RTLam Name RawTerm SourcePos           -- λ x . t  
   | RTApp RawTerm RawTerm SourcePos        -- t u
   | RTMacro Name [RawTerm] SourcePos       -- user mixfix/macros _+_ etc.
+  | RTParens RawTerm SourcePos             -- (t) - explicit parentheses
   deriving (Show, Eq)
 
 -- Raw relational types - no context, no validation  
@@ -46,6 +47,7 @@ data RawRType
   | RRMacro Name [RawRType] SourcePos      -- mixfix on rel-types
   | RRApp  RawRType RawRType SourcePos     -- *juxtaposition*  R S
   | RRProm RawTerm SourcePos               -- promotion ⌈t⌉
+  | RRParens RawRType SourcePos            -- (R) - explicit parentheses
   deriving (Show, Eq)
 
 -- Raw proofs - no context, no validation
@@ -64,6 +66,7 @@ data RawProof
   | RPConvElim RawProof SourcePos                       -- ∪ₑ p (converse elim)
   | RPPair RawProof RawProof SourcePos                  -- ⟨p,q⟩ (pair)
   | RPMixfix Name [RawProof] SourcePos                  -- mixfix on proofs
+  | RPParens RawProof SourcePos                         -- (p) - explicit parentheses
   deriving (Show, Eq)
 
 -- Raw theorem/macro arguments - can be terms, types, or proofs
@@ -134,6 +137,7 @@ instance StripPos RawTerm where
     RTLam n t _        -> RTLam n (stripPos t) dummyPos
     RTApp f x _        -> RTApp (stripPos f) (stripPos x) dummyPos
     RTMacro n ts _     -> RTMacro n (map stripPos ts) dummyPos
+    RTParens t _       -> RTParens (stripPos t) dummyPos
 
 instance StripPos RawRType where
   stripPos = \case
@@ -145,6 +149,7 @@ instance StripPos RawRType where
     RRMacro n rs _     -> RRMacro n (map stripPos rs) dummyPos
     RRApp  a b _       -> RRApp  (stripPos a) (stripPos b) dummyPos
     RRProm t _         -> RRProm (stripPos t) dummyPos
+    RRParens r _       -> RRParens (stripPos r) dummyPos
 
 instance StripPos RawProof where
   stripPos = \case
@@ -163,6 +168,7 @@ instance StripPos RawProof where
     RPConvElim  p _              -> RPConvElim  (stripPos p) dummyPos
     RPPair p q _                 -> RPPair (stripPos p) (stripPos q) dummyPos
     RPMixfix n ps _              -> RPMixfix n (map stripPos ps) dummyPos
+    RPParens p _                 -> RPParens (stripPos p) dummyPos
 
 instance StripPos RawArg where
   stripPos (RawTermArg t)  = RawTermArg  (stripPos t)
