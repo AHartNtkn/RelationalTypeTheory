@@ -30,6 +30,10 @@ module Core.Context
     bindRelVar,
     bindProofVar,
     ElaborateM,
+    -- Context building functions (moved from Interface.REPL)
+    buildContextFromModuleInfo,
+    buildContextFromBindings,
+    inferParamKind,
   )
 where
 
@@ -293,3 +297,35 @@ bindProofVar :: String -> RelJudgment -> Context -> Context
 bindProofVar p j ctx =
   ctx { proofBindings = Map.insert p (0, Nothing, Just j) (shiftProofMap (proofBindings ctx))
       , proofDepth = proofDepth ctx + 1 }
+
+--------------------------------------------------------------------------------
+-- | Context building functions (moved from Interface.REPL)
+--------------------------------------------------------------------------------
+
+-- | Build unified context from ModuleInfo
+buildContextFromModuleInfo :: (String -> Fixity) -> Context -> ModuleInfo -> Context
+buildContextFromModuleInfo fixityOracle baseContext moduleInfo = 
+  let macros = loadedMacros moduleInfo
+      theorems = loadedTheorems moduleInfo
+      -- Extend base context with macros
+      contextWithMacros = Map.foldrWithKey addMacro baseContext macros
+      -- Extend with theorems  
+      contextWithTheorems = Map.foldrWithKey addTheorem contextWithMacros theorems
+  in contextWithTheorems
+  where
+    addMacro name (params, body) ctx = extendMacroContext name params body (fixityOracle name) ctx
+    addTheorem name (bindings, judgment, proof) ctx = extendTheoremContext name bindings judgment proof ctx
+
+-- | Build context from bindings
+buildContextFromBindings :: [Binding] -> Context
+buildContextFromBindings bindings = foldl addBinding emptyContext bindings
+  where
+    addBinding ctx (TermBinding name) = extendTermContext name (RMacro "Type" [] (initialPos "<repl>")) ctx
+    addBinding ctx (RelBinding name) = extendRelContext name ctx
+    addBinding ctx (ProofBinding name judgment) = extendProofContext name judgment ctx
+
+-- | Helper function to infer parameter kind from macro body
+inferParamKind :: MacroBody -> VarKind
+inferParamKind (TermMacro _) = TermK
+inferParamKind (RelMacro _) = RelK  
+inferParamKind (ProofMacro _) = ProofK

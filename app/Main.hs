@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Core.Context (emptyContext, extendProofContext, extendRelContext, extendTermContext, extendTheoremContext, extendMacroContext)
+import Core.Context (emptyContext, extendTheoremContext, extendMacroContext, buildContextFromBindings, inferParamKind)
 import Control.Monad (when)
 import Core.Errors (formatError, RelTTError(..), ErrorContext(..))
 import Core.Syntax
@@ -10,7 +10,7 @@ import Parser.Elaborate (elaborate)
 import qualified Core.Raw as Raw
 import Parser.Raw
 import Text.Megaparsec (runParser, errorBundlePretty)
-import Interface.PrettyPrint
+import Operations.Generic.PrettyPrint (prettyDeclaration)
 import TypeCheck.Proof
 import qualified Interface.REPL as REPL
 import System.Environment (getArgs)
@@ -41,13 +41,6 @@ parseArgs args = case args of
   [file, "--parse-only"] -> Right $ Options ParseOnly (Just file)
   _ -> Left "Usage: reltt-haskell [--check|--parse-only|--verbose|--repl] [<file>]"
 
--- Build context from bindings
-buildContextFromBindings :: [Binding] -> Context
-buildContextFromBindings bindings = foldl addBinding emptyContext bindings
-  where
-    addBinding ctx (TermBinding name) = extendTermContext name (RMacro "Type" [] (initialPos "<builtin>")) ctx
-    addBinding ctx (RelBinding name) = extendRelContext name ctx
-    addBinding ctx (ProofBinding name judgment) = extendProofContext name judgment ctx
 
 -- Extract macro and theorem declarations
 extractDeclarations :: [Declaration] -> ([Declaration], [Declaration])
@@ -68,11 +61,6 @@ buildContextFromDeclarations decls = foldr addDeclaration emptyContext decls
       extendTheoremContext name bindings judgment proof ctx
     addDeclaration _ ctx = ctx
 
--- Helper function to infer parameter kind from macro body
-inferParamKind :: MacroBody -> VarKind
-inferParamKind (TermMacro _) = TermK
-inferParamKind (RelMacro _) = RelK  
-inferParamKind (ProofMacro _) = ProofK
 
 -- Check a theorem in a context
 checkTheoremInContext :: Context -> Declaration -> Either RelTTError ()

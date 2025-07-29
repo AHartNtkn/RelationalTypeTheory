@@ -34,6 +34,7 @@ library
       Operations.Generic.FreeVars
       Operations.Generic.Macro
       Operations.Generic.Mixfix
+      Operations.Generic.PrettyPrint
       Operations.Generic.Shift
       Operations.Generic.Substitution
       Parser.Lexer
@@ -42,12 +43,10 @@ library
       Parser.Mixfix
       TypeCheck.Proof
       Interface.REPL
-      Interface.PrettyPrint
       Module.System
       Core.Utils
   other-modules:
       Operations.Generic.Elaborate
-      Operations.Generic.PrettyPrint
       Operations.Generic.Token
       Operations.Resolve
       Paths_reltt_haskell

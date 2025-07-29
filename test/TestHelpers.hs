@@ -26,7 +26,7 @@ where
 import Core.Context
 import Control.Monad (unless)
 import Parser.Elaborate
-import Core.Context (Context, extendTheoremContext, extendMacroContext, emptyContext, extendTermContext, extendRelContext, extendProofContext)
+import Core.Context (Context, extendTheoremContext, extendMacroContext, emptyContext, extendTermContext, extendRelContext, extendProofContext, inferParamKind, buildContextFromBindings)
 import Core.Syntax
 import Parser.Mixfix (defaultFixity)
 import qualified Core.Raw as Raw
@@ -160,23 +160,6 @@ instance (PositionInsensitive a) => PositionInsensitive [a] where
   shouldBeEqual actual expected =
     expectationFailure $ "Lists have different lengths:\nExpected: " ++ show (length expected) ++ " elements\nActual: " ++ show (length actual) ++ " elements"
 
--- | Build typing context from parsed theorem bindings
-buildContextFromBindings :: [Binding] -> Context
-buildContextFromBindings bindings = buildContext emptyContext bindings
-  where
-    ip = initialPos "test"
-    buildContext ctx [] = ctx
-    buildContext ctx (binding : rest) =
-      case binding of
-        TermBinding name ->
-          let newCtx = extendTermContext name (RMacro "A" [] ip) ctx
-           in buildContext newCtx rest
-        RelBinding name ->
-          let newCtx = extendRelContext name ctx
-           in buildContext newCtx rest
-        ProofBinding name judgment ->
-          let newCtx = extendProofContext name judgment ctx
-           in buildContext newCtx rest
 
 -- | Parse file content using new parser pipeline
 parseFileDeclarations :: String -> Either String [Declaration]
@@ -203,11 +186,6 @@ parseFileDeclarations content =
       extendTheoremContext name bindings judgment proof ctx
     updateContextWithDeclaration _ ctx = ctx  -- Other declaration types don't affect elaboration context
 
--- Helper function to infer parameter kind from macro body
-inferParamKind :: MacroBody -> VarKind
-inferParamKind (TermMacro _) = TermK
-inferParamKind (RelMacro _) = RelK  
-inferParamKind (ProofMacro _) = ProofK
 
 -- | Build unified context from parsed declarations
 buildContextFromDeclarations :: [Declaration] -> Context

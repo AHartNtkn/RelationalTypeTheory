@@ -8,18 +8,17 @@ module Interface.REPL
   )
 where
 
-import Core.Context (extendProofContext, extendRelContext, extendTermContext, lookupMacro, lookupTerm, emptyContext, ElaborateM, extendMacroContext, extendTheoremContext)
+import Core.Context (lookupMacro, lookupTerm, emptyContext, ElaborateM, extendMacroContext, extendTheoremContext, buildContextFromModuleInfo, buildContextFromBindings, inferParamKind)
 import Control.Monad.State
 import qualified Data.Map as Map
 import Core.Errors
 import Core.Syntax
-import Parser.Mixfix (defaultFixity)
 import Module.System (ModuleRegistry, emptyModuleRegistry, loadModuleWithDependenciesIntegrated)
 import Operations.Generic.PrettyPrint (prettyDefault)
-import Interface.PrettyPrint (prettyDeclaration, prettyExportDeclaration, prettyImportDeclaration, prettyRelJudgment)
+import Operations.Generic.PrettyPrint (prettyDeclaration, prettyExportDeclaration, prettyImportDeclaration, prettyRelJudgment)
 import TypeCheck.Proof
 import System.IO (hFlush, hSetEncoding, stdin, stdout, utf8)
-import Text.Megaparsec (initialPos, parse, errorBundlePretty, Parsec)
+import Text.Megaparsec (parse, errorBundlePretty, Parsec)
 import Operations.Generic.Expansion (expandFully, ExpansionResult(..))
 -- Parser implementation using raw parser + elaboration
 import Parser.Elaborate (elaborateDeclaration, elaborateJudgment)
@@ -28,6 +27,7 @@ import Parser.Raw (rawProof, rawRType, rawDeclaration, rawJudgment)
 import Data.Void (Void)
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.Except (runExcept)
+import Parser.Mixfix (defaultFixity)
 
 type Parser = Parsec Void String
 
@@ -178,7 +178,7 @@ executeREPLCommand cmd = case cmd of
       Right (newRegistry, moduleInfo) -> do
         -- The new system already loaded all dependencies and built complete environments
         -- Build unified context from loaded module info
-        let newContext = buildContextFromModuleInfo (replContext currentState) moduleInfo
+        let newContext = buildContextFromModuleInfo defaultFixity (replContext currentState) moduleInfo
         put $
           currentState
             { replModuleRegistry = newRegistry,
@@ -278,33 +278,6 @@ executeREPLCommand cmd = case cmd of
             put $ currentState {replContext = newContext, replDeclarations = newDecls}
             return $ "Added fixity declaration: " ++ show fixity ++ " " ++ name
 
--- Build unified context from ModuleInfo (helper function)
-buildContextFromModuleInfo :: Context -> ModuleInfo -> Context
-buildContextFromModuleInfo baseContext moduleInfo = 
-  let macros = loadedMacros moduleInfo
-      theorems = loadedTheorems moduleInfo
-      -- Extend base context with macros
-      contextWithMacros = Map.foldrWithKey addMacro baseContext macros
-      -- Extend with theorems  
-      contextWithTheorems = Map.foldrWithKey addTheorem contextWithMacros theorems
-  in contextWithTheorems
-  where
-    addMacro name (params, body) ctx = extendMacroContext name params body (defaultFixity name) ctx
-    addTheorem name (bindings, judgment, proof) ctx = extendTheoremContext name bindings judgment proof ctx
-
--- Build context from bindings (helper function)
-buildContextFromBindings :: [Binding] -> Context
-buildContextFromBindings bindings = foldl addBinding emptyContext bindings
-  where
-    addBinding ctx (TermBinding name) = extendTermContext name (RMacro "Type" [] (initialPos "<repl>")) ctx
-    addBinding ctx (RelBinding name) = extendRelContext name ctx
-    addBinding ctx (ProofBinding name judgment) = extendProofContext name judgment ctx
-
--- Helper function to infer parameter kind from macro body
-inferParamKind :: MacroBody -> VarKind
-inferParamKind (TermMacro _) = TermK
-inferParamKind (RelMacro _) = RelK  
-inferParamKind (ProofMacro _) = ProofK
 
 -- Main REPL loop
 runREPL :: IO ()

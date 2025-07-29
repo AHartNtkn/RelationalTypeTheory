@@ -57,6 +57,7 @@ library:
   - Operations.Generic.FreeVars
   - Operations.Generic.Macro
   - Operations.Generic.Mixfix
+  - Operations.Generic.PrettyPrint
   - Operations.Generic.Shift
   - Operations.Generic.Substitution
   # Parser modules
@@ -68,7 +69,6 @@ library:
   - TypeCheck.Proof
   # Interface modules
   - Interface.REPL
-  - Interface.PrettyPrint
   # Module system
   - Module.System
   # Utilities

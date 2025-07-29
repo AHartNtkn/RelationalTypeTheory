@@ -100,13 +100,6 @@ instance ElaborateAst RawTerm Term where
     
     RTParens inner _pos -> elaborate inner  -- Simply elaborate the inner term, parentheses preserve structure during mixfix
     
-    RTLam name rawBody pos -> do
-      ctx <- ask
-      let varName = nameString name
-          newCtx = bindTermVar varName ctx
-      body <- local (const newCtx) (elaborate rawBody)
-      return $ Lam varName body pos
-    
     raw@(RTApp _ _ pos) -> 
       handleAppGeneric raw pos elaborateAppLeft termMacroHandler
       where
@@ -155,18 +148,6 @@ instance ElaborateAst RawRType RType where
     
     RRParens inner _pos -> elaborate inner  -- Simply elaborate the inner relation type, parentheses preserve structure during mixfix
     
-    RRArr rawLeft rawRight pos -> do
-      left <- elaborate rawLeft
-      right <- elaborate rawRight
-      return $ Arr left right pos
-    
-    RRAll name rawBody pos -> do
-      ctx <- ask
-      let varName = nameString name
-          newCtx = bindRelVar varName ctx
-      body <- local (const newCtx) (elaborate rawBody)
-      return $ All varName body pos
-    
     raw@(RRApp _ _ pos) ->
       handleAppGeneric raw pos relFallback relMacroHandler
       where
@@ -177,27 +158,7 @@ instance ElaborateAst RawRType RType where
           elaboratedArgs <- mapM elaborate args
           handleMacroApp @RawRType @RType macroName params elaboratedArgs macroPos
     
-    raw@(RRComp _ _ pos) -> do
-      ctx <- ask
-      let ops = mixfixKeywords (ctx)
-          toks = map (toTok ops) (flattenApps raw)
-      if hasOperatorG toks
-        then reparseG elaborate pos (flattenApps raw)
-        else case raw of
-          RRComp rawLeft rawRight _ -> do
-            left <- elaborate rawLeft
-            right <- elaborate rawRight
-            return $ Comp left right pos
-    
-    RRConv rawRType pos -> do
-      rtype <- elaborate rawRType
-      return $ Conv rtype pos
-    
     RRMacro nm args pos -> handleExplicitMacro nm args pos
-    
-    RRProm rawTerm pos -> do
-      term <- elaborate rawTerm
-      return $ Prom term pos
 
 --------------------------------------------------------------------------------
 -- | Proof instance
@@ -245,86 +206,6 @@ instance ElaborateAst RawProof Proof where
         
         proofMacroHandler args macroName params macroPos = do
           handleMacroAppCrossCategory macroName params args macroPos
-    
-    RPTheorem name rawArgs pos -> do
-      ctx <- ask
-      let theoremName = nameString name
-      case Map.lookup theoremName (theoremDefinitions ctx) of
-        Nothing -> throwError $ UnknownTheorem theoremName (ErrorContext pos "theorem lookup")
-        Just (bindings, _, _) -> do
-          when (length bindings /= length rawArgs) $
-            throwError $ TheoremArityMismatch theoremName (length bindings) (length rawArgs) 
-                        (ErrorContext pos "theorem arity check")
-          args <- mapM elaborateArg rawArgs
-          return $ PTheoremApp theoremName args pos
-    
-    RPLamP name rawRType rawBody pos -> do
-      ctx <- ask
-      elaboratedRType <- elaborate rawRType
-      let varName = nameString name
-          judgment = RelJudgment (Var "dummy" 0 pos) elaboratedRType (Var "dummy" 0 pos)
-          newCtx = bindProofVar varName judgment ctx
-      body <- local (const newCtx) (elaborate rawBody)
-      return $ LamP varName elaboratedRType body pos
-    
-    RPLamT name rawBody pos -> do
-      ctx <- ask
-      let varName = nameString name
-          newCtx = bindRelVar varName ctx
-      body <- local (const newCtx) (elaborate rawBody)
-      return $ TyLam varName body pos
-    
-    RPAppT rawProof rawRType pos -> do
-      proof <- elaborate rawProof
-      rtype <- elaborate rawRType
-      return $ TyApp proof rtype pos
-    
-    RPConv rawTerm1 rawProof rawTerm2 pos -> do
-      term1 <- elaborate rawTerm1
-      proof <- elaborate rawProof
-      term2 <- elaborate rawTerm2
-      return $ ConvProof term1 proof term2 pos
-    
-    RPIota rawTerm1 rawTerm2 pos -> do
-      term1 <- elaborate rawTerm1
-      term2 <- elaborate rawTerm2
-      return $ Iota term1 term2 pos
-    
-    RPRho x rawT1 rawT2 rawP1 rawP2 pos -> do
-      ctx <- ask
-      let xName = nameString x
-          ctxWithX = bindTermVar xName ctx
-      t1 <- local (const ctxWithX) (elaborate rawT1)
-      t2 <- local (const ctxWithX) (elaborate rawT2)
-      p1 <- elaborate rawP1
-      p2 <- elaborate rawP2
-      return $ RhoElim xName t1 t2 p1 p2 pos
-    
-    RPPi rawProof x u v rawQ pos -> do
-      p <- elaborate rawProof
-      ctx <- ask
-      let xName = nameString x
-          uName = nameString u
-          vName = nameString v
-          dummyJudgment = RelJudgment (Var "dummy" 0 pos) (RVar "dummy" 0 pos) (Var "dummy" 0 pos)
-          ctxWithX = bindTermVar xName ctx
-          ctxWithU = bindProofVar uName dummyJudgment ctxWithX
-          ctxWithUV = bindProofVar vName dummyJudgment ctxWithU
-      q <- local (const ctxWithUV) (elaborate rawQ)
-      return $ Pi p xName uName vName q pos
-    
-    RPConvIntro rawProof pos -> do
-      proof <- elaborate rawProof
-      return $ ConvIntro proof pos
-    
-    RPConvElim rawProof pos -> do
-      proof <- elaborate rawProof
-      return $ ConvElim proof pos
-    
-    RPPair rawProof1 rawProof2 pos -> do
-      proof1 <- elaborate rawProof1
-      proof2 <- elaborate rawProof2
-      return $ Pair proof1 proof2 pos
     
     RPMixfix nm args pos -> handleExplicitMacro nm args pos
 
@@ -464,9 +345,3 @@ handleExplicitMacro nm args pos = do
         Nothing -> throwError $ InvalidMixfixPattern 
                     ("Wrong macro kind " ++ name ++ " used in context") 
                     (ErrorContext pos "macro application")
-
--- | Helper to elaborate theorem arguments
-elaborateArg :: RawArg -> ElaborateM TheoremArg
-elaborateArg (RawTermArg rawTerm) = TermArg <$> elaborate rawTerm
-elaborateArg (RawRelArg rawRType) = RelArg <$> elaborate rawRType  
-elaborateArg (RawProofArg rawProof) = ProofArg <$> elaborate rawProof

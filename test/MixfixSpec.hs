@@ -13,7 +13,7 @@ import Core.Syntax
 import Core.Raw
 import Parser.Raw
 import Parser.Lexer (ident)
-import Interface.PrettyPrint
+import Operations.Generic.PrettyPrint
 import Test.Hspec
 import TestHelpers
 import Text.Megaparsec (eof, errorBundlePretty, initialPos, runParser, Parsec)
@@ -160,19 +160,19 @@ mixfixPrettyPrintSpec :: Spec
 mixfixPrettyPrintSpec = describe "Mixfix pretty printing" $ do
   it "pretty prints binary infix notation" $ do
     let term = TMacro "_+_" [MTerm (Var "a" 0 (initialPos "test")), MTerm (Var "b" 1 (initialPos "test"))] (initialPos "test")
-    prettyTerm term `shouldBe` "a + b"
+    prettyDefault term `shouldBe` "a + b"
 
   it "pretty prints ternary mixfix notation" $ do
     let term = TMacro "if_then_else_" [MTerm (Var "c" 2 (initialPos "test")), MTerm (Var "t" 1 (initialPos "test")), MTerm (Var "e" 0 (initialPos "test"))] (initialPos "test")
-    prettyTerm term `shouldBe` "if c then t else e"
+    prettyDefault term `shouldBe` "if c then t else e"
 
   it "pretty prints prefix notation" $ do
     let term = TMacro "not_" [MTerm (Var "b" 0 (initialPos "test"))] (initialPos "test")
-    prettyTerm term `shouldBe` "not b"
+    prettyDefault term `shouldBe` "not b"
 
   it "pretty prints postfix notation" $ do
     let term = TMacro "_!" [MTerm (Var "n" 0 (initialPos "test"))] (initialPos "test")
-    prettyTerm term `shouldBe` "n !"
+    prettyDefault term `shouldBe` "n !"
 
   it "pretty prints fixity declarations" $ do
     prettyDeclaration (FixityDecl (Infixl 6) "_+_") `shouldBe` "infixl 6 _+_;"
@@ -430,13 +430,13 @@ mixfixUnicodeSpec = describe "Unicode mixfix operations" $ do
 
   it "pretty prints unicode mixfix operations" $ do
     let unionTerm = TMacro "_∪_" [MTerm (Var "A" 1 (initialPos "test")), MTerm (Var "B" 0 (initialPos "test"))] (initialPos "test")
-    prettyTerm unionTerm `shouldBe` "A ∪ B"
+    prettyDefault unionTerm `shouldBe` "A ∪ B"
 
     let negTerm = TMacro "¬_" [MTerm (Var "p" 0 (initialPos "test"))] (initialPos "test")
-    prettyTerm negTerm `shouldBe` "¬ p"
+    prettyDefault negTerm `shouldBe` "¬ p"
 
     let daggerTerm = TMacro "_†" [MTerm (Var "M" 0 (initialPos "test"))] (initialPos "test")
-    prettyTerm daggerTerm `shouldBe` "M †"
+    prettyDefault daggerTerm `shouldBe` "M †"
 
   it "handles unicode in relational mixfix macros" $ do
     let paramInfos = [simpleParamInfo "A" RelK, simpleParamInfo "B" RelK]

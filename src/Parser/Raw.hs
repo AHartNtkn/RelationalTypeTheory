@@ -28,36 +28,19 @@ type P = Parsec Void String
 
 posT :: RawTerm  -> SourcePos
 posT (RTVar   _ p)   = p
-posT (RTLam   _ _ p) = p
 posT (RTApp   _ _ p) = p
 posT (RTMacro _ _ p) = p
 posT (RTParens _ p)  = p
 
 posR :: RawRType -> SourcePos
 posR (RRVar   _ p)   = p
-posR (RRArr   _ _ p) = p
-posR (RRAll   _ _ p) = p
-posR (RRComp  _ _ p) = p
-posR (RRConv  _   p) = p
-posR (RRMacro _ _ p) = p
 posR (RRApp   _ _ p) = p
-posR (RRProm  _   p) = p
+posR (RRMacro _ _ p) = p
 posR (RRParens _ p)  = p
 
 posP :: RawProof -> SourcePos
 posP (RPVar         _ p) = p
 posP (RPApp         _ _ p) = p
-posP (RPTheorem     _ _ p) = p
-posP (RPLamP        _ _ _ p) = p
-posP (RPLamT        _ _ p) = p
-posP (RPAppT        _ _ p) = p
-posP (RPConv        _ _ _ p) = p
-posP (RPIota        _ _ p) = p
-posP (RPRho         _ _ _ _ _ p) = p
-posP (RPPi          _ _ _ _ _ p) = p
-posP (RPConvIntro   _ p) = p
-posP (RPConvElim    _ p) = p
-posP (RPPair        _ _ p) = p
 posP (RPMixfix      _ _ p) = p
 posP (RPParens      _ p) = p
 

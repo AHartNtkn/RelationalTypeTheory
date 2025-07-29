@@ -332,8 +332,7 @@ elabMacroAppG ctx name sig body actuals
   | length sig /= length actuals =
       Left $ MacroArityMismatch name (length sig) (length actuals)
              (ErrorContext (initialPos "<elab>") "macro application")
-  | otherwise =
+  | otherwise = do
       let body1 = renameBinderVarsG sig actuals body
           body2 = substituteArgsG   sig actuals body1
-          body3 = Operations.Resolve.resolveWithContext ctx body2
-      in  Right body3
+      Operations.Resolve.resolveWithContext ctx body2

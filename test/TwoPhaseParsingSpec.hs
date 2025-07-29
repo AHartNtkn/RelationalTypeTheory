@@ -27,14 +27,17 @@ spec = do
 
     describe "Dependency Resolution" $ do
       it "loads files in correct dependency order" $ do
-        result <- loadModuleWithDependencies ["examples/test"] "test_main.rtt"
+        result <- parseModuleWithDependencies ["examples/test"] "test_main.rtt"
         case result of
           Left err -> expectationFailure $ "Expected success but got: " ++ show err
-          Right content -> do
-            -- Library should come before main in concatenated content
-            let libIndex = indexOf "Bool ≔ ∀X" content
-                mainIndex = indexOf "And b1 b2" content
-            libIndex `shouldSatisfy` (< mainIndex)
+          Right decls -> do
+            -- Find the Bool macro from library and And macro from main
+            let boolMacroIndex = findDeclarationIndex "Bool" decls
+                andMacroIndex = findDeclarationIndex "And" decls
+            case (boolMacroIndex, andMacroIndex) of
+              (Just bIdx, Just aIdx) -> bIdx `shouldSatisfy` (< aIdx)
+              (Nothing, _) -> expectationFailure "Bool macro not found in declarations"
+              (_, Nothing) -> expectationFailure "And macro not found in declarations"
 
       it "parses concatenated content successfully" $ do
         result <- parseModuleWithDependencies ["examples/test"] "test_main.rtt"
@@ -63,11 +66,13 @@ spec = do
           Left other -> expectationFailure $ "Expected FileNotFound but got: " ++ show other
           Right _ -> expectationFailure "Expected error but got success"
 
--- Helper function
-indexOf :: String -> String -> Int
-indexOf needle haystack = go 0 haystack
+-- Helper function to find declaration index by name
+findDeclarationIndex :: String -> [Declaration] -> Maybe Int
+findDeclarationIndex name decls = findIndex (matchesName name) decls
   where
-    go idx str
-      | take (length needle) str == needle = idx
-      | null str = -1
-      | otherwise = go (idx + 1) (tail str)
+    matchesName target (MacroDef n _ _) = n == target
+    matchesName target (TheoremDef n _ _ _) = n == target
+    matchesName _ _ = False
+    
+    findIndex _ [] = Nothing
+    findIndex pred (x:xs) = if pred x then Just 0 else fmap (+1) (findIndex pred xs)

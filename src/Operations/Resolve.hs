@@ -13,14 +13,15 @@ import qualified Data.Map as Map
 import Core.Syntax
 import Core.Context
 import Core.Raw (dummyPos)
+import Core.Errors
 
 -- | Generic typeclass for resolving free variables to de Bruijn indices
 class ResolveAst a where
   -- | Resolve free variables in the AST using the current context
-  resolveWithContext :: Context -> a -> a
+  resolveWithContext :: Context -> a -> Either RelTTError a
 
 -- | Main entry point: resolve all free variables in an AST
-resolve :: ResolveAst a => a -> a
+resolve :: ResolveAst a => a -> Either RelTTError a
 resolve = resolveWithContext emptyContext
 
 --------------------------------------------------------------------------------
@@ -29,15 +30,21 @@ resolve = resolveWithContext emptyContext
 
 instance ResolveAst Term where
   resolveWithContext ctx = \case
-    Var n i p   -> Var n i p                      -- Already resolved
+    Var n i p   -> Right $ Var n i p                      -- Already resolved
     FVar n p    -> case Map.lookup n (termBindings ctx) of  -- Free variable to resolve
-      Just (i, _)  -> Var n i p
-      Nothing -> error ("unbound term variable \"" ++ n ++ "\" after macro resolution")
-    Lam n b p   -> 
+      Just (i, _)  -> Right $ Var n i p
+      Nothing -> Left $ UnboundVariable ("unbound term variable \"" ++ n ++ "\" after macro resolution") (ErrorContext p "term resolution")
+    Lam n b p   -> do
       let ctx' = bindTermVar n ctx
-      in Lam n (resolveWithContext ctx' b) p
-    App f x p   -> App (resolveWithContext ctx f) (resolveWithContext ctx x) p
-    TMacro n as p -> TMacro n (map (resolveWithContext ctx) as) p
+      resolvedBody <- resolveWithContext ctx' b
+      Right $ Lam n resolvedBody p
+    App f x p   -> do
+      resolvedF <- resolveWithContext ctx f
+      resolvedX <- resolveWithContext ctx x
+      Right $ App resolvedF resolvedX p
+    TMacro n as p -> do
+      resolvedArgs <- mapM (resolveWithContext ctx) as
+      Right $ TMacro n resolvedArgs p
 
 --------------------------------------------------------------------------------
 -- | Instance for RType
@@ -45,18 +52,31 @@ instance ResolveAst Term where
 
 instance ResolveAst RType where
   resolveWithContext ctx = \case
-    RVar n i p   -> RVar n i p                     -- Already resolved
+    RVar n i p   -> Right $ RVar n i p                     -- Already resolved
     FRVar n p    -> case Map.lookup n (relBindings ctx) of   -- Free relational variable to resolve
-      Just i  -> RVar n i p
-      Nothing -> error ("unbound relational variable \"" ++ n ++ "\"")
-    RMacro n as p -> RMacro n (map (resolveWithContext ctx) as) p
-    Arr a b p    -> Arr (resolveWithContext ctx a) (resolveWithContext ctx b) p
-    All n r p    -> 
+      Just i  -> Right $ RVar n i p
+      Nothing -> Left $ UnboundVariable ("unbound relational variable \"" ++ n ++ "\"") (ErrorContext p "relational type resolution")
+    RMacro n as p -> do
+      resolvedArgs <- mapM (resolveWithContext ctx) as
+      Right $ RMacro n resolvedArgs p
+    Arr a b p    -> do
+      resolvedA <- resolveWithContext ctx a
+      resolvedB <- resolveWithContext ctx b
+      Right $ Arr resolvedA resolvedB p
+    All n r p    -> do
       let ctx' = bindRelVar n ctx
-      in All n (resolveWithContext ctx' r) p
-    Conv r p     -> Conv (resolveWithContext ctx r) p
-    Comp a b p   -> Comp (resolveWithContext ctx a) (resolveWithContext ctx b) p
-    Prom t p     -> Prom (resolve t) p             -- Terms use their own resolution
+      resolvedR <- resolveWithContext ctx' r
+      Right $ All n resolvedR p
+    Conv r p     -> do
+      resolvedR <- resolveWithContext ctx r
+      Right $ Conv resolvedR p
+    Comp a b p   -> do
+      resolvedA <- resolveWithContext ctx a
+      resolvedB <- resolveWithContext ctx b
+      Right $ Comp resolvedA resolvedB p
+    Prom t p     -> do
+      resolvedT <- resolve t             -- Terms use their own resolution
+      Right $ Prom resolvedT p
 
 --------------------------------------------------------------------------------
 -- | Instance for Proof
@@ -64,46 +84,76 @@ instance ResolveAst RType where
 
 instance ResolveAst Proof where
   resolveWithContext ctx = \case
-    PVar n i p -> PVar n i p                      -- Already resolved
+    PVar n i p -> Right $ PVar n i p                      -- Already resolved
     FPVar n p  -> case Map.lookup n (proofBindings ctx) of   -- Free proof variable to resolve
-      Just (i, _, _)  -> PVar n i p
-      Nothing -> error ("unbound proof variable \"" ++ n ++ "\"")
-    PTheoremApp n args p -> PTheoremApp n (map resolveArg args) p
+      Just (i, _, _)  -> Right $ PVar n i p
+      Nothing -> Left $ UnboundVariable ("unbound proof variable \"" ++ n ++ "\"") (ErrorContext p "proof resolution")
+    PTheoremApp n args p -> do
+      resolvedArgs <- mapM resolveArg args
+      Right $ PTheoremApp n resolvedArgs p
       where
         resolveArg = \case
-          TermArg t  -> TermArg (resolve t)
-          RelArg rt  -> RelArg (resolve rt)
-          ProofArg pr -> ProofArg (resolveWithContext ctx pr)
-    LamP n rt pr p ->
+          TermArg t  -> TermArg <$> resolve t
+          RelArg rt  -> RelArg <$> resolve rt
+          ProofArg pr -> ProofArg <$> resolveWithContext ctx pr
+    LamP n rt pr p -> do
       let dummyJudgment = RelJudgment (Var "dummy" 0 (dummyPos)) (RVar "dummy" 0 (dummyPos)) (Var "dummy" 0 (dummyPos))
           ctx' = bindProofVar n dummyJudgment ctx
-      in LamP n (resolveWithContext ctx rt) (resolveWithContext ctx' pr) p
-    AppP p1 p2 p   -> AppP (resolveWithContext ctx p1) (resolveWithContext ctx p2) p
-    TyApp pr rt p  -> TyApp (resolveWithContext ctx pr) (resolveWithContext ctx rt) p
-    TyLam n pr p   -> 
+      resolvedRt <- resolveWithContext ctx rt
+      resolvedPr <- resolveWithContext ctx' pr
+      Right $ LamP n resolvedRt resolvedPr p
+    AppP p1 p2 p -> do
+      resolvedP1 <- resolveWithContext ctx p1
+      resolvedP2 <- resolveWithContext ctx p2
+      Right $ AppP resolvedP1 resolvedP2 p
+    TyApp pr rt p -> do
+      resolvedPr <- resolveWithContext ctx pr
+      resolvedRt <- resolveWithContext ctx rt
+      Right $ TyApp resolvedPr resolvedRt p
+    TyLam n pr p -> do
       let ctx' = bindRelVar n ctx
-      in TyLam n (resolveWithContext ctx' pr) p
-    ConvProof t1 pr t2 p -> ConvProof (resolve t1) (resolveWithContext ctx pr) (resolve t2) p
-    ConvIntro pr p -> ConvIntro (resolveWithContext ctx pr) p
-    ConvElim pr p  -> ConvElim (resolveWithContext ctx pr) p
-    Iota t1 t2 p   -> Iota (resolve t1) (resolve t2) p
-    RhoElim n t1 t2 p1 p2 p ->
+      resolvedPr <- resolveWithContext ctx' pr
+      Right $ TyLam n resolvedPr p
+    ConvProof t1 pr t2 p -> do
+      resolvedT1 <- resolve t1
+      resolvedPr <- resolveWithContext ctx pr
+      resolvedT2 <- resolve t2
+      Right $ ConvProof resolvedT1 resolvedPr resolvedT2 p
+    ConvIntro pr p -> do
+      resolvedPr <- resolveWithContext ctx pr
+      Right $ ConvIntro resolvedPr p
+    ConvElim pr p -> do
+      resolvedPr <- resolveWithContext ctx pr
+      Right $ ConvElim resolvedPr p
+    Iota t1 t2 p -> do
+      resolvedT1 <- resolve t1
+      resolvedT2 <- resolve t2
+      Right $ Iota resolvedT1 resolvedT2 p
+    RhoElim n t1 t2 p1 p2 p -> do
       let dummyJudgment = RelJudgment (Var "dummy" 0 (dummyPos)) (RVar "dummy" 0 (dummyPos)) (Var "dummy" 0 (dummyPos))
           ctx' = bindTermVar n (bindProofVar n dummyJudgment ctx)
-      in RhoElim n (resolve t1) (resolve t2)
-           (resolveWithContext ctx p1)
-           (resolveWithContext ctx' p2) p
-    Pair p1 p2 p   -> Pair (resolveWithContext ctx p1) (resolveWithContext ctx p2) p
-    Pi p1 x u v p2 p ->
+      resolvedT1 <- resolve t1
+      resolvedT2 <- resolve t2
+      resolvedP1 <- resolveWithContext ctx p1
+      resolvedP2 <- resolveWithContext ctx' p2
+      Right $ RhoElim n resolvedT1 resolvedT2 resolvedP1 resolvedP2 p
+    Pair p1 p2 p -> do
+      resolvedP1 <- resolveWithContext ctx p1
+      resolvedP2 <- resolveWithContext ctx p2
+      Right $ Pair resolvedP1 resolvedP2 p
+    Pi p1 x u v p2 p -> do
       let dummyJudgment = RelJudgment (Var "dummy" 0 (dummyPos)) (RVar "dummy" 0 (dummyPos)) (Var "dummy" 0 (dummyPos))
           ctx' = bindTermVar x (bindProofVar u dummyJudgment (bindProofVar v dummyJudgment ctx))
-      in Pi (resolveWithContext ctx p1) x u v
-            (resolveWithContext ctx' p2) p
-    PMacro n as p  -> PMacro n (map (resolveWithContext ctx) as) p
+      resolvedP1 <- resolveWithContext ctx p1
+      resolvedP2 <- resolveWithContext ctx' p2
+      Right $ Pi resolvedP1 x u v resolvedP2 p
+    PMacro n as p -> do
+      resolvedArgs <- mapM (resolveWithContext ctx) as
+      Right $ PMacro n resolvedArgs p
 
 -- | MacroArg resolution instance
 instance ResolveAst MacroArg where
   resolveWithContext ctx = \case
-    MTerm t -> MTerm (resolveWithContext ctx t)
-    MRel r -> MRel (resolveWithContext ctx r)
-    MProof p -> MProof (resolveWithContext ctx p)
+    MTerm t -> MTerm <$> resolveWithContext ctx t
+    MRel r -> MRel <$> resolveWithContext ctx r
+    MProof p -> MProof <$> resolveWithContext ctx p

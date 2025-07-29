@@ -1,7 +1,7 @@
 module TheoremArgSpec (spec) where
 
 import Core.Syntax
-import Interface.PrettyPrint
+import Operations.Generic.PrettyPrint
 import Test.Hspec
 import Text.Megaparsec (SourcePos, initialPos)
 
@@ -60,13 +60,13 @@ spec = describe "TheoremArg" $ do
 
     it "pretty prints theorem with no arguments" $ do
       let proof = PTheoremApp "my_thm" [] dummyPos
-      prettyProofWithConfig config proof `shouldBe` "my_thm"
+      prettyWithConfig config proof `shouldBe` "my_thm"
 
     it "pretty prints theorem with single term argument" $ do
       let term = Var "x" 0 dummyPos
           termArg = TermArg term
           proof = PTheoremApp "my_thm" [termArg] dummyPos
-      prettyProofWithConfig config proof `shouldBe` "my_thm (x)"
+      prettyWithConfig config proof `shouldBe` "my_thm (x)"
 
     it "pretty prints theorem with multiple arguments" $ do
       let term = Var "x" 0 dummyPos
@@ -74,7 +74,7 @@ spec = describe "TheoremArg" $ do
           proofTerm = PVar "p" 0 dummyPos
           args = [TermArg term, RelArg rtype, ProofArg proofTerm]
           proof = PTheoremApp "complex_thm" args dummyPos
-      prettyProofWithConfig config proof `shouldBe` "complex_thm (x) (R) (p)"
+      prettyWithConfig config proof `shouldBe` "complex_thm (x) (R) (p)"
 
   describe "TheoremArg equality" $ do
     it "considers equal TermArgs equal" $ do

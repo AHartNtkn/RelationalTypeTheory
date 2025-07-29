@@ -78,7 +78,6 @@ instance MixfixAst RawRType where
   flattenApps = go []
     where
       go acc (RRApp f x _)  = go (x:acc) f
-      go acc (RRComp f x _) = go (x:acc) f  -- Keep composition flattening
       go acc r              = r:acc
 
   makeMacro name args pos = RRMacro name args pos

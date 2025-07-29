@@ -8,9 +8,6 @@ module Module.System
     buildDependencyGraph,
     buildCompleteImportGraph,
     validateDependencyGraph,
-    buildAndValidateImportGraph,
-    loadFilesInOrder,
-    loadModuleWithDependencies,
     parseModuleWithDependencies,
     loadModuleWithDependenciesIntegrated,
     topologicalSort,
@@ -21,7 +18,7 @@ where
 import Control.Exception (IOException, catch)
 import Control.Monad.State
 import Data.Either (partitionEithers)
-import Data.List (intercalate, find)
+import Data.List (find)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Core.Syntax
@@ -418,39 +415,7 @@ validateDependencyGraph graph = do
             Left cyclePath -> Left (CircularDependency cyclePath (ErrorContext (initialPos "<sort>") "topological sort"))
             Right sortedOrder -> Right sortedOrder
 
--- | Build, validate, and sort complete dependency graph
-buildAndValidateImportGraph :: [FilePath] -> ModulePath -> IO (Either ModuleLoadError [ModulePath])
-buildAndValidateImportGraph searchPathsArg entryFile = do
-  graphResult <- buildCompleteImportGraph searchPathsArg entryFile
-  case graphResult of
-    Left err -> return $ Left err
-    Right graph -> return $ validateDependencyGraph graph
 
--- | Load and concatenate file contents in dependency order
--- Dependencies should come before dependents, so reverse the topological order
-loadFilesInOrder :: [FilePath] -> IO (Either ModuleLoadError String)
-loadFilesInOrder [] = return $ Right ""
-loadFilesInOrder files = do
-  results <- mapM loadSingleFile (reverse files) -- Reverse for proper dependency order
-  let (errors, contents) = partitionEithers results
-  case errors of
-    (err : _) -> return $ Left err
-    [] -> return $ Right (intercalate "\n" contents)
-  where
-    loadSingleFile :: FilePath -> IO (Either ModuleLoadError String)
-    loadSingleFile filePath = do
-      result <- catch (Right <$> readFile filePath) (\e -> return $ Left $ show (e :: IOException))
-      case result of
-        Left _ -> return $ Left (FileNotFound filePath (ErrorContext (initialPos filePath) "module loading"))
-        Right content -> return $ Right content
-
--- | Complete graph-based module loading: build graph, validate, and concatenate files
-loadModuleWithDependencies :: [FilePath] -> ModulePath -> IO (Either ModuleLoadError String)
-loadModuleWithDependencies searchPathsArg entryFile = do
-  graphResult <- buildAndValidateImportGraph searchPathsArg entryFile
-  case graphResult of
-    Left err -> return $ Left err
-    Right sortedFiles -> loadFilesInOrder sortedFiles
 
 -- | Parse concatenated content from multiple files as a single unit
 parseModuleWithDependencies :: [FilePath] -> ModulePath -> IO (Either ModuleLoadError [Declaration])

@@ -28,43 +28,26 @@ import Core.Syntax (Fixity(..))
 -- Raw (unresolved) identifiers - just strings, no de Bruijn indices
 newtype Name = Name String deriving (Show, Eq, Ord)
 
--- Raw terms - no context, no validation
+-- Raw terms - parser + mixfix generated constructors
 data RawTerm
   = RTVar Name SourcePos                    -- x
-  | RTLam Name RawTerm SourcePos           -- λ x . t  
   | RTApp RawTerm RawTerm SourcePos        -- t u
   | RTMacro Name [RawTerm] SourcePos       -- user mixfix/macros _+_ etc.
   | RTParens RawTerm SourcePos             -- (t) - explicit parentheses
   deriving (Show, Eq)
 
--- Raw relational types - no context, no validation  
+-- Raw relational types - parser + mixfix generated constructors  
 data RawRType
   = RRVar Name SourcePos                   -- X
-  | RRArr RawRType RawRType SourcePos      -- T → U
-  | RRAll Name RawRType SourcePos          -- ∀ X . T
-  | RRComp RawRType RawRType SourcePos     -- R ∘ S
-  | RRConv RawRType SourcePos              -- R ˘
-  | RRMacro Name [RawRType] SourcePos      -- mixfix on rel-types
   | RRApp  RawRType RawRType SourcePos     -- *juxtaposition*  R S
-  | RRProm RawTerm SourcePos               -- promotion ⌈t⌉
+  | RRMacro Name [RawRType] SourcePos      -- mixfix on rel-types
   | RRParens RawRType SourcePos            -- (R) - explicit parentheses
   deriving (Show, Eq)
 
--- Raw proofs - no context, no validation
+-- Raw proofs - parser + mixfix generated constructors
 data RawProof  
   = RPVar Name SourcePos                                -- p
   | RPApp RawProof RawProof SourcePos                   -- p q
-  | RPTheorem Name [RawArg] SourcePos                   -- theorem applications (NO arity check here)
-  | RPLamP Name RawRType RawProof SourcePos            -- λ p : R . q (proof lambda)  
-  | RPLamT Name RawProof SourcePos                      -- Λ X . p (type lambda)
-  | RPAppT RawProof RawRType SourcePos                  -- p T (type application)
-  | RPConv RawTerm RawProof RawTerm SourcePos          -- t ⇃ p ⇂ u (conversion)
-  | RPIota RawTerm RawTerm SourcePos                    -- ι⟨t,u⟩ (term promotion)
-  | RPRho Name RawTerm RawTerm RawProof RawProof SourcePos  -- ρ{ x . t1, t2} p1 - p2 (rho elimination)
-  | RPPi RawProof Name Name Name RawProof SourcePos          -- π(p,x .u.v,q) - x:term, u,v:proofs
-  | RPConvIntro RawProof SourcePos                      -- ∪ᵢ p (converse intro)
-  | RPConvElim RawProof SourcePos                       -- ∪ₑ p (converse elim)
-  | RPPair RawProof RawProof SourcePos                  -- ⟨p,q⟩ (pair)
   | RPMixfix Name [RawProof] SourcePos                  -- mixfix on proofs
   | RPParens RawProof SourcePos                         -- (p) - explicit parentheses
   deriving (Show, Eq)
@@ -134,7 +117,6 @@ class StripPos a where
 instance StripPos RawTerm where
   stripPos = \case
     RTVar n _          -> RTVar n dummyPos
-    RTLam n t _        -> RTLam n (stripPos t) dummyPos
     RTApp f x _        -> RTApp (stripPos f) (stripPos x) dummyPos
     RTMacro n ts _     -> RTMacro n (map stripPos ts) dummyPos
     RTParens t _       -> RTParens (stripPos t) dummyPos
@@ -142,31 +124,14 @@ instance StripPos RawTerm where
 instance StripPos RawRType where
   stripPos = \case
     RRVar n _          -> RRVar n dummyPos
-    RRArr a b _        -> RRArr (stripPos a) (stripPos b) dummyPos
-    RRAll n t _        -> RRAll n (stripPos t) dummyPos
-    RRComp a b _       -> RRComp (stripPos a) (stripPos b) dummyPos
-    RRConv r _         -> RRConv (stripPos r) dummyPos
-    RRMacro n rs _     -> RRMacro n (map stripPos rs) dummyPos
     RRApp  a b _       -> RRApp  (stripPos a) (stripPos b) dummyPos
-    RRProm t _         -> RRProm (stripPos t) dummyPos
+    RRMacro n rs _     -> RRMacro n (map stripPos rs) dummyPos
     RRParens r _       -> RRParens (stripPos r) dummyPos
 
 instance StripPos RawProof where
   stripPos = \case
     RPVar n _                    -> RPVar n dummyPos
     RPApp p q _                  -> RPApp (stripPos p) (stripPos q) dummyPos
-    RPTheorem n as _             -> RPTheorem n (map stripPos as) dummyPos
-    RPLamP n rt p _              -> RPLamP n (stripPos rt) (stripPos p) dummyPos
-    RPLamT n p _                 -> RPLamT n (stripPos p) dummyPos
-    RPAppT p rt _                -> RPAppT (stripPos p) (stripPos rt) dummyPos
-    RPConv t1 p t2 _             -> RPConv (stripPos t1) (stripPos p) (stripPos t2) dummyPos
-    RPIota t u _                 -> RPIota (stripPos t) (stripPos u) dummyPos
-    RPRho n t1 t2 p1 p2 _        -> RPRho n (stripPos t1) (stripPos t2)
-                                         (stripPos p1) (stripPos p2) dummyPos
-    RPPi p x r y q _             -> RPPi (stripPos p) x r y (stripPos q) dummyPos
-    RPConvIntro p _              -> RPConvIntro (stripPos p) dummyPos
-    RPConvElim  p _              -> RPConvElim  (stripPos p) dummyPos
-    RPPair p q _                 -> RPPair (stripPos p) (stripPos q) dummyPos
     RPMixfix n ps _              -> RPMixfix n (map stripPos ps) dummyPos
     RPParens p _                 -> RPParens (stripPos p) dummyPos
 

@@ -28,8 +28,8 @@ spec = do
         case runParser (rawProof <* eof) "test" input of
           Left err -> expectationFailure $ "Expected successful parsing of simple theorem reference, got: " ++ errorBundlePretty err
           Right proof -> case proof of
-            RPTheorem (Name name) [] _ -> name `shouldBe` "simple_thm"
-            _ -> expectationFailure $ "Expected PTheoremApp, got: " ++ show proof
+            RPVar (Name name) _ -> name `shouldBe` "simple_thm"
+            _ -> expectationFailure $ "Expected RPVar (theorem name), got: " ++ show proof
 
       it "should parse theorem reference as proof argument (BUG - currently fails)" $ do
         -- Create theorems where one legitimately takes a proof argument from another
@@ -46,8 +46,8 @@ spec = do
         case runParser (rawProof <* eof) "test" input of
           Left err -> expectationFailure $ "BUG DETECTED: Failed to parse theorem reference as proof argument. This should work but currently fails with: " ++ errorBundlePretty err
           Right proof -> case proof of
-            RPApp (RPApp (RPTheorem (Name "use_proof") [] _) _ _) (RPApp (RPTheorem (Name "identity") [] _) _ _) _ -> 
-              return () -- This is what we expect when bug is fixed
+            RPApp (RPApp (RPVar (Name "use_proof") _) _ _) (RPApp (RPVar (Name "identity") _) _ _) _ -> 
+              return () -- Theorem names parse as variables
             _ -> expectationFailure $ "Expected nested theorem application structure, got: " ++ show proof
 
     -- TEST 2: Proof Checker Integration Test  
@@ -70,7 +70,7 @@ spec = do
             -- Success: parsing worked, so the theorem reference parsing is functioning
             -- For this test, we only care that parsing succeeds
             case nestedProof of
-              RPApp (RPTheorem (Name "proof_user") [] _) (RPApp (RPTheorem (Name "identity") [] _) _ _) _ ->
+              RPApp (RPVar (Name "proof_user") _) (RPApp (RPVar (Name "identity") _) _ _) _ ->
                 return () -- Expected structure
               _ -> return () -- Parsing succeeded, structure might be different but that's ok
 
@@ -91,8 +91,8 @@ spec = do
             -- Check that the last theorem has the expected nested structure
             case decls !! 2 of
               RawTheorem (Name "nested_thm") _ _ proof -> case proof of
-                RPApp (RPApp (RPTheorem (Name "proof_wrapper") [] _) _ _) (RPApp (RPTheorem (Name "identity") [] _) _ _) _ ->
-                  return () -- This is what we expect when bug is fixed
+                RPApp (RPApp (RPVar (Name "proof_wrapper") _) _ _) (RPApp (RPVar (Name "identity") _) _ _) _ ->
+                  return () -- Theorem names parse as variables
                 _ -> expectationFailure $ "Expected nested theorem application structure in parsed proof, got: " ++ show proof
               _ -> expectationFailure "Expected RawTheorem as third declaration"
 
