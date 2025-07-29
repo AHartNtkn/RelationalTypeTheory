@@ -1,3 +1,6 @@
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 -- | Unified, binder-aware macro application for Term, RType and Proof.
 -- This module provides a generic infrastructure that eliminates code duplication
 -- across the three AST categories while maintaining identical public APIs.
@@ -151,7 +154,8 @@ instance ParamInferAst RType where
       walkForParams idxOf (maybe stk (:stk) (Map.lookup v idxOf)) t
     RVar v _ _ -> case Map.lookup v idxOf of
         Just i -> modify (updateAt i (\paramInfo -> paramInfo{pDeps = Set.toAscList
-                                                    (Set.fromList (pDeps paramInfo) `Set.union` Set.fromList stk)}))
+                                                    (Set.fromList (pDeps paramInfo) `Set.union` Set.fromList stk)
+                                                   , pKind = RelK}))
         _      -> pure ()
     Arr a b _   -> walkForParams idxOf stk a >> walkForParams idxOf stk b
     Comp a b _  -> walkForParams idxOf stk a >> walkForParams idxOf stk b
@@ -163,10 +167,11 @@ instance ParamInferAst Proof where
   getVarKind _ = ProofK
   walkForParams idxOf stk proof = case proof of
     -- LamP binds a proof variable
-    LamP v _ p _ -> do
+    LamP v ty p _ -> do
       case Map.lookup v idxOf of
         Just i -> modify (updateAt i (\paramInfo -> paramInfo{pBinds=True, pKind=ProofK}))
         _      -> pure ()
+      walkForParams idxOf stk ty
       walkForParams idxOf (maybe stk (:stk) (Map.lookup v idxOf)) p
     
     -- TyLam binds a type variable (relation)
@@ -216,16 +221,21 @@ instance ParamInferAst Proof where
     
     -- Recursive cases
     AppP p1 p2 _       -> walkForParams idxOf stk p1 >> walkForParams idxOf stk p2
-    TyApp p _ _        -> walkForParams idxOf stk p
-    ConvProof _ p _ _  -> walkForParams idxOf stk p
+    TyApp p ty _       -> walkForParams idxOf stk p >> walkForParams idxOf stk ty
+    ConvProof t1 p t2 _ -> do
+      walkForParams @Term idxOf stk t1
+      walkForParams idxOf stk p
+      walkForParams @Term idxOf stk t2
     ConvIntro p _      -> walkForParams idxOf stk p
     ConvElim p _       -> walkForParams idxOf stk p
+    Iota t1 t2 _ -> do
+      walkForParams @Term idxOf stk t1
+      walkForParams @Term idxOf stk t2
     Pair p1 p2 _       -> walkForParams idxOf stk p1 >> walkForParams idxOf stk p2
     PMacro _ as _      -> mapM_ (walkForParams idxOf stk) as
     
     -- Non-recursive cases
     PTheoremApp _ _ _  -> pure ()
-    Iota _ _ _         -> pure ()
 
 --------------------------------------------------------------------------------
 -- | Generic helper functions
