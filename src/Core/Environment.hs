@@ -3,6 +3,7 @@
 -- | Environment management utilities for macros and theorems
 module Core.Environment
   ( extendMacroEnvironment
+  , extendMacroEnvironmentWithParams
   , noMacros
   , noTheorems
   ) where
@@ -28,6 +29,18 @@ extendMacroEnvironment n ps body fixity env =
   in env { macroDefinitions = Map.insert n (pInfo, body) (macroDefinitions env)
          , macroFixities    = Map.insert n fixity            (macroFixities    env)
          }
+
+-- | Extend macro environment with explicit parameter info (for cross-category macros)
+extendMacroEnvironmentWithParams
+  :: String              -- ^ name
+  -> [ParamInfo]         -- ^ explicit parameter info
+  -> MacroBody
+  -> Fixity
+  -> MacroEnvironment -> MacroEnvironment
+extendMacroEnvironmentWithParams n pInfo body fixity env =
+  env { macroDefinitions = Map.insert n (pInfo, body) (macroDefinitions env)
+      , macroFixities    = Map.insert n fixity (macroFixities env)
+      }
 
 -- | Empty environments used by tests.
 noMacros :: MacroEnvironment

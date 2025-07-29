@@ -66,7 +66,7 @@ instance FreeVarsAst Term where
   extractVarName (FVar x _) = Just x    -- Free variables also have names
   extractVarName _ = Nothing
   
-  extractMacro (TMacro name args _) = Just (name, args)
+  extractMacro (TMacro name args _) = Just (name, [t | MTerm t <- args])
   extractMacro _ = Nothing
   
   freeVarsCore recurse env = \case
@@ -81,7 +81,7 @@ instance FreeVarsAst RType where
   extractVarName (FRVar x _) = Just x   -- Free variables also have names
   extractVarName _ = Nothing
   
-  extractMacro (RMacro name args _) = Just (name, args)
+  extractMacro (RMacro name args _) = Just (name, [r | MRel r <- args])
   extractMacro _ = Nothing
   
   freeVarsCore recurse env = \case
@@ -99,7 +99,7 @@ instance FreeVarsAst Proof where
   extractVarName (FPVar x _) = Just x   -- Free variables also have names
   extractVarName _ = Nothing
   
-  extractMacro (PMacro name args _) = Just (name, args)
+  extractMacro (PMacro name args _) = Just (name, [p | MProof p <- args])
   extractMacro _ = Nothing
   
   freeVarsCore recurse env = \case
@@ -111,16 +111,30 @@ instance FreeVarsAst Proof where
           TermArg t  -> freeVars env t
           RelArg rt  -> freeVars env rt
           ProofArg p -> recurse env p
-    LamP x rt p _       -> S.delete x (freeVars env rt `S.union` recurse env p)
-    AppP p1 p2 _        -> recurse env p1 `S.union` recurse env p2
-    TyApp p rt _        -> recurse env p `S.union` freeVars env rt
-    TyLam x p _         -> S.delete x (recurse env p)
-    ConvProof t1 p t2 _ -> freeVars env t1 `S.union` recurse env p `S.union` freeVars env t2
+    LamP x _ b _        -> S.delete x (recurse env b)
+    AppP f a _          -> recurse env f `S.union` recurse env a
+    TyApp p _ _          -> recurse env p
+    TyLam x b _         -> S.delete x (recurse env b)
+    ConvProof _ p _ _    -> recurse env p
     ConvIntro p _       -> recurse env p
     ConvElim p _        -> recurse env p
-    Iota t1 t2 _        -> freeVars env t1 `S.union` freeVars env t2
-    RhoElim x t1 t2 p1 p2 _ -> S.delete x (freeVars env t1 `S.union` freeVars env t2) `S.union` recurse env p1 `S.union` recurse env p2
-    Pi p1 x u v p2 _    -> recurse env p1 `S.union` S.delete x (S.delete u (S.delete v (recurse env p2)))
+    Iota _ _ _           -> S.empty  -- No free variables in iota
+    RhoElim x _ _ p1 p2 _ -> S.delete x (recurse env p1) `S.union` recurse env p2
     Pair p1 p2 _        -> recurse env p1 `S.union` recurse env p2
+    Pi p1 x u v p2 _    -> recurse env p1 `S.union` S.delete x (S.delete u (S.delete v (recurse env p2)))
     PMacro _ _ _         -> error "PMacro should be handled by extractMacro"
+
+-- | MacroArg free variables instance
+instance FreeVarsAst MacroArg where
+  extractVarName = \case
+    MTerm t -> extractVarName t
+    MRel r -> extractVarName r
+    MProof p -> extractVarName p
+    
+  extractMacro _ = Nothing  -- MacroArgs are not macros themselves
+  
+  freeVarsCore _recurse env = \case
+    MTerm t -> freeVars env t
+    MRel r -> freeVars env r  
+    MProof p -> freeVars env p
 

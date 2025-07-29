@@ -90,8 +90,8 @@ spec = do
         prettyRType (RVar "X" 0 (initialPos "test")) `shouldBe` "X"
 
       it "pretty prints type applications" $ do
-        prettyRType (RMacro "List" [RVar "X" 0 (initialPos "test")] (initialPos "test")) `shouldBe` "List X"
-        prettyRType (RMacro "Map" [RVar "K" 0 (initialPos "test"), RVar "V" 0 (initialPos "test")] (initialPos "test")) `shouldBe` "Map K V"
+        prettyRType (RMacro "List" [MRel (RVar "X" 0 (initialPos "test"))] (initialPos "test")) `shouldBe` "List X"
+        prettyRType (RMacro "Map" [MRel (RVar "K" 0 (initialPos "test")), MRel (RVar "V" 0 (initialPos "test"))] (initialPos "test")) `shouldBe` "Map K V"
 
       it "pretty prints arrow types with Unicode" $ do
         prettyRType (Arr (RVar "X" 0 (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")) `shouldBe` "X → Y"
@@ -152,15 +152,15 @@ spec = do
         prettyRType (RMacro "Bottom" [] (initialPos "test")) `shouldBe` "Bottom"
 
       it "pretty prints nested relational macro applications" $ do
-        let nested = RMacro "Outer" [RMacro "Inner" [RVar "X" 0 (initialPos "test")] (initialPos "test"), RVar "Y" 0 (initialPos "test")] (initialPos "test")
+        let nested = RMacro "Outer" [MRel (RMacro "Inner" [MRel (RVar "X" 0 (initialPos "test"))] (initialPos "test")), MRel (RVar "Y" 0 (initialPos "test"))] (initialPos "test")
         prettyRType nested `shouldBe` "Outer Inner X Y"
 
       it "pretty prints relational macros with complex type arguments" $ do
-        let complex = RMacro "Transform" [Arr (RVar "A" 0 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"), All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test")] (initialPos "test")
+        let complex = RMacro "Transform" [MRel (Arr (RVar "A" 0 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test")), MRel (All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test"))] (initialPos "test")
         prettyRType complex `shouldBe` "Transform (A → B) (∀ X . X)"
 
       it "pretty prints relational macros with promoted terms" $ do
-        let original = RMacro "Lift" [Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")] (initialPos "test")
+        let original = RMacro "Lift" [MRel (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))] (initialPos "test")
             prettyResult = prettyRType original
             liftEnv = extendMacroEnvironment "Lift" ["A"] (RelMacro (RVar "A" 0 (initialPos "test"))) (defaultFixity "TEST") noMacros
             ctx = emptyParseContext {macroEnv = liftEnv}
@@ -173,7 +173,7 @@ spec = do
               Right elaborated -> elaborated `shouldBeEqual` original
 
       it "pretty prints relational macros with relational operations" $ do
-        let withOps = RMacro "Compose" [Comp (RVar "R" 0 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"), Conv (RVar "T" 0 (initialPos "test")) (initialPos "test")] (initialPos "test")
+        let withOps = RMacro "Compose" [MRel (Comp (RVar "R" 0 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test")), MRel (Conv (RVar "T" 0 (initialPos "test")) (initialPos "test"))] (initialPos "test")
         prettyRType withOps `shouldBe` "Compose (R ∘ S) T˘"
 
     describe "complex types" $ do
@@ -549,21 +549,21 @@ spec = do
       prettyTerm (TMacro "Id" [] (initialPos "test")) `shouldBe` "Id"
 
     it "pretty prints term macros with single argument" $ do
-      prettyTerm (TMacro "Apply" [Var "f" 0 (initialPos "test")] (initialPos "test")) `shouldBe` "Apply f"
+      prettyTerm (TMacro "Apply" [MTerm (Var "f" 0 (initialPos "test"))] (initialPos "test")) `shouldBe` "Apply f"
 
     it "pretty prints term macros with multiple arguments" $ do
-      prettyTerm (TMacro "Comp" [Var "f" 0 (initialPos "test"), Var "g" 0 (initialPos "test")] (initialPos "test")) `shouldBe` "Comp f g"
+      prettyTerm (TMacro "Comp" [MTerm (Var "f" 0 (initialPos "test")), MTerm (Var "g" 0 (initialPos "test"))] (initialPos "test")) `shouldBe` "Comp f g"
 
     it "pretty prints nested term macro applications" $ do
-      let nested = TMacro "Outer" [TMacro "Inner" [Var "x" 0 (initialPos "test")] (initialPos "test"), Var "y" 0 (initialPos "test")] (initialPos "test")
+      let nested = TMacro "Outer" [MTerm (TMacro "Inner" [MTerm (Var "x" 0 (initialPos "test"))] (initialPos "test")), MTerm (Var "y" 0 (initialPos "test"))] (initialPos "test")
       prettyTerm nested `shouldBe` "Outer Inner x y"
 
     it "pretty prints term macros with complex arguments" $ do
-      let complex = TMacro "Map" [Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"), App (Var "f" 0 (initialPos "test")) (Var "a" 0 (initialPos "test")) (initialPos "test")] (initialPos "test")
+      let complex = TMacro "Map" [MTerm (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")), MTerm (App (Var "f" 0 (initialPos "test")) (Var "a" 0 (initialPos "test")) (initialPos "test"))] (initialPos "test")
       prettyTerm complex `shouldBe` "Map (λ x . x) (f a)"
 
     it "pretty prints term macros with lambda arguments requiring parentheses" $ do
-      let withLam = TMacro "Apply" [Lam "x" (App (Var "x" 0 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")] (initialPos "test")
+      let withLam = TMacro "Apply" [MTerm (Lam "x" (App (Var "x" 0 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))] (initialPos "test")
       prettyTerm withLam `shouldBe` "Apply (λ x . x y)"
 
     it "handles empty argument lists consistently" $ do
@@ -592,12 +592,12 @@ spec = do
 
     it "handles deeply nested type applications" $ do
       -- Create nested applications: F (G (H X))
-      let deepType = RMacro "F" [RMacro "G" [RMacro "H" [RVar "X" 0 (initialPos "test")] (initialPos "test")] (initialPos "test")] (initialPos "test")
+      let deepType = RMacro "F" [MRel (RMacro "G" [MRel (RMacro "H" [MRel (RVar "X" 0 (initialPos "test"))] (initialPos "test"))] (initialPos "test"))] (initialPos "test")
       prettyRType deepType `shouldBe` "F G H X"
 
     it "handles large argument lists" $ do
       let manyArgs = map (\i -> Var ("x" ++ show i) 0 (initialPos "test")) [1 .. 10]
-      let manyArgMacro = TMacro "ManyArgs" manyArgs (initialPos "test")
+      let manyArgMacro = TMacro "ManyArgs" (map MTerm manyArgs) (initialPos "test")
       let result = prettyTerm manyArgMacro
       result `shouldContain` "ManyArgs"
       result `shouldContain` "x1"
@@ -633,8 +633,8 @@ spec = do
       let complex =
             TMacro
               "Transform"
-              [ Lam "f" (Lam "x" (App (Var "f" 1 (initialPos "test")) (TMacro "Helper" [Var "x" 0 (initialPos "test")] (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"),
-                App (Lam "y" (Var "y" 0 (initialPos "test")) (initialPos "test")) (TMacro "Const" [] (initialPos "test")) (initialPos "test")
+              [ MTerm (Lam "f" (Lam "x" (App (Var "f" 1 (initialPos "test")) (TMacro "Helper" [MTerm (Var "x" 0 (initialPos "test"))] (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")),
+                MTerm (App (Lam "y" (Var "y" 0 (initialPos "test")) (initialPos "test")) (TMacro "Const" [] (initialPos "test")) (initialPos "test"))
               ]
               (initialPos "test")
       let result = prettyTerm complex

@@ -216,7 +216,7 @@ macroExpansionAlphaEqualitySpec = describe "macro expansion in alpha equality" $
                 ]
             )
             Map.empty
-        macroCall = TMacro "Const" [TMacro "a" [] (initialPos "test")] (initialPos "test")
+        macroCall = TMacro "Const" [MTerm (TMacro "a" [] (initialPos "test"))] (initialPos "test")
         expectedExpansion = Lam "y" (TMacro "a" [] (initialPos "test")) (initialPos "test")
     case termEqualityAlpha macroEnv macroCall expectedExpansion of
       Right True -> return () -- Success: macro expands to expected form

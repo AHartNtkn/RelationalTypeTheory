@@ -32,7 +32,7 @@ normalizeMacroApplication env name args =
     Just (paramInfo, RelMacro body) -> 
       if length args /= length paramInfo
       then Left (MacroArityMismatch name (length paramInfo) (length args) (ErrorContext (initialPos "test") "macro normalization"))
-      else expandFully env (RMacro name args (initialPos "test")) >>= Right . expandedValue
+      else expandFully env (RMacro name (map MRel args) (initialPos "test")) >>= Right . expandedValue
     Just (_, _) -> Left (InternalError "Expected RelMacro body" (ErrorContext (initialPos "test") "macro normalization"))
 
 spec :: Spec
@@ -52,8 +52,8 @@ macroAwareEqualitySpec = describe "macro-aware equality (key optimization)" $ do
   it "compares same macro heads without expansion" $ do
     let env = noMacros
         env' = extendMacroEnvironment "List" ["A"] (RelMacro (Arr (RVar "A" 0 (initialPos "test")) (RMacro "ListType" [] (initialPos "test")) (initialPos "test"))) (defaultFixity "ID") env
-        type1 = RMacro "List" [RMacro "Int" [] (initialPos "test")] (initialPos "test")
-        type2 = RMacro "List" [RMacro "String" [] (initialPos "test")] (initialPos "test")
+        type1 = RMacro "List" [MRel (RMacro "Int" [] (initialPos "test"))] (initialPos "test")
+        type2 = RMacro "List" [MRel (RMacro "String" [] (initialPos "test"))] (initialPos "test")
     case typeEquality env' type1 type2 of
       Right result -> result `shouldBe` False -- Different arguments, so not equal
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
@@ -61,8 +61,8 @@ macroAwareEqualitySpec = describe "macro-aware equality (key optimization)" $ do
   it "finds same macro with same arguments equal without expansion" $ do
     let env = noMacros
         env' = extendMacroEnvironment "List" ["A"] (RelMacro (Arr (RVar "A" 0 (initialPos "test")) (RMacro "ListType" [] (initialPos "test")) (initialPos "test"))) (defaultFixity "ID") env
-        type1 = RMacro "List" [RMacro "Int" [] (initialPos "test")] (initialPos "test")
-        type2 = RMacro "List" [RMacro "Int" [] (initialPos "test")] (initialPos "test")
+        type1 = RMacro "List" [MRel (RMacro "Int" [] (initialPos "test"))] (initialPos "test")
+        type2 = RMacro "List" [MRel (RMacro "Int" [] (initialPos "test"))] (initialPos "test")
     case typeEquality env' type1 type2 of
       Right result -> result `shouldBe` True
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
@@ -71,8 +71,8 @@ macroAwareEqualitySpec = describe "macro-aware equality (key optimization)" $ do
     let env = noMacros
         env1 = extendMacroEnvironment "List" ["A"] (RelMacro (Arr (RVar "A" 0 (initialPos "test")) (RMacro "Container" [] (initialPos "test")) (initialPos "test"))) (defaultFixity "ID") env
         env2 = extendMacroEnvironment "Array" ["A"] (RelMacro (Arr (RVar "A" 0 (initialPos "test")) (RMacro "Container" [] (initialPos "test")) (initialPos "test"))) (defaultFixity "ID") env1
-        type1 = RMacro "List" [RMacro "Int" [] (initialPos "test")] (initialPos "test")
-        type2 = RMacro "Array" [RMacro "Int" [] (initialPos "test")] (initialPos "test")
+        type1 = RMacro "List" [MRel (RMacro "Int" [] (initialPos "test"))] (initialPos "test")
+        type2 = RMacro "Array" [MRel (RMacro "Int" [] (initialPos "test"))] (initialPos "test")
     case typeEquality env2 type1 type2 of
       Right result -> result `shouldBe` True -- Both expand to same structure
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
@@ -110,7 +110,7 @@ macroExpansionSpec = describe "macro expansion" $ do
   it "expands parameterized macro: Comp R S → R ∘ S" $ do
     let env = noMacros
         env' = extendMacroEnvironment "Comp" ["R", "S"] (RelMacro (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"))) (defaultFixity "ID") env
-        macroType = RMacro "Comp" [RMacro "A" [] (initialPos "test"), RMacro "B" [] (initialPos "test")] (initialPos "test")
+        macroType = RMacro "Comp" [MRel (RMacro "A" [] (initialPos "test")), MRel (RMacro "B" [] (initialPos "test"))] (initialPos "test")
     case expandFully env' macroType of
       Right result -> expandedValue result `shouldBe` Comp (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
@@ -119,7 +119,7 @@ macroExpansionSpec = describe "macro expansion" $ do
     let env = noMacros
         env1 = extendMacroEnvironment "Id" [] (RelMacro (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))) (defaultFixity "ID") env
         env2 = extendMacroEnvironment "IdApp" ["A"] (RelMacro (RMacro "Id" [] (initialPos "test"))) (defaultFixity "ID") env1
-        macroType = RMacro "IdApp" [RMacro "Int" [] (initialPos "test")] (initialPos "test")
+        macroType = RMacro "IdApp" [MRel (RMacro "Int" [] (initialPos "test"))] (initialPos "test")
     case expandFully env2 macroType of
       Right result -> expandedValue result `shouldBe` Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
       Left err -> expectationFailure $ "Unexpected error: " ++ show err
@@ -242,7 +242,7 @@ deBruijnMacroSubstitutionSpec = describe "de Bruijn macro substitution" $ do
             (RelMacro (All "Y" (Arr (RVar "X" 1 (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")))
             (defaultFixity "ID")
             env
-        macroApp = RMacro "Container" [RVar "Z" 3 (initialPos "test")] (initialPos "test")
+        macroApp = RMacro "Container" [MRel (RVar "Z" 3 (initialPos "test"))] (initialPos "test")
 
     case expandFully env' macroApp of
       Right result -> do
@@ -278,7 +278,7 @@ deBruijnMacroSubstitutionSpec = describe "de Bruijn macro substitution" $ do
             )
             (defaultFixity "ID")
             env
-        macroApp = RMacro "TripleNest" [RVar "P" 1 (initialPos "test"), RVar "Q" 2 (initialPos "test")] (initialPos "test")
+        macroApp = RMacro "TripleNest" [MRel (RVar "P" 1 (initialPos "test")), MRel (RVar "Q" 2 (initialPos "test"))] (initialPos "test")
 
     case expandFully env' macroApp of
       Right result -> do

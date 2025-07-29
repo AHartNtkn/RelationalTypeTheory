@@ -1,5 +1,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- | Unified, binder-aware macro application for Term, RType and Proof.
 -- This module provides a generic infrastructure that eliminates code duplication
@@ -42,6 +43,10 @@ class SubstAst a => MacroAst a where
   varNameOf   :: a -> Maybe String
   -- | Rename binder variable names (α-conversion only, indices untouched)
   mapBinders  :: (String -> String) -> a -> a
+  -- | Convert to a MacroArg for heterogeneous collections
+  toArg       :: a -> MacroArg
+  -- | Try to extract from a MacroArg (fails if wrong constructor)
+  fromArg     :: MacroArg -> Maybe a
 
 --------------------------------------------------------------------------------
 -- | Term instance
@@ -57,8 +62,11 @@ instance MacroAst Term where
       go tm = case tm of
         Lam n b p      -> Lam (f n) (go b) p
         App l r p      -> App (go l) (go r) p
-        TMacro n as p  -> TMacro n (map go as) p
+        TMacro n as p  -> TMacro n as p  -- MacroArgs are already heterogeneous, no mapping needed
         other          -> other
+  toArg = MTerm
+  fromArg (MTerm t) = Just t
+  fromArg _ = Nothing
 
 --------------------------------------------------------------------------------
 -- | Relational type instance  
@@ -76,8 +84,11 @@ instance MacroAst RType where
         Arr a b p      -> Arr (go a) (go b) p
         Comp a b p     -> Comp (go a) (go b) p
         Conv r p       -> Conv (go r) p
-        RMacro n as p  -> RMacro n (map go as) p
+        RMacro n as p  -> RMacro n as p  -- MacroArgs are already heterogeneous
         other          -> other
+  toArg = MRel
+  fromArg (MRel r) = Just r
+  fromArg _ = Nothing
 
 --------------------------------------------------------------------------------
 -- | Proof instance
@@ -101,8 +112,11 @@ instance MacroAst Proof where
         ConvIntro q p         -> ConvIntro (go q) p
         ConvElim  q p         -> ConvElim  (go q) p
         Pair l r p            -> Pair (go l) (go r) p
-        PMacro n as p         -> PMacro n (map go as) p
+        PMacro n as p         -> PMacro n as p  -- MacroArgs are already heterogeneous
         other                 -> other
+  toArg = MProof
+  fromArg (MProof p) = Just p
+  fromArg _ = Nothing
 
 --------------------------------------------------------------------------------
 -- | Typeclass for generic parameter inference
@@ -236,6 +250,38 @@ instance ParamInferAst Proof where
     
     -- Non-recursive cases
     PTheoremApp _ _ _  -> pure ()
+
+instance ParamInferAst MacroArg where
+  getVarKind = \case
+    MTerm _ -> TermK
+    MRel _ -> RelK
+    MProof _ -> ProofK
+  
+  walkForParams idxOf stk = \case
+    MTerm t -> walkForParams idxOf stk t
+    MRel r -> walkForParams idxOf stk r
+    MProof p -> walkForParams idxOf stk p
+
+-- | MacroAst instance for MacroArg
+instance MacroAst MacroArg where
+  shiftN amount = \case
+    MTerm t -> MTerm (shiftN amount t)
+    MRel r -> MRel (shiftN amount r) 
+    MProof p -> MProof (shiftN amount p)
+  
+  varNameOf = \case
+    MTerm t -> varNameOf t
+    MRel r -> varNameOf r
+    MProof p -> varNameOf p
+  
+  mapBinders rename = \case
+    MTerm t -> MTerm (mapBinders rename t)
+    MRel r -> MRel (mapBinders rename r)
+    MProof p -> MProof (mapBinders rename p)
+  
+  toArg = id  -- MacroArg is already the target type
+  
+  fromArg = Just  -- Any MacroArg can be converted to MacroArg
 
 --------------------------------------------------------------------------------
 -- | Generic helper functions

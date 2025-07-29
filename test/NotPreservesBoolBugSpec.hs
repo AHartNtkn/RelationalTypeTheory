@@ -67,9 +67,9 @@ extractAndTestJudgmentComparisonSpec = describe "Judgment comparison focus" $ do
         -- Expected judgment (with macro)
         expectedJudgment =
           RelJudgment
-            (TMacro "Not" [Var "b" 0 pos] pos)
+            (TMacro "Not" [MTerm (Var "b" 0 pos)] pos)
             (RMacro "Bool" [] pos)
-            (TMacro "Not" [Var "b" 0 pos] pos)
+            (TMacro "Not" [MTerm (Var "b" 0 pos)] pos)
 
         -- Actual judgment (expanded form with correct indices after macro expansion)
         -- The macro expands to λ t . λ f . b f t where b has index 0 (the substituted argument)
@@ -80,7 +80,7 @@ extractAndTestJudgmentComparisonSpec = describe "Judgment comparison focus" $ do
             (Lam "t" (Lam "f" (App (App (Var "b" 0 pos) (Var "f" 0 pos) pos) (Var "t" 1 pos) pos) pos) pos)
 
     -- First test: can we expand the macro correctly?
-    let notMacro = TMacro "Not" [Var "b" 0 pos] pos
+    let notMacro = TMacro "Not" [MTerm (Var "b" 0 pos)] pos
     case expandFully macrEnv notMacro of
       Left err -> expectationFailure $ "Macro expansion failed: " ++ show err
       Right expanded -> do

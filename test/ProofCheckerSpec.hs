@@ -1307,7 +1307,7 @@ wellFormednessViolationSpec = describe "well-formedness violations" $ do
         termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
 
         -- Create proof that would trigger macro expansion with wrong arity
-        wrongArityJudgment = RelJudgment (Var "a" 0 (initialPos "test")) (RMacro "TestMacro" [RMacro "R" [] (initialPos "test")] (initialPos "test")) (Var "a" 0 (initialPos "test")) -- Only 1 arg, needs 2
+        wrongArityJudgment = RelJudgment (Var "a" 0 (initialPos "test")) (RMacro "TestMacro" [MRel (RMacro "R" [] (initialPos "test"))] (initialPos "test")) (Var "a" 0 (initialPos "test")) -- Only 1 arg, needs 2
         ctx = extendProofContext "p" wrongArityJudgment termCtx
 
         -- Try to check a proof that uses the macro - this should detect arity mismatch during type operations
@@ -1319,7 +1319,7 @@ wellFormednessViolationSpec = describe "well-formedness violations" $ do
         -- Verify we get the unexpanded macro application
         let RelJudgment _ rtype _ = resultJudgment result
         case rtype of
-          RMacro "TestMacro" [RMacro "R" [] _] _ -> return () -- Unexpanded is acceptable
+          RMacro "TestMacro" [MRel (RMacro "R" [] _)] _ -> return () -- Unexpanded is acceptable
           _ -> expectationFailure $ "Expected macro application or arity error, got: " ++ show rtype
       Left _ ->
         -- Also acceptable if the system detects arity mismatch

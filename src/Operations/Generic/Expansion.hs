@@ -3,6 +3,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- | Generic macro expansion infrastructure for all AST types.
 -- This module provides a unified interface for expanding macros in Terms and RTypes.
@@ -144,10 +145,10 @@ expandStep env mode remainingSteps stepsSoFar ast =
 instance ExpandAst Term where
   type MacroBodyType Term = Term
   
-  getMacroApp (TMacro name args pos) = Just (name, args, pos)
+  getMacroApp (TMacro name args pos) = Just (name, [t | MTerm t <- args], pos)
   getMacroApp _ = Nothing
   
-  mkMacroApp = TMacro
+  mkMacroApp name termArgs pos = TMacro name (map MTerm termArgs) pos
   
   isRightBody (TermMacro body) = Just body
   isRightBody _ = Nothing
@@ -172,10 +173,10 @@ instance ExpandAst Term where
 instance ExpandAst RType where
   type MacroBodyType RType = RType
   
-  getMacroApp (RMacro name args pos) = Just (name, args, pos)
+  getMacroApp (RMacro name args pos) = Just (name, [r | MRel r <- args], pos)
   getMacroApp _ = Nothing
   
-  mkMacroApp = RMacro
+  mkMacroApp name relArgs pos = RMacro name (map MRel relArgs) pos
   
   isRightBody (RelMacro body) = Just body
   isRightBody _ = Nothing
@@ -210,10 +211,10 @@ instance ExpandAst RType where
 instance ExpandAst Proof where
   type MacroBodyType Proof = Proof
   
-  getMacroApp (PMacro name args pos) = Just (name, args, pos)
+  getMacroApp (PMacro name args pos) = Just (name, [p | MProof p <- args], pos)
   getMacroApp _ = Nothing
   
-  mkMacroApp = PMacro
+  mkMacroApp name proofArgs pos = PMacro name (map MProof proofArgs) pos
   
   isRightBody (ProofMacro body) = Just body
   isRightBody _ = Nothing
@@ -259,3 +260,25 @@ instance ExpandAst Proof where
       exp1 <- expandWithLimit env mode 1000 p1
       exp2 <- expandWithLimit env mode 1000 p2
       return $ Pi (expandedValue exp1) x u v (expandedValue exp2) pos
+
+-- | ExpandAst instance for MacroArg
+instance ExpandAst MacroArg where
+  type MacroBodyType MacroArg = MacroArg
+  
+  -- MacroArgs are not themselves macro applications
+  getMacroApp _ = Nothing
+  
+  -- This should never be called since MacroArgs don't have macros
+  mkMacroApp _ _ _ = error "MacroArg cannot be a macro application"
+  
+  -- This should never be called since MacroArgs don't expand
+  isRightBody _ = Nothing
+  
+  -- Identity conversion 
+  bodyToAst = id
+  
+  -- Delegate expansion to the wrapped type
+  expandSubterms env mode = \case
+    MTerm t -> MTerm <$> expandSubterms env mode t
+    MRel r -> MRel <$> expandSubterms env mode r
+    MProof p -> MProof <$> expandSubterms env mode p

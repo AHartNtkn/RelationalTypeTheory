@@ -121,3 +121,10 @@ instance ResolveAst Proof where
       in Pi (resolveWithEnv env p1) x u v
             (resolveWithEnv env' p2) p
     PMacro n as p  -> PMacro n (map (resolveWithEnv env) as) p
+
+-- | MacroArg resolution instance
+instance ResolveAst MacroArg where
+  resolveWithEnv env = \case
+    MTerm t -> MTerm (resolveWithEnv env t)
+    MRel r -> MRel (resolveWithEnv env r)
+    MProof p -> MProof (resolveWithEnv env p)

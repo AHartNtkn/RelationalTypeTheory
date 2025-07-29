@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 
 module NewParserPipelineSpec (spec) where
 
@@ -60,7 +61,11 @@ stripTermPositions (Var name idx _) = Var name idx dummyPos
 stripTermPositions (FVar name _) = FVar name dummyPos
 stripTermPositions (Lam name body _) = Lam name (stripTermPositions body) dummyPos  
 stripTermPositions (App t1 t2 _) = App (stripTermPositions t1) (stripTermPositions t2) dummyPos
-stripTermPositions (TMacro name args _) = TMacro name (map stripTermPositions args) dummyPos
+stripTermPositions (TMacro name args _) = TMacro name (map stripMacroArgTerm args) dummyPos
+  where stripMacroArgTerm = \case
+          MTerm t -> MTerm (stripTermPositions t)
+          MRel r -> MRel r   -- Relations don't need position stripping in this context
+          MProof p -> MProof p  -- Proofs don't need position stripping in this context
 
 stripRTypePositions :: RType -> RType
 stripRTypePositions (RVar name idx _) = RVar name idx dummyPos
@@ -70,7 +75,11 @@ stripRTypePositions (All name rt _) = All name (stripRTypePositions rt) dummyPos
 stripRTypePositions (Comp rt1 rt2 _) = Comp (stripRTypePositions rt1) (stripRTypePositions rt2) dummyPos
 stripRTypePositions (Conv rt _) = Conv (stripRTypePositions rt) dummyPos
 stripRTypePositions (Prom term _) = Prom (stripTermPositions term) dummyPos
-stripRTypePositions (RMacro name args _) = RMacro name (map stripRTypePositions args) dummyPos
+stripRTypePositions (RMacro name args _) = RMacro name (map stripMacroArgRType args) dummyPos
+  where stripMacroArgRType = \case
+          MTerm t -> MTerm t  -- Terms don't need position stripping in this context
+          MRel r -> MRel (stripRTypePositions r)
+          MProof p -> MProof p  -- Proofs don't need position stripping in this context
 
 stripProofPositions :: Proof -> Proof
 stripProofPositions (PVar name idx _) = PVar name idx dummyPos

@@ -30,7 +30,7 @@ import Parser.Context
 import Operations.Generic.Mixfix (MixfixAst(..), reparseG)
 import Operations.Generic.Token (toTok, hasOperatorG)
 import Parser.Mixfix (mixfixKeywords)
-import Operations.Generic.Macro (elabMacroAppG, MacroAst)
+import Operations.Generic.Macro (elabMacroAppG, MacroAst(..))
 import Operations.Resolve (ResolveAst)
 
 --------------------------------------------------------------------------------
@@ -51,7 +51,7 @@ class MixfixAst raw => ElaborateAst raw typed | raw -> typed where
   mkFreeVar :: String -> SourcePos -> typed
   
   -- | Create a macro application node (used by handleMacroApp)
-  mkMacroApp :: String -> [typed] -> SourcePos -> typed
+  mkMacroApp :: String -> [MacroArg] -> SourcePos -> typed
   
   -- | Check if a macro body has the right type (used by handleVar)
   isValidMacroKind :: MacroBody -> Bool
@@ -83,7 +83,7 @@ instance ElaborateAst RawTerm Term where
   getBoundVarsCtx = boundVars
   mkBoundVar = Var
   mkFreeVar = FVar
-  mkMacroApp = TMacro
+  mkMacroApp name args pos = TMacro name args pos
   
   isValidMacroKind (TermMacro _) = True
   isValidMacroKind _ = False
@@ -138,7 +138,7 @@ instance ElaborateAst RawRType RType where
   getBoundVarsCtx = boundRelVars
   mkBoundVar = RVar
   mkFreeVar = FRVar
-  mkMacroApp = RMacro
+  mkMacroApp name args pos = RMacro name args pos
   
   isValidMacroKind (RelMacro _) = True
   isValidMacroKind (TermMacro _) = True  -- Terms can be promoted
@@ -212,7 +212,7 @@ instance ElaborateAst RawProof Proof where
   getBoundVarsCtx ctx = Map.map fst (boundProofVars ctx)
   mkBoundVar = PVar
   mkFreeVar = FPVar
-  mkMacroApp = PMacro
+  mkMacroApp name args pos = PMacro name args pos
   
   isValidMacroKind (ProofMacro _) = True
   isValidMacroKind _ = False
@@ -249,8 +249,7 @@ instance ElaborateAst RawProof Proof where
                             (ErrorContext pos "proof application")
         
         proofMacroHandler args macroName params macroPos = do
-          elaboratedArgs <- mapM elaborate args
-          handleMacroApp @RawProof @Proof macroName params elaboratedArgs macroPos
+          handleMacroAppCrossCategory macroName params args macroPos
     
     RPTheorem name rawArgs pos -> do
       ctx <- ask
@@ -347,6 +346,39 @@ instance ElaborateAst RawProof Proof where
 -- | Generic helpers shared across all instances
 --------------------------------------------------------------------------------
 
+-- | Handle macro application with cross-category support
+handleMacroAppCrossCategory :: String -> [ParamInfo] -> [RawProof] -> SourcePos -> ElaborateM Proof
+handleMacroAppCrossCategory macroName params args macroPos = do
+  -- Check arity
+  when (length params /= length args) $
+    throwError $ MacroArityMismatch macroName (length params) (length args)
+                 (ErrorContext macroPos "macro application")
+  
+  -- Elaborate each argument according to its parameter kind
+  macroArgs <- zipWithM elaborateByKind args params
+  
+  -- Create the macro application
+  return $ PMacro macroName macroArgs macroPos
+  where
+    elaborateByKind :: RawProof -> ParamInfo -> ElaborateM MacroArg
+    elaborateByKind (RPVar name pos) param = case pKind param of
+      TermK -> do
+        -- Convert to term variable and elaborate
+        term <- elaborate (RTVar name pos) :: ElaborateM Term
+        return $ MTerm term
+      RelK -> do
+        -- Convert to relation variable and elaborate
+        rel <- elaborate (RRVar name pos) :: ElaborateM RType
+        return $ MRel rel
+      ProofK -> do
+        -- Elaborate as proof
+        proof <- elaborate (RPVar name pos) :: ElaborateM Proof
+        return $ MProof proof
+    elaborateByKind arg _ = do
+      -- Non-variable: must be proof
+      proof <- elaborate arg
+      return $ MProof proof
+
 -- | Handle variable lookup generically
 handleVar :: forall raw typed. ElaborateAst raw typed => Name -> SourcePos -> ElaborateM typed
 handleVar name pos = do
@@ -400,7 +432,7 @@ handleAppGeneric raw pos fallback macroHandler = do
       _ -> fallback raw
 
 -- | Handle macro application with potential over-application
-handleMacroApp :: forall raw typed. ElaborateAst raw typed => String -> [ParamInfo] -> [typed] -> SourcePos -> ElaborateM typed
+handleMacroApp :: forall raw typed. (ElaborateAst raw typed, MacroAst typed) => String -> [ParamInfo] -> [typed] -> SourcePos -> ElaborateM typed
 handleMacroApp macroName params args macroPos = do
   let paramCount = length params
       argCount = length args
@@ -415,14 +447,18 @@ handleMacroApp macroName params args macroPos = do
            throwError $ MacroArityMismatch macroName paramCount argCount
                         (ErrorContext macroPos "macro application")
   
+  -- Convert typed arguments to MacroArg
+  let macroArgsToConvert = take paramCount args
+      macroArgs = map (toArg @typed) macroArgsToConvert
+  
   -- Split arguments if over-application is allowed
   if overAppAllowed && argCount > paramCount
     then do
-      let (macroArgs, extraArgs) = splitAt paramCount args
+      let extraArgs = drop paramCount args
           macroApp = mkMacroApp @raw @typed macroName macroArgs macroPos
       foldM (\acc arg -> return $ makeApp @raw @typed acc arg macroPos) macroApp extraArgs
     else
-      return $ mkMacroApp @raw @typed macroName args macroPos
+      return $ mkMacroApp @raw @typed macroName macroArgs macroPos
 
 -- | Handle explicit macro calls
 handleExplicitMacro :: forall raw typed. (ElaborateAst raw typed, MacroAst typed, ResolveAst typed) => Name -> [raw] -> SourcePos -> ElaborateM typed

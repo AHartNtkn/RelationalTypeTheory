@@ -79,7 +79,7 @@ stripTermPositions :: Term -> Term
 stripTermPositions (Var name idx _) = Var name idx dummyPos
 stripTermPositions (Lam name body _) = Lam name (stripTermPositions body) dummyPos  
 stripTermPositions (App t1 t2 _) = App (stripTermPositions t1) (stripTermPositions t2) dummyPos
-stripTermPositions (TMacro name args _) = TMacro name (map stripTermPositions args) dummyPos
+stripTermPositions (TMacro name args _) = TMacro name (map stripMacroArgPositions args) dummyPos
 
 stripRTypePositions :: RType -> RType
 stripRTypePositions (RVar name idx _) = RVar name idx dummyPos
@@ -88,7 +88,12 @@ stripRTypePositions (All name rt _) = All name (stripRTypePositions rt) dummyPos
 stripRTypePositions (Comp rt1 rt2 _) = Comp (stripRTypePositions rt1) (stripRTypePositions rt2) dummyPos
 stripRTypePositions (Conv rt _) = Conv (stripRTypePositions rt) dummyPos
 stripRTypePositions (Prom term _) = Prom (stripTermPositions term) dummyPos
-stripRTypePositions (RMacro name args _) = RMacro name (map stripRTypePositions args) dummyPos
+stripRTypePositions (RMacro name args _) = RMacro name (map stripMacroArgPositions args) dummyPos
+
+stripMacroArgPositions :: MacroArg -> MacroArg
+stripMacroArgPositions (MTerm t) = MTerm (stripTermPositions t)
+stripMacroArgPositions (MRel r) = MRel (stripRTypePositions r)
+stripMacroArgPositions (MProof p) = MProof (stripProofPositions p)
 
 stripProofPositions :: Proof -> Proof
 stripProofPositions (PVar name idx _) = PVar name idx dummyPos

@@ -31,7 +31,7 @@ termExpansionSpec = describe "TMacro expansion" $ do
 
   it "expands TMacro with single parameter" $ do
     let macroEnv = extendMacroEnvironment "id" ["x"] (TermMacro (Var "x" 0 (initialPos "test"))) (defaultFixity "TEST") noMacros
-        term = TMacro "id" [Var "a" (-1) (initialPos "test")] (initialPos "test")
+        term = TMacro "id" [MTerm (Var "a" (-1) (initialPos "test"))] (initialPos "test")
     case expandFully macroEnv term of
       Right result -> do
         expandedValue result `shouldBe` Var "a" (-1) (initialPos "test")
@@ -41,7 +41,7 @@ termExpansionSpec = describe "TMacro expansion" $ do
 
   it "expands TMacro with multiple parameters" $ do
     let macroEnv = extendMacroEnvironment "app" ["f", "x"] (TermMacro (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"))) (defaultFixity "TEST") noMacros
-        term = TMacro "app" [Var "g" (-1) (initialPos "test"), Var "y" (-1) (initialPos "test")] (initialPos "test")
+        term = TMacro "app" [MTerm (Var "g" (-1) (initialPos "test")), MTerm (Var "y" (-1) (initialPos "test"))] (initialPos "test")
     case expandFully macroEnv term of
       Right result -> do
         expandedValue result `shouldBe` App (Var "g" (-1) (initialPos "test")) (Var "y" (-1) (initialPos "test")) (initialPos "test")
@@ -53,7 +53,7 @@ termExpansionSpec = describe "TMacro expansion" $ do
     let macroEnv =
           extendMacroEnvironment "id" ["x"] (TermMacro (Var "x" 0 (initialPos "test"))) (defaultFixity "TEST") $
             extendMacroEnvironment "twice" ["f", "x"] (TermMacro (App (Var "f" 1 (initialPos "test")) (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))) (defaultFixity "TEST") noMacros
-        term = TMacro "twice" [TMacro "id" [Var "f" (-1) (initialPos "test")] (initialPos "test"), Var "x" (-1) (initialPos "test")] (initialPos "test")
+        term = TMacro "twice" [MTerm (TMacro "id" [MTerm (Var "f" (-1) (initialPos "test"))] (initialPos "test")), MTerm (Var "x" (-1) (initialPos "test"))] (initialPos "test")
     case expandFully macroEnv term of
       Right result -> do
         expandedValue result `shouldBe` App (Var "f" (-1) (initialPos "test")) (App (Var "f" (-1) (initialPos "test")) (Var "x" (-1) (initialPos "test")) (initialPos "test")) (initialPos "test")
@@ -63,7 +63,7 @@ termExpansionSpec = describe "TMacro expansion" $ do
 
   it "expands TMacros in complex terms" $ do
     let macroEnv = extendMacroEnvironment "const" ["x", "y"] (TermMacro (Var "x" 1 (initialPos "test"))) (defaultFixity "TEST") noMacros
-        term = Lam "z" (App (TMacro "const" [Var "z" 0 (initialPos "test"), Var "w" (-1) (initialPos "test")] (initialPos "test")) (Var "a" (-1) (initialPos "test")) (initialPos "test")) (initialPos "test")
+        term = Lam "z" (App (TMacro "const" [MTerm (Var "z" 0 (initialPos "test")), MTerm (Var "w" (-1) (initialPos "test"))] (initialPos "test")) (Var "a" (-1) (initialPos "test")) (initialPos "test")) (initialPos "test")
     case expandFully macroEnv term of
       Right result -> do
         expandedValue result `shouldBe` Lam "z" (App (Var "z" 0 (initialPos "test")) (Var "a" (-1) (initialPos "test")) (initialPos "test")) (initialPos "test")
@@ -85,7 +85,7 @@ termExpansionErrorSpec :: Spec
 termExpansionErrorSpec = describe "TMacro expansion errors" $ do
   it "fails on undefined macro" $ do
     let macroEnv = noMacros
-        term = TMacro "undefined" [Var "x" 0 (initialPos "test")] (initialPos "test")
+        term = TMacro "undefined" [MTerm (Var "x" 0 (initialPos "test"))] (initialPos "test")
     case expandFully macroEnv term of
       Left (UnboundMacro name _) -> name `shouldBe` "undefined"
       Left err -> expectationFailure $ "Expected UnboundMacro error, got: " ++ show err
@@ -93,7 +93,7 @@ termExpansionErrorSpec = describe "TMacro expansion errors" $ do
 
   it "fails on macro arity mismatch - too few arguments" $ do
     let macroEnv = extendMacroEnvironment "binary" ["x", "y"] (TermMacro (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test"))) (defaultFixity "TEST") noMacros
-        term = TMacro "binary" [Var "a" 0 (initialPos "test")] (initialPos "test") -- Missing second argument
+        term = TMacro "binary" [MTerm (Var "a" 0 (initialPos "test"))] (initialPos "test") -- Missing second argument
     case expandFully macroEnv term of
       Left (MacroArityMismatch name expected actual _) -> do
         name `shouldBe` "binary"
@@ -104,7 +104,7 @@ termExpansionErrorSpec = describe "TMacro expansion errors" $ do
 
   it "fails on macro arity mismatch - too many arguments" $ do
     let macroEnv = extendMacroEnvironment "unary" ["x"] (TermMacro (Var "x" 0 (initialPos "test"))) (defaultFixity "TEST") noMacros
-        term = TMacro "unary" [Var "a" 0 (initialPos "test"), Var "b" 0 (initialPos "test")] (initialPos "test") -- Extra argument
+        term = TMacro "unary" [MTerm (Var "a" 0 (initialPos "test")), MTerm (Var "b" 0 (initialPos "test"))] (initialPos "test") -- Extra argument
     case expandFully macroEnv term of
       Left (MacroArityMismatch name expected actual _) -> do
         name `shouldBe` "unary"
@@ -115,7 +115,7 @@ termExpansionErrorSpec = describe "TMacro expansion errors" $ do
 
   it "fails when trying to use relational macro as term macro" $ do
     let macroEnv = extendMacroEnvironment "relMacro" ["X"] (RelMacro (RVar "X" 0 (initialPos "test"))) (defaultFixity "TEST") noMacros
-        term = TMacro "relMacro" [Var "x" 0 (initialPos "test")] (initialPos "test")
+        term = TMacro "relMacro" [MTerm (Var "x" 0 (initialPos "test"))] (initialPos "test")
     case expandFully macroEnv term of
       Left (UnboundMacro name _) -> name `shouldBe` "relMacro"
       Left err -> expectationFailure $ "Expected UnboundMacro error, got: " ++ show err
@@ -127,7 +127,7 @@ termExpansionEdgeCasesSpec = describe "TMacro expansion edge cases" $ do
   it "handles deeply nested macro expansions within step limit" $ do
     -- Test legitimate deep nesting that stays within reasonable bounds
     let macroEnv = extendMacroEnvironment "wrap" ["x"] (TermMacro (Lam "f" (App (Var "f" 0 (initialPos "test")) (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))) (defaultFixity "TEST") noMacros
-        term = TMacro "wrap" [TMacro "wrap" [TMacro "wrap" [Var "base" (-1) (initialPos "test")] (initialPos "test")] (initialPos "test")] (initialPos "test")
+        term = TMacro "wrap" [MTerm (TMacro "wrap" [MTerm (TMacro "wrap" [MTerm (Var "base" (-1) (initialPos "test"))] (initialPos "test"))] (initialPos "test"))] (initialPos "test")
     case expandFully macroEnv term of
       Right result -> do
         wasExpanded result `shouldBe` True
@@ -136,7 +136,7 @@ termExpansionEdgeCasesSpec = describe "TMacro expansion edge cases" $ do
 
   it "expands TMacros in WHNF mode" $ do
     let macroEnv = extendMacroEnvironment "id" ["x"] (TermMacro (Var "x" 0 (initialPos "test"))) (defaultFixity "TEST") noMacros
-        term = TMacro "id" [Var "a" (-1) (initialPos "test")] (initialPos "test")
+        term = TMacro "id" [MTerm (Var "a" (-1) (initialPos "test"))] (initialPos "test")
     case expandWHNF macroEnv term of
       Right result -> do
         expandedValue result `shouldBe` Var "a" (-1) (initialPos "test")
@@ -147,7 +147,7 @@ termExpansionEdgeCasesSpec = describe "TMacro expansion edge cases" $ do
   it "handles TMacros with complex argument expressions" $ do
     let macroEnv = extendMacroEnvironment "apply" ["f", "x"] (TermMacro (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"))) (defaultFixity "TEST") noMacros
         complexArg = Lam "y" (App (Var "g" (-1) (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
-        term = TMacro "apply" [complexArg, Var "z" (-1) (initialPos "test")] (initialPos "test")
+        term = TMacro "apply" [MTerm complexArg, MTerm (Var "z" (-1) (initialPos "test"))] (initialPos "test")
     case expandFully macroEnv term of
       Right result -> do
         expandedValue result `shouldBe` App complexArg (Var "z" (-1) (initialPos "test")) (initialPos "test")
@@ -156,7 +156,7 @@ termExpansionEdgeCasesSpec = describe "TMacro expansion edge cases" $ do
 
   it "preserves variable scoping during expansion" $ do
     let macroEnv = extendMacroEnvironment "test" ["x"] (TermMacro (Lam "y" (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))) (defaultFixity "TEST") noMacros
-        term = TMacro "test" [Var "a" (-1) (initialPos "test")] (initialPos "test")
+        term = TMacro "test" [MTerm (Var "a" (-1) (initialPos "test"))] (initialPos "test")
     case expandFully macroEnv term of
       Right result -> do
         expandedValue result `shouldBe` Lam "y" (App (Var "a" (-1) (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
@@ -174,7 +174,7 @@ termExpansionEdgeCasesSpec = describe "TMacro expansion edge cases" $ do
 
   it "correctly substitutes multiple occurrences of parameters" $ do
     let macroEnv = extendMacroEnvironment "dup" ["x"] (TermMacro (App (Var "x" 0 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"))) (defaultFixity "TEST") noMacros
-        term = TMacro "dup" [Var "f" (-1) (initialPos "test")] (initialPos "test")
+        term = TMacro "dup" [MTerm (Var "f" (-1) (initialPos "test"))] (initialPos "test")
     case expandFully macroEnv term of
       Right result -> do
         expandedValue result `shouldBe` App (Var "f" (-1) (initialPos "test")) (Var "f" (-1) (initialPos "test")) (initialPos "test")

@@ -24,6 +24,18 @@ module Operations.Generic.PrettyPrint
 import Core.Syntax
 import Data.List (intercalate)
 
+-- | MacroArg pretty printing instance
+instance PrettyAst MacroArg where
+  prettyWithConfigCore config = \case
+    MTerm t -> prettyWithConfigCore config t
+    MRel r -> prettyWithConfigCore config r  
+    MProof p -> prettyWithConfigCore config p
+    
+  needsParens = \case
+    MTerm t -> needsParens t
+    MRel r -> needsParens r
+    MProof p -> needsParens p
+
 -- | Configuration for pretty printing
 data PrettyConfig = PrettyConfig
   { useUnicode :: Bool,

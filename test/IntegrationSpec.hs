@@ -16,7 +16,10 @@ import Operations.Generic.Equality (alphaEquality)
 import Operations.Generic.FreeVars (freeVars)
 import Operations.Generic.Substitution (substIndex)
 import TypeCheck.Proof
-import Parser.Raw
+import Parser.Raw (rawDeclaration, rawProof)
+import Parser.Elaborate (elaborateProof)
+import Core.Raw (RawDeclaration(..))
+import Text.Megaparsec (runParser)
 import Test.Hspec
 import TestHelpers
 import Text.Megaparsec (initialPos, runParser, errorBundlePretty)
@@ -132,7 +135,7 @@ macroIntegrationSpec = describe "macro system integration" $ do
         env3 = extendMacroEnvironment "Apply" ["F", "A"] (RelMacro (Comp (RVar "F" 1 ip) (RVar "A" 0 ip) ip)) (defaultFixity "TEST") env2
 
     -- Test macro expansion chain
-    let complexMacro = RMacro "Apply" [RMacro "Id" [] ip, RMacro "Const" [RMacro "Int" [] ip] ip] ip
+    let complexMacro = RMacro "Apply" [MRel (RMacro "Id" [] ip), MRel (RMacro "Const" [MRel (RMacro "Int" [] ip)] ip)] ip
 
     case expandMacros env3 complexMacro of
       Right result -> do
@@ -147,12 +150,12 @@ macroIntegrationSpec = describe "macro system integration" $ do
             extendMacroEnvironment "Array" ["T"] (RelMacro (Arr (RVar "T" 0 ip) (RMacro "Container" [] ip) ip)) (defaultFixity "TEST") noMacros
 
         -- Identical macros (should not require expansion - optimization applies)
-        identicalMacro1 = RMacro "List" [RMacro "Int" [] ip] ip
-        identicalMacro2 = RMacro "List" [RMacro "Int" [] ip] ip
+        identicalMacro1 = RMacro "List" [MRel (RMacro "Int" [] ip)] ip
+        identicalMacro2 = RMacro "List" [MRel (RMacro "Int" [] ip)] ip
 
         -- Different macros with same expansion (should require expansion)
-        differentMacro1 = RMacro "List" [RMacro "Int" [] ip] ip
-        differentMacro2 = RMacro "Array" [RMacro "Int" [] ip] ip
+        differentMacro1 = RMacro "List" [MRel (RMacro "Int" [] ip)] ip
+        differentMacro2 = RMacro "Array" [MRel (RMacro "Int" [] ip)] ip
 
     -- Both should give True, but optimization should apply to identical case
     case (typeEquality env identicalMacro1 identicalMacro2, typeEquality env differentMacro1 differentMacro2) of
@@ -189,7 +192,7 @@ realExamplesSpec = describe "realistic RelTT examples" $ do
   it "handles composition macro" $ do
     -- Composition: Comp R S ≔ R ∘ S
     let env = extendMacroEnvironment "Comp" ["R", "S"] (RelMacro (Comp (RVar "R" 1 ip) (RVar "S" 0 ip) ip)) (defaultFixity "TEST") noMacros
-        compType = RMacro "Comp" [RMacro "F" [] ip, RMacro "G" [] ip] ip
+        compType = RMacro "Comp" [MRel (RMacro "F" [] ip), MRel (RMacro "G" [] ip)] ip
 
     case expandMacros env compType of
       Right result ->
@@ -201,7 +204,7 @@ realExamplesSpec = describe "realistic RelTT examples" $ do
   it "handles converse operations" $ do
     -- Symmetric relation: Sym R ≔ R ˘
     let env = extendMacroEnvironment "Sym" ["R"] (RelMacro (Conv (RVar "R" 0 ip) ip)) (defaultFixity "TEST") noMacros
-        symType = RMacro "Sym" [RMacro "Related" [] ip] ip
+        symType = RMacro "Sym" [MRel (RMacro "Related" [] ip)] ip
 
     case expandMacros env symType of
       Right result ->
@@ -392,7 +395,7 @@ termPromotionExamplesSpec = describe "term promotion examples" $ do
         env = extendMacroEnvironment "LambdaMacro" ["A", "B"] (RelMacro lambdaMacro) (defaultFixity "TEST") noMacros
 
     -- Test parameterized macro expansion
-    case expandMacros env (RMacro "LambdaMacro" [RMacro "Int" [] ip, RMacro "Bool" [] ip] ip) of
+    case expandMacros env (RMacro "LambdaMacro" [MRel (RMacro "Int" [] ip), MRel (RMacro "Bool" [] ip)] ip) of
       Right result -> expandedType result `shouldBe` lambdaMacro
       Left err -> expectationFailure $ "Lambda macro expansion failed: " ++ show err
 
@@ -433,7 +436,7 @@ compositionExamplesSpec = describe "composition examples" $ do
     let doubleComp = Comp (RVar "R" 1 ip) (Comp (RVar "R" 1 ip) (RVar "S" 0 ip) ip) ip
         env = extendMacroEnvironment "DoubleComp" ["R", "S"] (RelMacro doubleComp) (defaultFixity "TEST") noMacros
 
-    case expandMacros env (RMacro "DoubleComp" [RMacro "Eq" [] ip, RMacro "Lt" [] ip] ip) of
+    case expandMacros env (RMacro "DoubleComp" [MRel (RMacro "Eq" [] ip), MRel (RMacro "Lt" [] ip)] ip) of
       Right result ->
         -- Test the correct behavior: R substituted with Eq, S substituted with Lt
         expandedType result `shouldBe` Comp (RMacro "Eq" [] ip) (Comp (RMacro "Eq" [] ip) (RMacro "Lt" [] ip) ip) ip
@@ -471,7 +474,7 @@ converseExamplesSpec = describe "converse examples" $ do
     let symMacro = Conv (RVar "R" 0 ip) ip
         env = extendMacroEnvironment "Sym" ["R"] (RelMacro symMacro) (defaultFixity "TEST") noMacros
 
-    case expandMacros env (RMacro "Sym" [RMacro "Equal" [] ip] ip) of
+    case expandMacros env (RMacro "Sym" [MRel (RMacro "Equal" [] ip)] ip) of
       Right result -> expandedType result `shouldBe` Conv (RMacro "Equal" [] ip) ip
       Left err -> expectationFailure $ "Symmetry macro expansion failed: " ++ show err
 
@@ -615,7 +618,7 @@ basicPipelineSpec = describe "basic pipeline tests" $ do
             theoremDefs = [d | d@(TheoremDef _ _ _ _) <- decls]
         let (newMacroEnv, _) = buildEnvironmentsFromDeclarations decls
         -- Verify macro expansion works
-        case expandMacros newMacroEnv (RMacro "Comp" [RVar "R" 1 ip, RVar "S" 0 ip] ip) of
+        case expandMacros newMacroEnv (RMacro "Comp" [MRel (RVar "R" 1 ip), MRel (RVar "S" 0 ip)] ip) of
           Right result ->
             expandedType result `shouldBeEqual` Comp (RVar "R" 1 ip) (RVar "S" 0 ip) ip
           Left err -> expectationFailure $ "Macro expansion failed: " ++ show err
@@ -625,7 +628,7 @@ basicPipelineSpec = describe "basic pipeline tests" $ do
           [TheoremDef _ _ judgment _] -> do
             let RelJudgment _ relType _ = judgment
             case relType of
-              RMacro "Comp" [RVar "R" 1 _, RVar "S" 0 _] _ -> return ()
+              RMacro "Comp" [MRel (RVar "R" 1 _), MRel (RVar "S" 0 _)] _ -> return ()
               _ -> expectationFailure $ "Expected Comp macro in judgment, got: " ++ show relType
           _ -> expectationFailure "Expected single theorem"
       Left err -> expectationFailure $ "Parse failed: " ++ err
@@ -739,7 +742,7 @@ complexFileProcessingSpec = describe "complex file processing" $ do
             theoremDefs = [d | d@(TheoremDef _ _ _ _) <- decls]
         let (newMacroEnv, _) = buildEnvironmentsFromDeclarations decls
         -- Test that dependent macro expansion works
-        case expandMacros newMacroEnv (RMacro "Extended" [RMacro "A" [] ip, RMacro "B" [] ip] ip) of
+        case expandMacros newMacroEnv (RMacro "Extended" [MRel (RMacro "A" [] ip), MRel (RMacro "B" [] ip)] ip) of
           Right result -> do
             -- Should expand to (A ∘ A) ∘ B (Base A gets expanded too)
             let expected = Comp (Comp (RMacro "A" [] ip) (RMacro "A" [] ip) ip) (RMacro "B" [] ip) ip
@@ -797,7 +800,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
 
         -- Parse and check: ι⟨t, id x⟩
         -- This should prove: t[(id x)^]((id x) t)
-        tmacroTerm = TMacro "id" [Var "x" 0 ip] ip -- Should expand to (λ x . x) x ≡ x
+        tmacroTerm = TMacro "id" [MTerm (Var "x" 0 ip)] ip -- Should expand to (λ x . x) x ≡ x
         iotaProof = Iota (Var "t" 1 ip) tmacroTerm ip
 
     case inferProofType termCtx env noTheorems iotaProof of
@@ -820,7 +823,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
         -- Create proof context with TMacro in judgments
         -- p : (const y) [R→S] (const y)
         -- q : x [R] x
-        constY = TMacro "const" [Var "y" 0 ip] ip
+        constY = TMacro "const" [MTerm (Var "y" 0 ip)] ip
         judgment1 = RelJudgment constY (Arr (RMacro "R" [] ip) (RMacro "S" [] ip) ip) constY
         judgment2 = RelJudgment (Var "x" 1 ip) (RMacro "R" [] ip) (Var "x" 1 ip)
 
@@ -850,30 +853,30 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
             extendTermContext "x" (RMacro "A" [] ip) emptyTypingContext
 
         -- Nested TMacro: app (id f) x should represent ((λ x . x) f) x ≡ f x
-        nestedTMacro = TMacro "app" [TMacro "id" [Var "f" 1 ip] ip, Var "x" 0 ip] ip
+        nestedTMacro = TMacro "app" [MTerm (TMacro "id" [MTerm (Var "f" 1 ip)] ip), MTerm (Var "x" 0 ip)] ip
 
         -- Test with iota: ι⟨nestedTMacro, id nestedTMacro⟩
-        iotaProof = Iota nestedTMacro (TMacro "id" [nestedTMacro] ip) ip
+        iotaProof = Iota nestedTMacro (TMacro "id" [MTerm nestedTMacro] ip) ip
 
     case inferProofType termCtx macroEnv2 noTheorems iotaProof of
       Right result ->
         case resultJudgment result of
           RelJudgment term1 (Prom promTerm _) term2 -> do
             term1 `shouldBe` nestedTMacro
-            promTerm `shouldBe` TMacro "id" [nestedTMacro] ip
-            term2 `shouldBe` App (TMacro "id" [nestedTMacro] ip) nestedTMacro ip
+            promTerm `shouldBe` TMacro "id" [MTerm nestedTMacro] ip
+            term2 `shouldBe` App (TMacro "id" [MTerm nestedTMacro] ip) nestedTMacro ip
           RelJudgment _ relType _ -> expectationFailure $ "Expected promotion type but got: " ++ show relType
       Left err -> expectationFailure $ "Expected successful nested TMacro proof: " ++ show err
 
   it "handles TMacro substitution in lambda abstractions" $ do
     -- Test lambda abstractions containing TMacros using proper de Bruijn substitution
     let -- Lambda with TMacro: λ y . const a y (where 'a' has de Bruijn index 1)
-        lambdaWithTMacro = Lam "y" (App (TMacro "const" [Var "a" 1 ip] ip) (Var "y" 0 ip) ip) ip
+        lambdaWithTMacro = Lam "y" (App (TMacro "const" [MTerm (Var "a" 1 ip)] ip) (Var "y" 0 ip) ip) ip
 
         -- Test substitution of index 1 with new term
         replacement = Var "b" 0 ip  -- Replacement term
         substituted = substIndex 1 replacement lambdaWithTMacro
-        expected = Lam "y" (App (TMacro "const" [Var "b" 0 ip] ip) (Var "y" 0 ip) ip) ip
+        expected = Lam "y" (App (TMacro "const" [MTerm (Var "b" 0 ip)] ip) (Var "y" 0 ip) ip) ip
 
     substituted `shouldBe` expected
 
@@ -883,7 +886,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
         termCtx = extendTermContext "t" (RMacro "A" [] ip) emptyTypingContext
 
         -- Create a proof that t ≡ t via identity
-        idT = TMacro "id" [Var "t" 0 ip] ip
+        idT = TMacro "id" [MTerm (Var "t" 0 ip)] ip
 
         -- Conversion proof: t ⇃ proof ⇂ (id t)
         -- This should demonstrate that t converts to (id t) which should be equivalent
@@ -908,7 +911,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
         termCtx = extendTermContext "a" (RMacro "A" [] ip) emptyTypingContext
 
         -- TMacro with wrong arity (expects 2 args, gets 1)
-        wrongArityTMacro = TMacro "binary" [Var "a" 0 ip] ip -- Missing second argument
+        wrongArityTMacro = TMacro "binary" [MTerm (Var "a" 0 ip)] ip -- Missing second argument
 
         -- This should work - the parser creates TMacro with whatever args it gets
         -- The expansion/normalization phase would handle arity validation
@@ -1038,6 +1041,27 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integratio
 
         -- Check each theorem
         mapM_ (checkDeclForBugTest builtMacroEnv builtTheoremEnv) decls
+
+
+  it "DEBUG: test parentheses parsing shows structure difference" $ do
+    let withParens = "(p { R }){ S }"
+    let withoutParens = "p { R } { S }"
+    let justParens = "(p)"
+    
+    putStrLn "\n=== TEST JUST PARENTHESES (p) ==="
+    case runParser rawProof "test" justParens of
+      Left parseErr -> putStrLn $ "Parse error: " ++ show parseErr
+      Right result -> putStrLn $ "Raw result: " ++ show result
+    
+    putStrLn "\n=== TEST WITHOUT PARENTHESES p { R } { S } ==="  
+    case runParser rawProof "test" withoutParens of
+      Left parseErr -> putStrLn $ "Parse error: " ++ show parseErr
+      Right result -> putStrLn $ "Raw result: " ++ show result
+    
+    putStrLn "\n=== TEST WITH PARENTHESES (p { R }){ S } ==="
+    case runParser rawProof "test" withParens of
+      Left parseErr -> putStrLn $ "Parse error: " ++ show parseErr
+      Right result -> putStrLn $ "Raw result: " ++ show result
 
   it "nested quantifier substitution shows index corruption clearly" $ do
     -- Test the case that clearly demonstrates the index shifting bug

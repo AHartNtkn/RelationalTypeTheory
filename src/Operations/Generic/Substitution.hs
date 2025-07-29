@@ -1,5 +1,6 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- | Generic substitution infrastructure for all AST types.
 -- This module unifies substitution operations across Term, RType, and Proof.
@@ -15,7 +16,7 @@ module Operations.Generic.Substitution
   , applyTheoremSubsToJudgment
   ) where
 
-import Core.Syntax (Term(..), RType(..), Proof(..), TheoremArg(..), RelJudgment(..), Binding(..))
+import Core.Syntax (Term(..), RType(..), Proof(..), TheoremArg(..), RelJudgment(..), Binding(..), MacroArg(..))
 import Operations.Generic.Shift (ShiftAst(..), shift)
 import Core.Errors (RelTTError(..))
 
@@ -61,7 +62,11 @@ instance SubstAst Term where
         App t1 t2 pos ->
           App (go depth t1) (go depth t2) pos
         TMacro name args pos ->
-          TMacro name (map (go depth) args) pos
+          TMacro name (map substMacroArg args) pos
+          where substMacroArg = \case
+                  MTerm t -> MTerm (go depth t)
+                  MRel r -> MRel r  -- Relations unaffected by term substitution
+                  MProof p -> MProof p  -- Proofs unaffected by term substitution
 
 --------------------------------------------------------------------------------
 -- | Instance for RType
@@ -77,7 +82,11 @@ instance SubstAst RType where
           | otherwise -> ty
         FRVar{} -> ty                    -- Free variables not affected by substitution
         RMacro name args pos ->
-          RMacro name (map (go depth) args) pos
+          RMacro name (map substMacroArg args) pos
+          where substMacroArg = \case
+                  MTerm t -> MTerm t  -- Terms unaffected by relational substitution
+                  MRel r -> MRel (go depth r)
+                  MProof p -> MProof p  -- Proofs unaffected by relational substitution
         Arr r1 r2 pos ->
           Arr (go depth r1) (go depth r2) pos
         All name r pos ->
@@ -129,12 +138,31 @@ instance SubstAst Proof where
         PTheoremApp name args pos ->
           PTheoremApp name (map (goArg depth) args) pos
         PMacro name args pos ->
-          PMacro name (map (go depth) args) pos
+          PMacro name (map substMacroArg args) pos
+          where substMacroArg = \case
+                  MTerm t -> MTerm t  -- Terms unaffected by proof substitution
+                  MRel r -> MRel r  -- Relations unaffected by proof substitution
+                  MProof p -> MProof (go depth p)
         where
           goArg depth arg = case arg of
             TermArg t -> TermArg t  -- Not affected by proof substitution
             RelArg r -> RelArg r    -- Not affected by proof substitution
             ProofArg p -> ProofArg (go depth p)
+
+-- | SubstAst instance for MacroArg
+-- MacroArg substitution works by delegating to the wrapped type
+-- Only when the replacement has the same wrapper type
+instance SubstAst MacroArg where
+  substIndex targetIdx replacement = \case
+    MTerm t -> case replacement of
+      MTerm repl -> MTerm (substIndex targetIdx repl t)
+      _ -> MTerm t  -- No substitution if types don't match
+    MRel r -> case replacement of
+      MRel repl -> MRel (substIndex targetIdx repl r)
+      _ -> MRel r  -- No substitution if types don't match
+    MProof p -> case replacement of
+      MProof repl -> MProof (substIndex targetIdx repl p)
+      _ -> MProof p  -- No substitution if types don't match
 
 --------------------------------------------------------------------------------
 -- | Theorem substitution operations (telescope-based)
@@ -183,7 +211,11 @@ extractRelSubstitutions subs =
 applyTermSubsInRType :: [(Int, Term)] -> RType -> RType
 applyTermSubsInRType termSubs rtype = case rtype of
   RVar _ _ _ -> rtype
-  RMacro name args pos -> RMacro name (map (applyTermSubsInRType termSubs) args) pos
+  RMacro name args pos -> RMacro name (map substMacroArg args) pos
+    where substMacroArg = \case
+            MTerm t -> MTerm (foldl (flip $ uncurry substIndex) t termSubs)
+            MRel r -> MRel (applyTermSubsInRType termSubs r)
+            MProof p -> MProof p  -- Proofs unaffected by term substitution
   Arr r1 r2 pos -> Arr (applyTermSubsInRType termSubs r1) (applyTermSubsInRType termSubs r2) pos
   All name r pos -> All name (applyTermSubsInRType termSubs r) pos
   Conv r pos -> Conv (applyTermSubsInRType termSubs r) pos

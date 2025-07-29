@@ -191,13 +191,13 @@ termMacroParserSpec = describe "Term macro parser (TMacro)" $ do
 
   it "parses term macros with single argument" $ do
     let env = createTermMacroEnv [("f", ["x"])]
-    testParseTerm ["x"] [] [] env "f x" (TMacro "f" [Var "x" 0 (initialPos "test")] (initialPos "test"))
-    testParseTerm ["y", "z"] [] [] env "f (y z)" (TMacro "f" [App (Var "y" 1 (initialPos "test")) (Var "z" 0 (initialPos "test")) (initialPos "test")] (initialPos "test"))
+    testParseTerm ["x"] [] [] env "f x" (TMacro "f" [MTerm (Var "x" 0 (initialPos "test"))] (initialPos "test"))
+    testParseTerm ["y", "z"] [] [] env "f (y z)" (TMacro "f" [MTerm (App (Var "y" 1 (initialPos "test")) (Var "z" 0 (initialPos "test")) (initialPos "test"))] (initialPos "test"))
 
   it "parses term macros with multiple arguments" $ do
     let env = createTermMacroEnv [("add", ["x", "y"])]
-    testParseTerm ["x", "y"] [] [] env "add x y" (TMacro "add" [Var "x" 1 (initialPos "test"), Var "y" 0 (initialPos "test")] (initialPos "test"))
-    testParseTerm ["f", "a", "g", "b"] [] [] env "add (f a) (g b)" (TMacro "add" [App (Var "f" 3 (initialPos "test")) (Var "a" 2 (initialPos "test")) (initialPos "test"), App (Var "g" 1 (initialPos "test")) (Var "b" 0 (initialPos "test")) (initialPos "test")] (initialPos "test"))
+    testParseTerm ["x", "y"] [] [] env "add x y" (TMacro "add" [MTerm (Var "x" 1 (initialPos "test")), MTerm (Var "y" 0 (initialPos "test"))] (initialPos "test"))
+    testParseTerm ["f", "a", "g", "b"] [] [] env "add (f a) (g b)" (TMacro "add" [MTerm (App (Var "f" 3 (initialPos "test")) (Var "a" 2 (initialPos "test")) (initialPos "test")), MTerm (App (Var "g" 1 (initialPos "test")) (Var "b" 0 (initialPos "test")) (initialPos "test"))] (initialPos "test"))
 
   it "parses term macros with zero arguments" $ do
     let env = createTermMacroEnv [("unit", [])]
@@ -205,25 +205,25 @@ termMacroParserSpec = describe "Term macro parser (TMacro)" $ do
 
   it "parses macro with proper argument binding" $ do
     let env = createTermMacroEnv [("unary", ["x"])]
-    testParseTerm ["x"] [] [] env "unary x" (TMacro "unary" [Var "x" 0 (initialPos "test")] (initialPos "test"))
+    testParseTerm ["x"] [] [] env "unary x" (TMacro "unary" [MTerm (Var "x" 0 (initialPos "test"))] (initialPos "test"))
 
   it "parses term macros with complex arguments" $ do
     let env = createTermMacroEnv [("compose", ["f", "g", "x"])]
-    testParseTerm ["f", "g", "x"] [] [] env "compose f g x" (TMacro "compose" [Var "f" 2 (initialPos "test"), Var "g" 1 (initialPos "test"), Var "x" 0 (initialPos "test")] (initialPos "test"))
-    testParseTerm ["g", "h", "y"] [] [] env "compose (λ x . x) g (h y)" (TMacro "compose" [Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"), Var "g" 2 (initialPos "test"), App (Var "h" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")] (initialPos "test"))
+    testParseTerm ["f", "g", "x"] [] [] env "compose f g x" (TMacro "compose" [MTerm (Var "f" 2 (initialPos "test")), MTerm (Var "g" 1 (initialPos "test")), MTerm (Var "x" 0 (initialPos "test"))] (initialPos "test"))
+    testParseTerm ["g", "h", "y"] [] [] env "compose (λ x . x) g (h y)" (TMacro "compose" [MTerm (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")), MTerm (Var "g" 2 (initialPos "test")), MTerm (App (Var "h" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test"))] (initialPos "test"))
 
   it "parses nested term macro applications" $ do
     let env = createTermMacroEnv [("f", ["x"]), ("g", ["y"])]
-    testParseTerm ["x"] [] [] env "f (g x)" (TMacro "f" [TMacro "g" [Var "x" 0 (initialPos "test")] (initialPos "test")] (initialPos "test"))
+    testParseTerm ["x"] [] [] env "f (g x)" (TMacro "f" [MTerm (TMacro "g" [MTerm (Var "x" 0 (initialPos "test"))] (initialPos "test"))] (initialPos "test"))
 
   it "parses term macro accumulation (multiple arguments)" $ do
     let env = createTermMacroEnv [("f", ["x", "y", "z"])]
-    testParseTerm ["a", "b", "c"] [] [] env "f a b c" (TMacro "f" [Var "a" 2 (initialPos "test"), Var "b" 1 (initialPos "test"), Var "c" 0 (initialPos "test")] (initialPos "test"))
+    testParseTerm ["a", "b", "c"] [] [] env "f a b c" (TMacro "f" [MTerm (Var "a" 2 (initialPos "test")), MTerm (Var "b" 1 (initialPos "test")), MTerm (Var "c" 0 (initialPos "test"))] (initialPos "test"))
 
   it "handles mixed term macros and regular applications" $ do
     let env = createTermMacroEnv [("macro", ["x"])]
-    testParseTerm ["regular", "x"] [] [] env "regular (macro x)" (App (Var "regular" 1 (initialPos "test")) (TMacro "macro" [Var "x" 0 (initialPos "test")] (initialPos "test")) (initialPos "test"))
-    testParseTerm ["regular", "x"] [] [] env "macro (regular x)" (TMacro "macro" [App (Var "regular" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")] (initialPos "test"))
+    testParseTerm ["regular", "x"] [] [] env "regular (macro x)" (App (Var "regular" 1 (initialPos "test")) (TMacro "macro" [MTerm (Var "x" 0 (initialPos "test"))] (initialPos "test")) (initialPos "test"))
+    testParseTerm ["regular", "x"] [] [] env "macro (regular x)" (TMacro "macro" [MTerm (App (Var "regular" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"))] (initialPos "test"))
 
 contextAwareMacroParserSpec :: Spec
 contextAwareMacroParserSpec = describe "Context-aware macro detection" $ do
@@ -233,29 +233,29 @@ contextAwareMacroParserSpec = describe "Context-aware macro detection" $ do
 
     -- Same input, different results based on context
     testParseTerm ["f", "x"] [] [] emptyCtx "f x" (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"))
-    testParseTerm ["x"] [] [] env "f x" (TMacro "f" [Var "x" 0 (initialPos "test")] (initialPos "test"))
+    testParseTerm ["x"] [] [] env "f x" (TMacro "f" [MTerm (Var "x" 0 (initialPos "test"))] (initialPos "test"))
 
   it "handles context with multiple macros" $ do
     let env = createTermMacroEnv [("add", ["x", "y"]), ("mul", ["x", "y"]), ("id", ["x"])]
-    testParseTerm ["unknown", "z", "a", "b", "x", "y"] [] [] env "add x y" (TMacro "add" [Var "x" 1 (initialPos "test"), Var "y" 0 (initialPos "test")] (initialPos "test"))
-    testParseTerm ["unknown", "z", "a", "b", "x", "y"] [] [] env "mul a b" (TMacro "mul" [Var "a" 3 (initialPos "test"), Var "b" 2 (initialPos "test")] (initialPos "test"))
-    testParseTerm ["unknown", "z", "a", "b", "x", "y"] [] [] env "id z" (TMacro "id" [Var "z" 4 (initialPos "test")] (initialPos "test"))
+    testParseTerm ["unknown", "z", "a", "b", "x", "y"] [] [] env "add x y" (TMacro "add" [MTerm (Var "x" 1 (initialPos "test")), MTerm (Var "y" 0 (initialPos "test"))] (initialPos "test"))
+    testParseTerm ["unknown", "z", "a", "b", "x", "y"] [] [] env "mul a b" (TMacro "mul" [MTerm (Var "a" 3 (initialPos "test")), MTerm (Var "b" 2 (initialPos "test"))] (initialPos "test"))
+    testParseTerm ["unknown", "z", "a", "b", "x", "y"] [] [] env "id z" (TMacro "id" [MTerm (Var "z" 4 (initialPos "test"))] (initialPos "test"))
     testParseTerm ["unknown", "z", "a", "b", "x", "y"] [] [] env "unknown x" (App (Var "unknown" 5 (initialPos "test")) (Var "x" 1 (initialPos "test")) (initialPos "test"))
 
   it "parses macro calls with bound variables" $ do
     let env = createTermMacroEnv [("known", ["x"])]
-    testParseTerm ["x"] [] [] env "known x" (TMacro "known" [Var "x" 0 (initialPos "test")] (initialPos "test"))
+    testParseTerm ["x"] [] [] env "known x" (TMacro "known" [MTerm (Var "x" 0 (initialPos "test"))] (initialPos "test"))
     testParseTerm ["x", "unknown"] [] [] env "unknown x" (App (Var "unknown" 0 (initialPos "test")) (Var "x" 1 (initialPos "test")) (initialPos "test"))
 
   it "handles macro detection with bound variables" $ do
     let env = createTermMacroEnv [("f", ["x"]), ("g", [])]
-    testParseTerm ["x"] [] [] env "f x" (TMacro "f" [Var "x" 0 (initialPos "test")] (initialPos "test"))
+    testParseTerm ["x"] [] [] env "f x" (TMacro "f" [MTerm (Var "x" 0 (initialPos "test"))] (initialPos "test"))
     testParseTerm ["h"] [] [] env "h g" (App (Var "h" 0 (initialPos "test")) (TMacro "g" [] (initialPos "test")) (initialPos "test"))
 
   it "handles macro detection in complex expressions" $ do
     let env = createTermMacroEnv [("f", ["x"]), ("g", ["y"])]
-    testParseTerm ["x", "y"] [] [] env "(f x) (g y)" (App (TMacro "f" [Var "x" 1 (initialPos "test")] (initialPos "test")) (TMacro "g" [Var "y" 0 (initialPos "test")] (initialPos "test")) (initialPos "test"))
-    testParseTerm [] [] [] env "λ z . f z" (Lam "z" (TMacro "f" [Var "z" 0 (initialPos "test")] (initialPos "test")) (initialPos "test"))
+    testParseTerm ["x", "y"] [] [] env "(f x) (g y)" (App (TMacro "f" [MTerm (Var "x" 1 (initialPos "test"))] (initialPos "test")) (TMacro "g" [MTerm (Var "y" 0 (initialPos "test"))] (initialPos "test")) (initialPos "test"))
+    testParseTerm [] [] [] env "λ z . f z" (Lam "z" (TMacro "f" [MTerm (Var "z" 0 (initialPos "test"))] (initialPos "test")) (initialPos "test"))
 
   it "rejects partial macro applications" $ do
     let env = createTermMacroEnv [("f", ["x", "y"])]
@@ -268,54 +268,54 @@ contextAwareMacroParserSpec = describe "Context-aware macro detection" $ do
           Left elabErr -> show elabErr `shouldContain` "MacroArityMismatch"
           Right result -> expectationFailure $ "Expected elaboration error for under-applied macro, but got: " ++ show result
     -- Full application should still work
-    testParseTerm ["x", "y"] [] [] env "f x y" (TMacro "f" [Var "x" 1 (initialPos "test"), Var "y" 0 (initialPos "test")] (initialPos "test"))
+    testParseTerm ["x", "y"] [] [] env "f x y" (TMacro "f" [MTerm (Var "x" 1 (initialPos "test")), MTerm (Var "y" 0 (initialPos "test"))] (initialPos "test"))
 
   it "respects macro arity limits" $ do
     let env = createTermMacroEnv [("unary", ["x"]), ("binary", ["x", "y"])]
     -- Exact arity - should be TMacro
-    testParseTerm ["a", "b", "c", "dummy"] [] [] env "unary a" (TMacro "unary" [Var "a" 3 (initialPos "test")] (initialPos "test"))
-    testParseTerm ["a", "b", "c", "dummy"] [] [] env "binary a b" (TMacro "binary" [Var "a" 3 (initialPos "test"), Var "b" 2 (initialPos "test")] (initialPos "test"))
+    testParseTerm ["a", "b", "c", "dummy"] [] [] env "unary a" (TMacro "unary" [MTerm (Var "a" 3 (initialPos "test"))] (initialPos "test"))
+    testParseTerm ["a", "b", "c", "dummy"] [] [] env "binary a b" (TMacro "binary" [MTerm (Var "a" 3 (initialPos "test")), MTerm (Var "b" 2 (initialPos "test"))] (initialPos "test"))
     -- Over-arity - should stop at arity limit and App the rest
-    testParseTerm ["a", "b", "c", "dummy"] [] [] env "unary a b" (App (TMacro "unary" [Var "a" 3 (initialPos "test")] (initialPos "test")) (Var "b" 2 (initialPos "test")) (initialPos "test"))
-    testParseTerm ["a", "b", "c", "dummy"] [] [] env "binary a b c" (App (TMacro "binary" [Var "a" 3 (initialPos "test"), Var "b" 2 (initialPos "test")] (initialPos "test")) (Var "c" 1 (initialPos "test")) (initialPos "test"))
+    testParseTerm ["a", "b", "c", "dummy"] [] [] env "unary a b" (App (TMacro "unary" [MTerm (Var "a" 3 (initialPos "test"))] (initialPos "test")) (Var "b" 2 (initialPos "test")) (initialPos "test"))
+    testParseTerm ["a", "b", "c", "dummy"] [] [] env "binary a b c" (App (TMacro "binary" [MTerm (Var "a" 3 (initialPos "test")), MTerm (Var "b" 2 (initialPos "test"))] (initialPos "test")) (Var "c" 1 (initialPos "test")) (initialPos "test"))
     -- Parentheses should force boundaries
-    testParseTerm ["a", "b", "c", "dummy"] [] [] env "(unary a) b" (App (TMacro "unary" [Var "a" 3 (initialPos "test")] (initialPos "test")) (Var "b" 2 (initialPos "test")) (initialPos "test"))
-    testParseTerm ["a", "b", "c", "dummy"] [] [] env "(binary a b) c" (App (TMacro "binary" [Var "a" 3 (initialPos "test"), Var "b" 2 (initialPos "test")] (initialPos "test")) (Var "c" 1 (initialPos "test")) (initialPos "test"))
+    testParseTerm ["a", "b", "c", "dummy"] [] [] env "(unary a) b" (App (TMacro "unary" [MTerm (Var "a" 3 (initialPos "test"))] (initialPos "test")) (Var "b" 2 (initialPos "test")) (initialPos "test"))
+    testParseTerm ["a", "b", "c", "dummy"] [] [] env "(binary a b) c" (App (TMacro "binary" [MTerm (Var "a" 3 (initialPos "test")), MTerm (Var "b" 2 (initialPos "test"))] (initialPos "test")) (Var "c" 1 (initialPos "test")) (initialPos "test"))
 
 advancedTermMacroScenarioSpec :: Spec
 advancedTermMacroScenarioSpec = describe "Advanced term macro scenarios" $ do
   it "handles deeply nested TMacro applications" $ do
     let env = createTermMacroEnv [("f", ["x"]), ("g", ["y"]), ("h", ["z"])]
     -- Test deeply nested: f (g (h x))
-    testParseTerm ["x"] [] [] env "f (g (h x))" (TMacro "f" [TMacro "g" [TMacro "h" [Var "x" 0 (initialPos "test")] (initialPos "test")] (initialPos "test")] (initialPos "test"))
+    testParseTerm ["x"] [] [] env "f (g (h x))" (TMacro "f" [MTerm (TMacro "g" [MTerm (TMacro "h" [MTerm (Var "x" 0 (initialPos "test"))] (initialPos "test"))] (initialPos "test"))] (initialPos "test"))
     -- Test complex nesting with mixed regular terms: f (g (x y))
-    testParseTerm ["x", "y"] [] [] env "f (g (x y))" (TMacro "f" [TMacro "g" [App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")] (initialPos "test")] (initialPos "test"))
+    testParseTerm ["x", "y"] [] [] env "f (g (x y))" (TMacro "f" [MTerm (TMacro "g" [MTerm (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test"))] (initialPos "test"))] (initialPos "test"))
 
   it "handles TMacro in lambda abstractions with variable capture" $ do
     let env = createTermMacroEnv [("apply", ["f", "x"])]
     -- Lambda with TMacro using bound variable x
-    testParseTerm ["x"] [] [] env "λ f . apply f x" (Lam "f" (TMacro "apply" [Var "f" 0 (initialPos "test"), Var "x" 1 (initialPos "test")] (initialPos "test")) (initialPos "test"))
+    testParseTerm ["x"] [] [] env "λ f . apply f x" (Lam "f" (TMacro "apply" [MTerm (Var "f" 0 (initialPos "test")), MTerm (Var "x" 1 (initialPos "test"))] (initialPos "test")) (initialPos "test"))
     -- Nested lambda with TMacro using bound variables - should work
-    testParseTerm [] [] [] env "λ x . λ y . apply x y" (Lam "x" (Lam "y" (TMacro "apply" [Var "x" 1 (initialPos "test"), Var "y" 0 (initialPos "test")] (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseTerm [] [] [] env "λ x . λ y . apply x y" (Lam "x" (Lam "y" (TMacro "apply" [MTerm (Var "x" 1 (initialPos "test")), MTerm (Var "y" 0 (initialPos "test"))] (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "handles mixed macro patterns with bound variables" $ do
     let env = createTermMacroEnv [("compose", ["f", "g"]), ("id", [])]
     -- Complex expression with bound variables f, g
-    testParseTerm ["f", "g"] [] [] env "compose (compose id f) g" (TMacro "compose" [TMacro "compose" [TMacro "id" [] (initialPos "test"), Var "f" 1 (initialPos "test")] (initialPos "test"), Var "g" 0 (initialPos "test")] (initialPos "test"))
+    testParseTerm ["f", "g"] [] [] env "compose (compose id f) g" (TMacro "compose" [MTerm (TMacro "compose" [MTerm (TMacro "id" [] (initialPos "test")), MTerm (Var "f" 1 (initialPos "test"))] (initialPos "test")), MTerm (Var "g" 0 (initialPos "test"))] (initialPos "test"))
 
   it "handles TMacro with complex argument patterns" $ do
     let env = createTermMacroEnv [("curry", ["f", "x", "y"]), ("uncurry", ["f"])]
     -- TMacro with lambda argument: curry (λ x . λ y . x y) a b
-    testParseTerm ["a", "b"] [] [] env "curry (λ x . λ y . x y) a b" (TMacro "curry" [Lam "x" (Lam "y" (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"), Var "a" 1 (initialPos "test"), Var "b" 0 (initialPos "test")] (initialPos "test"))
+    testParseTerm ["a", "b"] [] [] env "curry (λ x . λ y . x y) a b" (TMacro "curry" [MTerm (Lam "x" (Lam "y" (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")), MTerm (Var "a" 1 (initialPos "test")), MTerm (Var "b" 0 (initialPos "test"))] (initialPos "test"))
     -- TMacro with nested TMacro argument: uncurry (curry f x)
-    testParseTerm ["f", "x", "y"] [] [] env "uncurry (curry f x y)" (TMacro "uncurry" [TMacro "curry" [Var "f" 2 (initialPos "test"), Var "x" 1 (initialPos "test"), Var "y" 0 (initialPos "test")] (initialPos "test")] (initialPos "test"))
+    testParseTerm ["f", "x", "y"] [] [] env "uncurry (curry f x y)" (TMacro "uncurry" [MTerm (TMacro "curry" [MTerm (Var "f" 2 (initialPos "test")), MTerm (Var "x" 1 (initialPos "test")), MTerm (Var "y" 0 (initialPos "test"))] (initialPos "test"))] (initialPos "test"))
 
   it "handles variable shadowing with TMacros" $ do
     let env = createTermMacroEnv [("bind", ["x", "f"])]
     -- Variable shadowing: λ x . bind x (λ x . x) where inner x shadows outer x
-    testParseTerm [] [] [] env "λ x . bind x (λ x . x)" (Lam "x" (TMacro "bind" [Var "x" 0 (initialPos "test"), Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")] (initialPos "test")) (initialPos "test"))
+    testParseTerm [] [] [] env "λ x . bind x (λ x . x)" (Lam "x" (TMacro "bind" [MTerm (Var "x" 0 (initialPos "test")), MTerm (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))] (initialPos "test")) (initialPos "test"))
     -- Complex shadowing: λ f . λ x . bind (f x) (λ f . f)
-    testParseTerm [] [] [] env "λ f . λ x . bind (f x) (λ f . f)" (Lam "f" (Lam "x" (TMacro "bind" [App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"), Lam "f" (Var "f" 0 (initialPos "test")) (initialPos "test")] (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseTerm [] [] [] env "λ f . λ x . bind (f x) (λ f . f)" (Lam "f" (Lam "x" (TMacro "bind" [MTerm (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")), MTerm (Lam "f" (Var "f" 0 (initialPos "test")) (initialPos "test"))] (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "rejects TMacro arity edge cases" $ do
     let env = createTermMacroEnv [("binary", ["x", "y"]), ("ternary", ["x", "y", "z"])]
@@ -328,24 +328,24 @@ advancedTermMacroScenarioSpec = describe "Advanced term macro scenarios" $ do
           Left elabErr -> show elabErr `shouldContain` "MacroArityMismatch"
           Right result -> expectationFailure $ "Expected elaboration error for under-applied macro, but got: " ++ show result
     -- Exact application
-    testParseTerm ["x", "y", "z"] [] [] env "binary x y" (TMacro "binary" [Var "x" 2 (initialPos "test"), Var "y" 1 (initialPos "test")] (initialPos "test"))
+    testParseTerm ["x", "y", "z"] [] [] env "binary x y" (TMacro "binary" [MTerm (Var "x" 2 (initialPos "test")), MTerm (Var "y" 1 (initialPos "test"))] (initialPos "test"))
 
     -- Over-application (should switch to App after arity limit (initialPos "test"))
-    testParseTerm ["x", "y", "z"] [] [] env "binary x y z" (App (TMacro "binary" [Var "x" 2 (initialPos "test"), Var "y" 1 (initialPos "test")] (initialPos "test")) (Var "z" 0 (initialPos "test")) (initialPos "test"))
+    testParseTerm ["x", "y", "z"] [] [] env "binary x y z" (App (TMacro "binary" [MTerm (Var "x" 2 (initialPos "test")), MTerm (Var "y" 1 (initialPos "test"))] (initialPos "test")) (Var "z" 0 (initialPos "test")) (initialPos "test"))
 
   it "handles TMacro in complex application chains" $ do
     let env = createTermMacroEnv [("map", ["f", "xs"]), ("filter", ["p", "xs"])]
     -- Chain: map f (filter p xs)
-    testParseTerm ["f", "p", "xs"] [] [] env "map f (filter p xs)" (TMacro "map" [Var "f" 2 (initialPos "test"), TMacro "filter" [Var "p" 1 (initialPos "test"), Var "xs" 0 (initialPos "test")] (initialPos "test")] (initialPos "test"))
+    testParseTerm ["f", "p", "xs"] [] [] env "map f (filter p xs)" (TMacro "map" [MTerm (Var "f" 2 (initialPos "test")), MTerm (TMacro "filter" [MTerm (Var "p" 1 (initialPos "test")), MTerm (Var "xs" 0 (initialPos "test"))] (initialPos "test"))] (initialPos "test"))
     -- Left-associative application chain: map stops at arity, uses App for extra
-    testParseTerm ["f", "xs", "ys"] [] [] env "map f xs ys" (App (TMacro "map" [Var "f" 2 (initialPos "test"), Var "xs" 1 (initialPos "test")] (initialPos "test")) (Var "ys" 0 (initialPos "test")) (initialPos "test"))
+    testParseTerm ["f", "xs", "ys"] [] [] env "map f xs ys" (App (TMacro "map" [MTerm (Var "f" 2 (initialPos "test")), MTerm (Var "xs" 1 (initialPos "test"))] (initialPos "test")) (Var "ys" 0 (initialPos "test")) (initialPos "test"))
 
   it "handles TMacro with parentheses and precedence" $ do
     let env = createTermMacroEnv [("add", ["x", "y"]), ("mul", ["x", "y"])]
     -- Parentheses affecting parsing: add (mul x y) z
-    testParseTerm ["x", "y", "z"] [] [] env "add (mul x y) z" (TMacro "add" [TMacro "mul" [Var "x" 2 (initialPos "test"), Var "y" 1 (initialPos "test")] (initialPos "test"), Var "z" 0 (initialPos "test")] (initialPos "test"))
+    testParseTerm ["x", "y", "z"] [] [] env "add (mul x y) z" (TMacro "add" [MTerm (TMacro "mul" [MTerm (Var "x" 2 (initialPos "test")), MTerm (Var "y" 1 (initialPos "test"))] (initialPos "test")), MTerm (Var "z" 0 (initialPos "test"))] (initialPos "test"))
     -- Different grouping: (add x y) z - arity limit forces App after completion
-    testParseTerm ["x", "y", "z"] [] [] env "(add x y) z" (App (TMacro "add" [Var "x" 2 (initialPos "test"), Var "y" 1 (initialPos "test")] (initialPos "test")) (Var "z" 0 (initialPos "test")) (initialPos "test"))
+    testParseTerm ["x", "y", "z"] [] [] env "(add x y) z" (App (TMacro "add" [MTerm (Var "x" 2 (initialPos "test")), MTerm (Var "y" 1 (initialPos "test"))] (initialPos "test")) (Var "z" 0 (initialPos "test")) (initialPos "test"))
 
   it "handles large argument lists for TMacros" $ do
     let env = createTermMacroEnv [("manyArgs", ["a", "b", "c", "d", "e", "f", "g", "h"])]
@@ -357,14 +357,14 @@ advancedTermMacroScenarioSpec = describe "Advanced term macro scenarios" $ do
       "manyArgs a b c d e f g h"
       ( TMacro
           "manyArgs"
-          [ Var "a" 7 (initialPos "test"),
-            Var "b" 6 (initialPos "test"),
-            Var "c" 5 (initialPos "test"),
-            Var "d" 4 (initialPos "test"),
-            Var "e" 3 (initialPos "test"),
-            Var "f" 2 (initialPos "test"),
-            Var "g" 1 (initialPos "test"),
-            Var "h" 0 (initialPos "test")
+          [ MTerm (Var "a" 7 (initialPos "test")),
+            MTerm (Var "b" 6 (initialPos "test")),
+            MTerm (Var "c" 5 (initialPos "test")),
+            MTerm (Var "d" 4 (initialPos "test")),
+            MTerm (Var "e" 3 (initialPos "test")),
+            MTerm (Var "f" 2 (initialPos "test")),
+            MTerm (Var "g" 1 (initialPos "test")),
+            MTerm (Var "h" 0 (initialPos "test"))
           ]
           (initialPos "test")
       )
@@ -373,11 +373,11 @@ advancedTermMacroScenarioSpec = describe "Advanced term macro scenarios" $ do
     let env = createTermMacroEnv [("f", ["x"])]
     -- When 'f' is both a macro name and used as a variable
     -- In head position with correct arity, it should be TMacro
-    testParseTerm ["x"] [] [] env "f x" (TMacro "f" [Var "x" 0 (initialPos "test")] (initialPos "test"))
+    testParseTerm ["x"] [] [] env "f x" (TMacro "f" [MTerm (Var "x" 0 (initialPos "test"))] (initialPos "test"))
     -- In lambda binding: λ f . f x (here f is bound, shadowing the macro)
     testParseTerm ["x"] [] [] env "λ f . f x" (Lam "f" (App (Var "f" 0 (initialPos "test")) (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))
     -- Complex case: λg. g (f y) - f is still the macro since it's not bound
-    testParseTerm ["y"] [] [] env "λg. g (f y)" (Lam "g" (App (Var "g" 0 (initialPos "test")) (TMacro "f" [Var "y" 1 (initialPos "test")] (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseTerm ["y"] [] [] env "λg. g (f y)" (Lam "g" (App (Var "g" 0 (initialPos "test")) (TMacro "f" [MTerm (Var "y" 1 (initialPos "test"))] (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
 macroBodyDisambiguationSpec :: Spec
 macroBodyDisambiguationSpec = describe "MacroBody disambiguation" $ do
@@ -500,9 +500,9 @@ rtypeParserSpec = describe "RType parser" $ do
 
   it "parses type application" $ do
     let listEnv = extendMacroEnvironment "List" ["A"] (RelMacro (RVar "A" 0 (initialPos "test"))) (defaultFixity "TEST") noMacros
-    testParseRType [] ["A"] [] listEnv "List A" (RMacro "List" [RVar "A" 0 (initialPos "test")] (initialPos "test"))
+    testParseRType [] ["A"] [] listEnv "List A" (RMacro "List" [MRel (RVar "A" 0 (initialPos "test"))] (initialPos "test"))
     let pairEnv = extendMacroEnvironment "Pair" ["A", "B"] (RelMacro (RVar "A" 1 (initialPos "test"))) (defaultFixity "TEST") noMacros
-    testParseRType [] ["A", "B"] [] pairEnv "Pair A B" (RMacro "Pair" [RVar "A" 1 (initialPos "test"), RVar "B" 0 (initialPos "test")] (initialPos "test"))
+    testParseRType [] ["A", "B"] [] pairEnv "Pair A B" (RMacro "Pair" [MRel (RVar "A" 1 (initialPos "test")), MRel (RVar "B" 0 (initialPos "test"))] (initialPos "test"))
 
   it "rejects unknown macros in type applications" $ do
     -- These should fail during elaboration, not parsing
@@ -780,7 +780,7 @@ declarationParserSpec = describe "Declaration parser" $ do
       ( TheoremDef
           "sym"
           [TermBinding "t", TermBinding "u", RelBinding "R", ProofBinding "p" (RelJudgment (Var "t" 1 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (Var "u" 0 (initialPos "test")))]
-          (RelJudgment (Var "u" 0 (initialPos "test")) (RMacro "Sym" [RVar "R" 0 (initialPos "test")] (initialPos "test")) (Var "t" 1 (initialPos "test"))) -- t,u,R bound with correct indices
+          (RelJudgment (Var "u" 0 (initialPos "test")) (RMacro "Sym" [MRel (RVar "R" 0 (initialPos "test"))] (initialPos "test")) (Var "t" 1 (initialPos "test"))) -- t,u,R bound with correct indices
           (ConvIntro (PVar "p" 0 (initialPos "test")) (initialPos "test"))
       )
 
@@ -833,13 +833,13 @@ declarationParserSpec = describe "Declaration parser" $ do
               "p"
               ( RelJudgment
                   (Lam "x" (Lam "y" (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
-                  (RMacro "Comp" [RVar "A" 1 (initialPos "test"), RVar "B" 0 (initialPos "test")] (initialPos "test"))
+                  (RMacro "Comp" [MRel (RVar "A" 1 (initialPos "test")), MRel (RVar "B" 0 (initialPos "test"))] (initialPos "test"))
                   (Lam "z" (Var "z" 0 (initialPos "test")) (initialPos "test"))
               )
           ]
           ( RelJudgment
               (Lam "x" (Lam "y" (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
-              (RMacro "Comp" [RVar "A" 1 (initialPos "test"), RVar "B" 0 (initialPos "test")] (initialPos "test"))
+              (RMacro "Comp" [MRel (RVar "A" 1 (initialPos "test")), MRel (RVar "B" 0 (initialPos "test"))] (initialPos "test"))
               (Lam "z" (Var "z" 0 (initialPos "test")) (initialPos "test"))
           )
           (PVar "p" 0 (initialPos "test"))
@@ -896,7 +896,7 @@ declarationParserSpec = describe "Declaration parser" $ do
             ]
     testParseFile [] [] [] noMacros macroFileInput1
       [ MacroDef "Sym" ["R"] (RelMacro (Conv (RVar "R" 0 (initialPos "test")) (initialPos "test"))),
-        TheoremDef "test" [TermBinding "t", TermBinding "u", RelBinding "A", ProofBinding "p" (RelJudgment (Var "t" 1 (initialPos "test")) (RMacro "Sym" [RVar "A" 0 (initialPos "test")] (initialPos "test")) (Var "u" 0 (initialPos "test")))] (RelJudgment (Var "t" 1 (initialPos "test")) (RMacro "Sym" [RVar "A" 0 (initialPos "test")] (initialPos "test")) (Var "u" 0 (initialPos "test"))) (PVar "p" 0 (initialPos "test"))
+        TheoremDef "test" [TermBinding "t", TermBinding "u", RelBinding "A", ProofBinding "p" (RelJudgment (Var "t" 1 (initialPos "test")) (RMacro "Sym" [MRel (RVar "A" 0 (initialPos "test"))] (initialPos "test")) (Var "u" 0 (initialPos "test")))] (RelJudgment (Var "t" 1 (initialPos "test")) (RMacro "Sym" [MRel (RVar "A" 0 (initialPos "test"))] (initialPos "test")) (Var "u" 0 (initialPos "test"))) (PVar "p" 0 (initialPos "test"))
       ]
 
   it "parses macro applications with arguments" $ do
@@ -911,8 +911,8 @@ declarationParserSpec = describe "Declaration parser" $ do
         MacroDef "Pair" ["A", "B"] (RelMacro (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))),
         TheoremDef
           "test"
-          [TermBinding "t", TermBinding "u", RelBinding "X", RelBinding "Y", ProofBinding "p" (RelJudgment (Var "t" 1 (initialPos "test")) (RMacro "Comp" [RVar "X" 1 (initialPos "test"), RVar "Y" 0 (initialPos "test")] (initialPos "test")) (Var "u" 0 (initialPos "test")))]
-          (RelJudgment (Var "t" 1 (initialPos "test")) (RMacro "Comp" [RVar "X" 1 (initialPos "test"), RVar "Y" 0 (initialPos "test")] (initialPos "test")) (Var "u" 0 (initialPos "test")))
+          [TermBinding "t", TermBinding "u", RelBinding "X", RelBinding "Y", ProofBinding "p" (RelJudgment (Var "t" 1 (initialPos "test")) (RMacro "Comp" [MRel (RVar "X" 1 (initialPos "test")), MRel (RVar "Y" 0 (initialPos "test"))] (initialPos "test")) (Var "u" 0 (initialPos "test")))]
+          (RelJudgment (Var "t" 1 (initialPos "test")) (RMacro "Comp" [MRel (RVar "X" 1 (initialPos "test")), MRel (RVar "Y" 0 (initialPos "test"))] (initialPos "test")) (Var "u" 0 (initialPos "test")))
           (PVar "p" 0 (initialPos "test"))
       ]
 
@@ -1182,7 +1182,7 @@ declarationComplexCasesSpec = describe "Declaration parser complex cases" $ do
             ]
     testParseFile [] [] [] noMacros input
       [ MacroDef "Base" ["A"] (RelMacro (Comp (RVar "A" 0 (initialPos "test")) (RVar "A" 0 (initialPos "test")) (initialPos "test"))),
-        MacroDef "Extended" ["B", "C"] (RelMacro (Comp (RMacro "Base" [RVar "B" 1 (initialPos "test")] (initialPos "test")) (RVar "C" 0 (initialPos "test")) (initialPos "test")))
+        MacroDef "Extended" ["B", "C"] (RelMacro (Comp (RMacro "Base" [MRel (RVar "B" 1 (initialPos "test"))] (initialPos "test")) (RVar "C" 0 (initialPos "test")) (initialPos "test")))
       ]
 
   it "parses extremely long macro parameter lists" $ do

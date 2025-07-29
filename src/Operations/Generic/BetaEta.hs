@@ -1,5 +1,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- | Generic β-η equivalence for terms.
 -- This module implements proper β-η equivalence through normalization,
@@ -18,7 +19,7 @@ module Operations.Generic.BetaEta
   , BetaEtaMode(..)
   ) where
 
-import Core.Syntax (Term(..), MacroEnvironment)
+import Core.Syntax (Term(..), MacroEnvironment, MacroArg(..))
 import Operations.Generic.Equality (alphaEquality) 
 import Operations.Generic.Expansion (expandFully, ExpansionResult(..))
 import Operations.Generic.Substitution (SubstAst(..))
@@ -81,7 +82,11 @@ betaEtaNormalizeStep term = case term of
   
   -- Macros should have been expanded already
   TMacro name args pos -> 
-    TMacro name (map betaEtaNormalizeStep args) pos
+    TMacro name (map normalizeMacroArg args) pos
+    where normalizeMacroArg = \case
+            MTerm t -> MTerm (betaEtaNormalizeStep t)
+            MRel r -> MRel r  -- Relations don't have β-η reduction
+            MProof p -> MProof p  -- Proofs don't have β-η reduction
 
 -- | Apply β-reduction: (λx.e) t → [t/x]e
 betaReduce :: Term -> Term
@@ -109,5 +114,9 @@ occursFree targetIdx term = case term of
   Var _ idx _ -> idx == targetIdx
   Lam _ body _ -> occursFree (targetIdx + 1) body  -- Adjust for binder
   App t1 t2 _ -> occursFree targetIdx t1 || occursFree targetIdx t2
-  TMacro _ args _ -> any (occursFree targetIdx) args
+  TMacro _ args _ -> any checkMacroArg args
+    where checkMacroArg = \case
+            MTerm t -> occursFree targetIdx t
+            MRel _ -> False  -- Relations don't contain terms
+            MProof _ -> False  -- Proofs handled separately
 

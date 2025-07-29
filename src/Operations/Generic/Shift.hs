@@ -1,4 +1,5 @@
 {-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- | Generic shifting infrastructure for de Bruijn indices.
 -- This module provides a unified interface for shifting operations
@@ -21,8 +22,15 @@ module Operations.Generic.Shift
   , shiftFreeRelVars
   ) where
 
-import Core.Syntax (Term(..), RType(..), Proof(..), TheoremArg(..))
+import Core.Syntax (Term(..), RType(..), Proof(..), TheoremArg(..), MacroArg(..))
 import qualified Data.Set as Set
+
+-- | ShiftAst instance for MacroArg
+instance ShiftAst MacroArg where
+  shiftAbove n amount = \case
+    MTerm t -> MTerm (shiftAbove n amount t)
+    MRel r -> MRel (shiftAbove n amount r)  
+    MProof p -> MProof (shiftAbove n amount p)
 
 --------------------------------------------------------------------------------
 -- | Core typeclass for shifting de Bruijn indices
@@ -168,7 +176,11 @@ shiftTermsInRType shiftAmount = shiftTermsInRTypeAbove 0 shiftAmount
 shiftTermsInRTypeAbove :: Int -> Int -> RType -> RType
 shiftTermsInRTypeAbove cutoff shiftAmount ty = case ty of
   RVar name idx pos -> RVar name idx pos  -- Relation variables unaffected
-  RMacro name args pos -> RMacro name (map (shiftTermsInRTypeAbove cutoff shiftAmount) args) pos
+  RMacro name args pos -> RMacro name (map shiftMacroArg args) pos
+    where shiftMacroArg = \case
+            MTerm t -> MTerm t  -- Terms unaffected by relation shifting
+            MRel r -> MRel (shiftTermsInRTypeAbove cutoff shiftAmount r)
+            MProof p -> MProof p  -- Proofs unaffected by relation shifting
   Arr r1 r2 pos -> Arr (shiftTermsInRTypeAbove cutoff shiftAmount r1) (shiftTermsInRTypeAbove cutoff shiftAmount r2) pos
   All name r pos -> All name (shiftTermsInRTypeAbove cutoff shiftAmount r) pos
   Conv r pos -> Conv (shiftTermsInRTypeAbove cutoff shiftAmount r) pos
@@ -183,8 +195,12 @@ shiftTermsInRTypeAboveWithBoundsCheck :: Int -> Int -> RType -> Maybe RType
 shiftTermsInRTypeAboveWithBoundsCheck cutoff shiftAmount ty = case ty of
   RVar name idx pos -> Just $ RVar name idx pos
   RMacro name args pos -> do
-    shiftedArgs <- mapM (shiftTermsInRTypeAboveWithBoundsCheck cutoff shiftAmount) args
+    shiftedArgs <- mapM shiftMacroArg args
     return $ RMacro name shiftedArgs pos
+    where shiftMacroArg = \case
+            MTerm t -> return $ MTerm t  -- Terms unaffected by relation shifting
+            MRel r -> MRel <$> shiftTermsInRTypeAboveWithBoundsCheck cutoff shiftAmount r
+            MProof p -> return $ MProof p  -- Proofs unaffected by relation shifting
   Arr r1 r2 pos -> do
     shiftedR1 <- shiftTermsInRTypeAboveWithBoundsCheck cutoff shiftAmount r1
     shiftedR2 <- shiftTermsInRTypeAboveWithBoundsCheck cutoff shiftAmount r2
@@ -220,7 +236,11 @@ shiftTermExcept prot d = go 0
         | otherwise -> tm
       Lam v b p -> Lam v (go (cut + 1) b) p
       App f a p -> App (go cut f) (go cut a) p
-      TMacro n as p -> TMacro n (map (go cut) as) p
+      TMacro n as p -> TMacro n (map shiftMacroArg as) p
+        where shiftMacroArg = \case
+                MTerm t -> MTerm (go cut t)
+                MRel r -> MRel r  -- Relations unaffected by term shifting
+                MProof p -> MProof p  -- Proofs unaffected by term shifting
 
 -- | The same idea for relational types (terms appear under 'Prom').
 shiftRTypeExcept :: Set.Set String -> Int -> RType -> RType
@@ -232,7 +252,11 @@ shiftRTypeExcept prot d = go
       Conv r p -> Conv (go r) p
       Comp a b p -> Comp (go a) (go b) p
       Prom t p -> Prom (shiftTermExcept prot d t) p
-      RMacro n as p -> RMacro n (map go as) p
+      RMacro n as p -> RMacro n (map shiftMacroArg as) p
+        where shiftMacroArg = \case
+                MTerm t -> MTerm t  -- Terms unaffected by relational variable shifting
+                MRel r -> MRel (go r)
+                MProof p -> MProof p  -- Proofs unaffected by relational variable shifting
       other -> other
 
 -- | shiftFreeRelVars x d τ bumps indices ≥0 by d, but
@@ -249,5 +273,9 @@ shiftFreeRelVars x d = go 0
       Arr a b p -> Arr (go lvl a) (go lvl b) p
       Comp a b p -> Comp (go lvl a) (go lvl b) p
       Conv r p -> Conv (go lvl r) p
-      RMacro n as p -> RMacro n (map (go lvl) as) p
+      RMacro n as p -> RMacro n (map shiftMacroArg as) p
+        where shiftMacroArg = \case
+                MTerm t -> MTerm t  -- Terms unaffected by relational variable shifting
+                MRel r -> MRel (go lvl r)
+                MProof p -> MProof p  -- Proofs unaffected by relational variable shifting
       Prom t p -> Prom t p

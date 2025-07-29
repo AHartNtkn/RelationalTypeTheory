@@ -21,7 +21,7 @@ module Operations.Generic.Equality
   ) where
 
 import qualified Data.Map as Map
-import Core.Syntax (Term(..), RType(..), Proof(..), TheoremArg(..), MacroEnvironment(..))
+import Core.Syntax (Term(..), RType(..), Proof(..), TheoremArg(..), MacroEnvironment(..), MacroArg(..))
 import Operations.Generic.Expansion (ExpandAst(..), getMacroApp, isRightBody, bodyToAst)
 import Operations.Generic.Macro (renameBinderVarsG, substituteArgsG)
 
@@ -197,3 +197,14 @@ instance EqualityAst Proof where
   getHead (Pair _ _ _) = "Pair"
   getHead (Pi _ _ _ _ _ _) = "Pi"  -- Don't include binder names
   getHead (PTheoremApp n _ _) = "PTheoremApp:" ++ n
+
+-- | EqualityAst instance for MacroArg
+instance EqualityAst MacroArg where
+  structuralEq (MTerm t1) (MTerm t2) = structuralEq t1 t2
+  structuralEq (MRel r1) (MRel r2) = structuralEq r1 r2
+  structuralEq (MProof p1) (MProof p2) = structuralEq p1 p2
+  structuralEq _ _ = False
+  
+  getHead (MTerm t) = "MTerm:" ++ getHead t
+  getHead (MRel r) = "MRel:" ++ getHead r
+  getHead (MProof p) = "MProof:" ++ getHead p

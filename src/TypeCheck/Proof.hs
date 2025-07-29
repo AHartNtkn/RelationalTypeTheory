@@ -325,7 +325,7 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
     case Map.lookup name (macroDefinitions macroEnv) of
       Nothing -> Left $ UnknownMacro name (ErrorContext pos "proof macro lookup")
       Just (sig, ProofMacro body) -> 
-        case elabMacroAppG macroEnv name sig body args of
+        case elabMacroAppG macroEnv name sig body [p | MProof p <- args] of
           Right expandedProof -> inferProofType ctx macroEnv theoremEnv expandedProof
           Left err -> Left $ InternalError ("Proof macro expansion failed: " ++ show err) (ErrorContext pos "proof macro expansion")
       Just (_, TermMacro _) -> Left $ InvalidMixfixPattern ("Term macro " ++ name ++ " used in proof context") (ErrorContext pos "proof macro application")

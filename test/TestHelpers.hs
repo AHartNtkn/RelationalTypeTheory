@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase #-}
 
 module TestHelpers
   ( PositionInsensitive (..),
@@ -41,12 +42,22 @@ equalTerm :: Term -> Term -> Bool
 equalTerm (Var n1 i1 _) (Var n2 i2 _) = n1 == n2 && i1 == i2
 equalTerm (Lam n1 t1 _) (Lam n2 t2 _) = n1 == n2 && equalTerm t1 t2
 equalTerm (App t1 u1 _) (App t2 u2 _) = equalTerm t1 t2 && equalTerm u1 u2
-equalTerm (TMacro n1 ts1 _) (TMacro n2 ts2 _) = n1 == n2 && length ts1 == length ts2 && all (uncurry equalTerm) (zip ts1 ts2)
+equalTerm (TMacro n1 ts1 _) (TMacro n2 ts2 _) = n1 == n2 && length ts1 == length ts2 && all equalMacroArgPairTerm (zip ts1 ts2)
+  where equalMacroArgPairTerm = \case
+          (MTerm t1, MTerm t2) -> equalTerm t1 t2
+          (MRel r1, MRel r2) -> equalRType r1 r2
+          (MProof p1, MProof p2) -> equalProof p1 p2
+          _ -> False
 equalTerm _ _ = False
 
 equalRType :: RType -> RType -> Bool
 equalRType (RVar n1 i1 _) (RVar n2 i2 _) = n1 == n2 && i1 == i2
-equalRType (RMacro n1 ts1 _) (RMacro n2 ts2 _) = n1 == n2 && length ts1 == length ts2 && all (uncurry equalRType) (zip ts1 ts2)
+equalRType (RMacro n1 ts1 _) (RMacro n2 ts2 _) = n1 == n2 && length ts1 == length ts2 && all equalMacroArgPair (zip ts1 ts2)
+  where equalMacroArgPair = \case
+          (MTerm t1, MTerm t2) -> equalTerm t1 t2
+          (MRel r1, MRel r2) -> equalRType r1 r2
+          (MProof p1, MProof p2) -> equalProof p1 p2
+          _ -> False
 equalRType (Arr r1 s1 _) (Arr r2 s2 _) = equalRType r1 r2 && equalRType s1 s2
 equalRType (All n1 r1 _) (All n2 r2 _) = n1 == n2 && equalRType r1 r2
 equalRType (Comp r1 s1 _) (Comp r2 s2 _) = equalRType r1 r2 && equalRType s1 s2

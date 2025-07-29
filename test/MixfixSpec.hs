@@ -162,19 +162,19 @@ mixfixRawMacroSpec = describe "Mixfix macro definition parsing" $ do
 mixfixPrettyPrintSpec :: Spec
 mixfixPrettyPrintSpec = describe "Mixfix pretty printing" $ do
   it "pretty prints binary infix notation" $ do
-    let term = TMacro "_+_" [Var "a" 0 (initialPos "test"), Var "b" 1 (initialPos "test")] (initialPos "test")
+    let term = TMacro "_+_" [MTerm (Var "a" 0 (initialPos "test")), MTerm (Var "b" 1 (initialPos "test"))] (initialPos "test")
     prettyTerm term `shouldBe` "a + b"
 
   it "pretty prints ternary mixfix notation" $ do
-    let term = TMacro "if_then_else_" [Var "c" 2 (initialPos "test"), Var "t" 1 (initialPos "test"), Var "e" 0 (initialPos "test")] (initialPos "test")
+    let term = TMacro "if_then_else_" [MTerm (Var "c" 2 (initialPos "test")), MTerm (Var "t" 1 (initialPos "test")), MTerm (Var "e" 0 (initialPos "test"))] (initialPos "test")
     prettyTerm term `shouldBe` "if c then t else e"
 
   it "pretty prints prefix notation" $ do
-    let term = TMacro "not_" [Var "b" 0 (initialPos "test")] (initialPos "test")
+    let term = TMacro "not_" [MTerm (Var "b" 0 (initialPos "test"))] (initialPos "test")
     prettyTerm term `shouldBe` "not b"
 
   it "pretty prints postfix notation" $ do
-    let term = TMacro "_!" [Var "n" 0 (initialPos "test")] (initialPos "test")
+    let term = TMacro "_!" [MTerm (Var "n" 0 (initialPos "test"))] (initialPos "test")
     prettyTerm term `shouldBe` "n !"
 
   it "pretty prints fixity declarations" $ do
@@ -194,7 +194,7 @@ mixfixOperatorTableSpec = describe "Dynamic operator table generation" $ do
             }
     -- We can't easily test the generated operator table directly,
     -- but we can test that parsing with it works correctly
-    testParseWithEnv env "a + b" (TMacro "_+_" [Var "a" 1 (initialPos "test"), Var "b" 0 (initialPos "test")] (initialPos "test"))
+    testParseWithEnv env "a + b" (TMacro "_+_" [MTerm (Var "a" 1 (initialPos "test")), MTerm (Var "b" 0 (initialPos "test"))] (initialPos "test"))
   where
     testParseWithEnv env input expected =
       -- Create an elaborate context with the macro environment
@@ -218,7 +218,7 @@ mixfixParsingSpec = describe "Mixfix expression parsing" $ do
       env
       ["a", "b"]
       "a + b"
-      (TMacro "_+_" [Var "a" 1 (initialPos "test"), Var "b" 0 (initialPos "test")] (initialPos "test"))
+      (TMacro "_+_" [MTerm (Var "a" 1 (initialPos "test")), MTerm (Var "b" 0 (initialPos "test"))] (initialPos "test"))
 
   it "parses ternary mixfix expressions" $ do
     let env = createMixfixEnv [("if_then_else_", (["c", "t", "e"], Prefix 9))]
@@ -226,7 +226,7 @@ mixfixParsingSpec = describe "Mixfix expression parsing" $ do
       env
       ["c", "t", "e"]
       "if c then t else e"
-      (TMacro "if_then_else_" [Var "c" 2 (initialPos "test"), Var "t" 1 (initialPos "test"), Var "e" 0 (initialPos "test")] (initialPos "test"))
+      (TMacro "if_then_else_" [MTerm (Var "c" 2 (initialPos "test")), MTerm (Var "t" 1 (initialPos "test")), MTerm (Var "e" 0 (initialPos "test"))] (initialPos "test"))
 
   it "parses prefix expressions" $ do
     let env = createMixfixEnv [("not_", (["b"], Prefix 9))]
@@ -234,7 +234,7 @@ mixfixParsingSpec = describe "Mixfix expression parsing" $ do
       env
       ["b"]
       "not b"
-      (TMacro "not_" [Var "b" 0 (initialPos "test")] (initialPos "test"))
+      (TMacro "not_" [MTerm (Var "b" 0 (initialPos "test"))] (initialPos "test"))
 
   it "respects precedence in complex expressions" $ do
     let env = createMixfixEnv [("_+_", (["a", "b"], Infixl 6)), ("_*_", (["x", "y"], Infixl 7))]
@@ -244,8 +244,8 @@ mixfixParsingSpec = describe "Mixfix expression parsing" $ do
       "a + b * c"
       ( TMacro
           "_+_"
-          [ Var "a" 2 (initialPos "test"),
-            TMacro "_*_" [Var "b" 1 (initialPos "test"), Var "c" 0 (initialPos "test")] (initialPos "test")
+          [ MTerm (Var "a" 2 (initialPos "test")),
+            MTerm (TMacro "_*_" [MTerm (Var "b" 1 (initialPos "test")), MTerm (Var "c" 0 (initialPos "test"))] (initialPos "test"))
           ]
           (initialPos "test")
       )
@@ -281,7 +281,7 @@ relationalMixfixSpec = describe "Relational mixfix macros" $ do
             }
     case parseRTypeWithEnv env [("X", 1), ("Y", 0)] "X +R+ Y" of
       Left err -> expectationFailure $ "Parse/elaboration failed: " ++ err
-      Right result -> result `shouldBeEqual` (RMacro "_+R+_" [RVar "X" 1 (initialPos "test"), RVar "Y" 0 (initialPos "test")] (initialPos "test"))
+      Right result -> result `shouldBeEqual` (RMacro "_+R+_" [MRel (RVar "X" 1 (initialPos "test")), MRel (RVar "Y" 0 (initialPos "test"))] (initialPos "test"))
 
   it "parses relational prefix macro applications" $ do
     let env =
@@ -292,7 +292,7 @@ relationalMixfixSpec = describe "Relational mixfix macros" $ do
             }
     case parseRTypeWithEnv env [("X", 0)] "notR X" of
       Left err -> expectationFailure $ "Parse/elaboration failed: " ++ err
-      Right result -> result `shouldBeEqual` (RMacro "notR_" [RVar "X" 0 (initialPos "test")] (initialPos "test"))
+      Right result -> result `shouldBeEqual` (RMacro "notR_" [MRel (RVar "X" 0 (initialPos "test"))] (initialPos "test"))
 
   it "parses relational postfix macro applications" $ do
     let env =
@@ -303,7 +303,7 @@ relationalMixfixSpec = describe "Relational mixfix macros" $ do
             }
     case parseRTypeWithEnv env [("X", 0)] "X converse" of
       Left err -> expectationFailure $ "Parse/elaboration failed: " ++ err
-      Right result -> result `shouldBeEqual` (RMacro "_converse" [RVar "X" 0 (initialPos "test")] (initialPos "test"))
+      Right result -> result `shouldBeEqual` (RMacro "_converse" [MRel (RVar "X" 0 (initialPos "test"))] (initialPos "test"))
 
   it "parses relational ternary mixfix macro applications" $ do
     let env =
@@ -314,7 +314,7 @@ relationalMixfixSpec = describe "Relational mixfix macros" $ do
             }
     case parseRTypeWithEnv env [("C", 2), ("T", 1), ("E", 0)] "if C then T else E" of
       Left err -> expectationFailure $ "Parse/elaboration failed: " ++ err
-      Right result -> result `shouldBeEqual` (RMacro "if_then_else_" [RVar "C" 2 (initialPos "test"), RVar "T" 1 (initialPos "test"), RVar "E" 0 (initialPos "test")] (initialPos "test"))
+      Right result -> result `shouldBeEqual` (RMacro "if_then_else_" [MRel (RVar "C" 2 (initialPos "test")), MRel (RVar "T" 1 (initialPos "test")), MRel (RVar "E" 0 (initialPos "test"))] (initialPos "test"))
 
 -- Test for the mixfix parser bug with multiple holes and repeated literals
 mixfixBugSpec :: Spec
@@ -329,7 +329,7 @@ mixfixBugSpec = describe "Mixfix parser bug with repeated literals" $ do
     -- This should parse as a single application of _·_·_ with three arguments
     case parseRTypeWithEnv (env { macroFixities = Map.fromList [("_·_·_", Infixl 7)] }) [("t", 2), ("R", 1), ("dummy", 0)] "t · R · t" of
       Left err -> expectationFailure $ "Parse/elaboration failed: " ++ err
-      Right result -> result `shouldBeEqual` (RMacro "_·_·_" [RVar "t" 2 (initialPos "test"), RVar "R" 1 (initialPos "test"), RVar "t" 2 (initialPos "test")] (initialPos "test"))
+      Right result -> result `shouldBeEqual` (RMacro "_·_·_" [MRel (RVar "t" 2 (initialPos "test")), MRel (RVar "R" 1 (initialPos "test")), MRel (RVar "t" 2 (initialPos "test"))] (initialPos "test"))
 
 -- Test complex mixfix scenarios
 mixfixComplexSpec :: Spec
@@ -438,7 +438,7 @@ mixfixUnicodeSpec = describe "Unicode mixfix operations" $ do
       env
       ["a", "b"]
       "a ∪ b"
-      (TMacro "_∪_" [Var "a" 1 (initialPos "test"), Var "b" 0 (initialPos "test")] (initialPos "test"))
+      (TMacro "_∪_" [MTerm (Var "a" 1 (initialPos "test")), MTerm (Var "b" 0 (initialPos "test"))] (initialPos "test"))
 
   it "parses unicode prefix expressions" $ do
     let env = createUnicodeMixfixEnv [("¬_", (["x"], Prefix 9))]
@@ -446,7 +446,7 @@ mixfixUnicodeSpec = describe "Unicode mixfix operations" $ do
       env
       ["x"]
       "¬ x"
-      (TMacro "¬_" [Var "x" 0 (initialPos "test")] (initialPos "test"))
+      (TMacro "¬_" [MTerm (Var "x" 0 (initialPos "test"))] (initialPos "test"))
 
   it "parses unicode postfix expressions" $ do
     let env =
@@ -457,16 +457,16 @@ mixfixUnicodeSpec = describe "Unicode mixfix operations" $ do
             }
     case parseRTypeWithEnv env [("X", 0)] "X †" of
       Left err -> expectationFailure $ "Parse/elaboration failed: " ++ err
-      Right result -> result `shouldBeEqual` (RMacro "_†" [RVar "X" 0 (initialPos "test")] (initialPos "test"))
+      Right result -> result `shouldBeEqual` (RMacro "_†" [MRel (RVar "X" 0 (initialPos "test"))] (initialPos "test"))
 
   it "pretty prints unicode mixfix operations" $ do
-    let unionTerm = TMacro "_∪_" [Var "A" 1 (initialPos "test"), Var "B" 0 (initialPos "test")] (initialPos "test")
+    let unionTerm = TMacro "_∪_" [MTerm (Var "A" 1 (initialPos "test")), MTerm (Var "B" 0 (initialPos "test"))] (initialPos "test")
     prettyTerm unionTerm `shouldBe` "A ∪ B"
 
-    let negTerm = TMacro "¬_" [Var "p" 0 (initialPos "test")] (initialPos "test")
+    let negTerm = TMacro "¬_" [MTerm (Var "p" 0 (initialPos "test"))] (initialPos "test")
     prettyTerm negTerm `shouldBe` "¬ p"
 
-    let daggerTerm = TMacro "_†" [Var "M" 0 (initialPos "test")] (initialPos "test")
+    let daggerTerm = TMacro "_†" [MTerm (Var "M" 0 (initialPos "test"))] (initialPos "test")
     prettyTerm daggerTerm `shouldBe` "M †"
 
   it "handles unicode in relational mixfix macros" $ do
@@ -478,7 +478,7 @@ mixfixUnicodeSpec = describe "Unicode mixfix operations" $ do
             }
     case parseRTypeWithEnv env [("X", 1), ("Y", 0)] "X ⊆ Y" of
       Left err -> expectationFailure $ "Parse/elaboration failed: " ++ err
-      Right result -> result `shouldBeEqual` (RMacro "_⊆_" [RVar "X" 1 (initialPos "test"), RVar "Y" 0 (initialPos "test")] (initialPos "test"))
+      Right result -> result `shouldBeEqual` (RMacro "_⊆_" [MRel (RVar "X" 1 (initialPos "test")), MRel (RVar "Y" 0 (initialPos "test"))] (initialPos "test"))
 
   it "handles complex unicode operator precedence" $ do
     let env = createUnicodeMixfixEnv [("_∪_", (["a", "b"], Infixl 5)), ("_∩_", (["x", "y"], Infixl 6))]
@@ -488,8 +488,8 @@ mixfixUnicodeSpec = describe "Unicode mixfix operations" $ do
       "a ∪ b ∩ c"
       ( TMacro
           "_∪_"
-          [ Var "a" 2 (initialPos "test"),
-            TMacro "_∩_" [Var "b" 1 (initialPos "test"), Var "c" 0 (initialPos "test")] (initialPos "test")
+          [ MTerm (Var "a" 2 (initialPos "test")),
+            MTerm (TMacro "_∩_" [MTerm (Var "b" 1 (initialPos "test")), MTerm (Var "c" 0 (initialPos "test"))] (initialPos "test"))
           ]
           (initialPos "test")
       )

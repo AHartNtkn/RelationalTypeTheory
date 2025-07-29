@@ -11,6 +11,8 @@ module Core.Syntax
     -- * Proofs
     Proof (..),
     proofPos,
+    -- * Macro Arguments
+    MacroArg (..),
     -- * Theorem Arguments
     TheoremArg (..),
     -- * Declarations
@@ -40,20 +42,27 @@ where
 import qualified Data.Map as Map
 import Text.Megaparsec (SourcePos)
 
+-- | A polymorphic macro argument that can be a term, relation type, or proof
+data MacroArg
+  = MTerm  Term
+  | MRel   RType
+  | MProof Proof
+  deriving (Show, Eq)
+
 -- | Lambda calculus terms
 data Term
   = Var String Int SourcePos         -- ^ Bound variable with name, de Bruijn index, position
   | FVar String SourcePos            -- ^ Free variable (unresolved)
   | Lam String Term SourcePos        -- ^ Lambda abstraction
   | App Term Term SourcePos          -- ^ Application
-  | TMacro String [Term] SourcePos   -- ^ Term macro application
+  | TMacro String [MacroArg] SourcePos   -- ^ Term macro application with heterogeneous arguments
   deriving (Show, Eq)
 
 -- | Relational types
 data RType
   = RVar String Int SourcePos           -- ^ Bound relational variable
   | FRVar String SourcePos              -- ^ Free relational variable (unresolved)
-  | RMacro String [RType] SourcePos     -- ^ Type macro application
+  | RMacro String [MacroArg] SourcePos  -- ^ Type macro application with heterogeneous arguments
   | Arr RType RType SourcePos           -- ^ Arrow type (→)
   | All String RType SourcePos          -- ^ Universal quantification (∀)
   | Conv RType SourcePos                -- ^ Converse (˘)
@@ -77,7 +86,7 @@ data Proof
   | RhoElim String Term Term Proof Proof SourcePos         -- ^ Rho elimination
   | Pair Proof Proof SourcePos                             -- ^ Pair (⟨p,q⟩)
   | Pi Proof String String String Proof SourcePos          -- ^ Pi (π p - x . u . v .q)
-  | PMacro String [Proof] SourcePos                        -- ^ Proof macro
+  | PMacro String [MacroArg] SourcePos                     -- ^ Proof macro with heterogeneous arguments
   deriving (Show, Eq)
 
 -- | Relational judgment: t [R] t'
