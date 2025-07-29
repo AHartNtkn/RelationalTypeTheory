@@ -21,6 +21,7 @@ import Operations.Generic.Shift (shift, shiftWithBoundsCheck, shiftTermsInRType,
 import Operations.Generic.Substitution (SubstAst(..), applyTheoremSubsToJudgment)
 import Operations.Generic.Macro (elabMacroAppG)
 import Operations.Generic.Expansion (expandWHNF)
+import Operations.Resolve (fromTypingContext)
 
 -- | Result of proof checking
 data ProofCheckResult = ProofCheckResult
@@ -325,7 +326,8 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
     case Map.lookup name (macroDefinitions macroEnv) of
       Nothing -> Left $ UnknownMacro name (ErrorContext pos "proof macro lookup")
       Just (sig, ProofMacro body) -> 
-        case elabMacroAppG macroEnv name sig body [p | MProof p <- args] of
+        let resolveEnv = fromTypingContext ctx
+        in case elabMacroAppG macroEnv resolveEnv name sig body [p | MProof p <- args] of
           Right expandedProof -> inferProofType ctx macroEnv theoremEnv expandedProof
           Left err -> Left $ InternalError ("Proof macro expansion failed: " ++ show err) (ErrorContext pos "proof macro expansion")
       Just (_, TermMacro _) -> Left $ InvalidMixfixPattern ("Term macro " ++ name ++ " used in proof context") (ErrorContext pos "proof macro application")

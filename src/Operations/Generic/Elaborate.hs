@@ -31,7 +31,7 @@ import Operations.Generic.Mixfix (MixfixAst(..), reparseG)
 import Operations.Generic.Token (toTok, hasOperatorG)
 import Parser.Mixfix (mixfixKeywords)
 import Operations.Generic.Macro (elabMacroAppG, MacroAst(..))
-import Operations.Resolve (ResolveAst)
+import Operations.Resolve (ResolveAst, fromElaborateContext)
 
 --------------------------------------------------------------------------------
 -- | Core typeclass for AST elaboration
@@ -471,7 +471,8 @@ handleExplicitMacro nm args pos = do
       case extractMacroBody @raw @typed macroBody of
         Just body -> do
           elaboratedArgs <- mapM elaborate args
-          case elabMacroAppG (macroEnv ctx) name sig body elaboratedArgs of
+          let resolveEnv = fromElaborateContext ctx
+          case elabMacroAppG (macroEnv ctx) resolveEnv name sig body elaboratedArgs of
             Right result -> return result
             Left err -> throwError $ InvalidMixfixPattern 
                          ("Macro application failed for " ++ name ++ ": " ++ show err) 

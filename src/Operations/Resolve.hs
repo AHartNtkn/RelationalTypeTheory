@@ -7,10 +7,17 @@
 module Operations.Resolve
   ( ResolveAst(..)
   , resolve
+  , resolveWithEnv
+  , ResolveEnv(..)
+  , fromElaborateContext
+  , fromTypingContext
   ) where
 
 import qualified Data.Map as Map
 import Core.Syntax
+import Parser.Context (ElaborateContext)
+import qualified Parser.Context as PC
+import Core.Context
 
 -- | Type for tracking binder depth and variable mappings
 type ResolveContext = Map.Map String Int  -- variable name -> index (relative to binder)
@@ -28,6 +35,28 @@ data ResolveEnv = ResolveEnv
 -- | Empty resolve environment
 emptyResolveEnv :: ResolveEnv
 emptyResolveEnv = ResolveEnv 0 0 0 Map.empty Map.empty Map.empty
+
+-- | Convert ElaborateContext to ResolveEnv
+fromElaborateContext :: ElaborateContext -> ResolveEnv
+fromElaborateContext ctx = ResolveEnv
+  { termDepth = PC.termDepth ctx
+  , relDepth = PC.relDepth ctx  
+  , proofDepth = PC.proofDepth ctx
+  , termCtx = PC.boundVars ctx
+  , relCtx = PC.boundRelVars ctx
+  , proofCtx = Map.map fst (PC.boundProofVars ctx)  -- Extract just the index from (index, judgment)
+  }
+
+-- | Convert TypingContext to ResolveEnv  
+fromTypingContext :: TypingContext -> ResolveEnv
+fromTypingContext ctx = ResolveEnv
+  { termDepth = Map.size (termBindings ctx)
+  , relDepth = Map.size (relBindings ctx)
+  , proofDepth = Map.size (proofBindings ctx)
+  , termCtx = Map.map fst (termBindings ctx)     -- Extract just the index from (index, type)
+  , relCtx = relBindings ctx                     -- Already just index
+  , proofCtx = Map.map (\(idx, _, _) -> idx) (proofBindings ctx)  -- Extract just the index from (index, termDepth, judgment)
+  }
 
 -- | Generic typeclass for resolving free variables to de Bruijn indices
 class ResolveAst a where

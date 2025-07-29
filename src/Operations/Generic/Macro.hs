@@ -25,7 +25,7 @@ import           Core.Syntax
 import           Operations.Generic.Shift (ShiftAst(..), shift, shiftAbove)
 import           Operations.Generic.Substitution (SubstAst(..))
 import qualified Operations.Resolve as Operations.Resolve
-import           Operations.Resolve (ResolveAst(..))
+import           Operations.Resolve (ResolveAst(..), ResolveEnv)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import           Control.Monad.State.Strict
@@ -321,17 +321,18 @@ substituteArgsG sig actuals =
 elabMacroAppG
   :: (MacroAst a, ResolveAst a)
   => MacroEnvironment
+  -> ResolveEnv          -- ^ resolve environment for free variables
   -> String              -- ^ macro name
   -> [ParamInfo]         -- ^ signature from environment
   -> a                   -- ^ stored macro body
   -> [a]                 -- ^ elaborated actual arguments
   -> Either RelTTError a
-elabMacroAppG env name sig body actuals
+elabMacroAppG macroEnv resolveEnv name sig body actuals
   | length sig /= length actuals =
       Left $ MacroArityMismatch name (length sig) (length actuals)
              (ErrorContext (initialPos "<elab>") "macro application")
   | otherwise =
       let body1 = renameBinderVarsG sig actuals body
           body2 = substituteArgsG   sig actuals body1
-          body3 = Operations.Resolve.resolve body2
+          body3 = Operations.Resolve.resolveWithEnv resolveEnv body2
       in  Right body3
