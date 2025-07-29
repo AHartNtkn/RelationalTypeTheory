@@ -6,7 +6,7 @@ import Control.Monad.Reader
 import Control.Monad.Except
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Parser.Elaborate
+import Parser.Elaborate (emptyCtxWithBuiltins, elaborateTerm, elaborateRType)
 import Parser.Context (ElaborateContext(..))
 import Parser.Mixfix (MixfixPart(..), parseMixfixPattern, splitMixfix, holes, defaultFixity, mixfixKeywords)
 import Core.Syntax

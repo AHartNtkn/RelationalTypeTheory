@@ -63,6 +63,7 @@ freeVars env node =
 
 instance FreeVarsAst Term where
   extractVarName (Var x _ _) = Just x
+  extractVarName (FVar x _) = Just x    -- Free variables also have names
   extractVarName _ = Nothing
   
   extractMacro (TMacro name args _) = Just (name, args)
@@ -70,12 +71,14 @@ instance FreeVarsAst Term where
   
   freeVarsCore recurse env = \case
     Var x _ _   -> S.singleton x
+    FVar x _    -> S.singleton x          -- Free variables contribute to free variable set
     Lam x b _   -> S.delete x (recurse env b)
     App f a _   -> recurse env f `S.union` recurse env a
     TMacro _ _ _ -> error "TMacro should be handled by extractMacro"
 
 instance FreeVarsAst RType where
   extractVarName (RVar x _ _) = Just x
+  extractVarName (FRVar x _) = Just x   -- Free variables also have names
   extractVarName _ = Nothing
   
   extractMacro (RMacro name args _) = Just (name, args)
@@ -83,6 +86,7 @@ instance FreeVarsAst RType where
   
   freeVarsCore recurse env = \case
     RVar x _ _  -> S.singleton x
+    FRVar x _   -> S.singleton x          -- Free variables contribute to free variable set
     Arr a b _   -> recurse env a `S.union` recurse env b
     All x t _   -> S.delete x (recurse env t)
     Comp a b _  -> recurse env a `S.union` recurse env b
@@ -92,6 +96,7 @@ instance FreeVarsAst RType where
 
 instance FreeVarsAst Proof where
   extractVarName (PVar x _ _) = Just x
+  extractVarName (FPVar x _) = Just x   -- Free variables also have names
   extractVarName _ = Nothing
   
   extractMacro (PMacro name args _) = Just (name, args)
@@ -99,6 +104,7 @@ instance FreeVarsAst Proof where
   
   freeVarsCore recurse env = \case
     PVar x _ _          -> S.singleton x
+    FPVar x _           -> S.singleton x  -- Free variables contribute to free variable set
     PTheoremApp _ args _ -> S.unions (map goArg args)
       where
         goArg = \case

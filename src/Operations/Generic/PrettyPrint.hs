@@ -104,6 +104,7 @@ chooseSymbol config unicode ascii
 instance PrettyAst Term where
   prettyWithConfigCore config = \case
     Var name idx _ -> formatVariable config name idx
+    FVar name _ -> name                 -- Free variables just show their name
     
     Lam name body _ -> 
       let lambda = chooseSymbol config "λ" "\\"
@@ -133,6 +134,7 @@ instance PrettyAst Term where
 instance PrettyAst RType where
   prettyWithConfigCore config = \case
     RVar name idx _ -> formatVariable config name idx
+    FRVar name _ -> name                -- Free variables just show their name
     
     RMacro name args _ 
       | null args -> name
@@ -176,6 +178,7 @@ instance PrettyAst RType where
 instance PrettyAst Proof where
   prettyWithConfigCore config = \case
     PVar name idx _ -> formatVariable config name idx
+    FPVar name _ -> name                -- Free variables just show their name
     
     PTheoremApp name args _ 
       | null args -> name

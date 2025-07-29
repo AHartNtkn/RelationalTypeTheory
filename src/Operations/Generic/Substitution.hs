@@ -55,6 +55,7 @@ instance SubstAst Term where
           | i == depth + targetIdx -> shift depth replacement
           | i > depth + targetIdx -> Var name (i - 1) pos
           | otherwise -> term
+        FVar{} -> term                   -- Free variables not affected by substitution
         Lam name body pos ->
           Lam name (go (depth + 1) body) pos
         App t1 t2 pos ->
@@ -74,6 +75,7 @@ instance SubstAst RType where
           | i == depth + targetIdx -> shift depth replacement
           | i > depth + targetIdx -> RVar name (i - 1) pos
           | otherwise -> ty
+        FRVar{} -> ty                    -- Free variables not affected by substitution
         RMacro name args pos ->
           RMacro name (map (go depth) args) pos
         Arr r1 r2 pos ->
@@ -100,6 +102,7 @@ instance SubstAst Proof where
           | i == depth + targetIdx -> shift depth replacement
           | i > depth + targetIdx -> PVar name (i - 1) pos
           | otherwise -> proof
+        FPVar{} -> proof                 -- Free variables not affected by substitution
         LamP name ty body pos ->
           LamP name ty (go (depth + 1) body) pos
         AppP p1 p2 pos ->

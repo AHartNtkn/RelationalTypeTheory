@@ -1,0 +1,1 @@
+⊢ forall_inst (R : Rel) (a : Term) (b : Term) (p : a [∀ X . X] b) : a [R] b ≔ p { R };

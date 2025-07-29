@@ -111,6 +111,7 @@ alphaEqTheoremArgs _ = False  -- Different constructor types
 instance EqualityAst Term where
   -- ALPHA-EQUIVALENCE: Names are ignored, only de Bruijn indices matter
   structuralEq (Var _ i1 _) (Var _ i2 _) = i1 == i2  -- Ignore names completely!
+  structuralEq (FVar x1 _) (FVar x2 _) = x1 == x2    -- Free variables compared by name
   structuralEq (Lam _ b1 _) (Lam _ b2 _) = structuralEq b1 b2  -- Ignore binder names!
   structuralEq (App f1 x1 _) (App f2 x2 _) = structuralEq f1 f2 && structuralEq x1 x2
   structuralEq (TMacro n1 args1 _) (TMacro n2 args2 _) = 
@@ -119,6 +120,7 @@ instance EqualityAst Term where
   
   -- Heads ignore variable names for alpha-equivalence
   getHead (Var _ i _) = "Var:" ++ show i  -- Use index, not name
+  getHead (FVar x _) = "FVar:" ++ x       -- Free variables use name
   getHead (Lam _ _ _) = "Lam"  -- Don't include binder name
   getHead (App _ _ _) = "App"
   getHead (TMacro n _ _) = "TMacro:" ++ n
@@ -130,6 +132,7 @@ instance EqualityAst Term where
 instance EqualityAst RType where
   -- ALPHA-EQUIVALENCE: Names are ignored, only de Bruijn indices matter
   structuralEq (RVar _ i1 _) (RVar _ i2 _) = i1 == i2  -- Ignore names completely!
+  structuralEq (FRVar x1 _) (FRVar x2 _) = x1 == x2   -- Free variables compared by name
   structuralEq (RMacro n1 args1 _) (RMacro n2 args2 _) = 
     n1 == n2 && length args1 == length args2 && all (uncurry structuralEq) (zip args1 args2)
   structuralEq (Arr r1 s1 _) (Arr r2 s2 _) = structuralEq r1 r2 && structuralEq s1 s2
@@ -141,6 +144,7 @@ instance EqualityAst RType where
   
   -- Heads ignore variable names for alpha-equivalence
   getHead (RVar _ i _) = "RVar:" ++ show i  -- Use index, not name
+  getHead (FRVar x _) = "FRVar:" ++ x       -- Free variables use name
   getHead (RMacro n _ _) = "RMacro:" ++ n
   getHead (Arr _ _ _) = "Arr" 
   getHead (All _ _ _) = "All"  -- Don't include binder name
@@ -155,6 +159,7 @@ instance EqualityAst RType where
 instance EqualityAst Proof where
   -- ALPHA-EQUIVALENCE: Names are ignored, only de Bruijn indices matter
   structuralEq (PVar _ i1 _) (PVar _ i2 _) = i1 == i2  -- Ignore names completely!
+  structuralEq (FPVar x1 _) (FPVar x2 _) = x1 == x2   -- Free variables compared by name
   structuralEq (PMacro n1 args1 _) (PMacro n2 args2 _) = 
     n1 == n2 && length args1 == length args2 && all (uncurry structuralEq) (zip args1 args2)
   structuralEq (LamP _ ty1 p1 _) (LamP _ ty2 p2 _) = 
@@ -178,6 +183,7 @@ instance EqualityAst Proof where
   
   -- Heads ignore variable names for alpha-equivalence
   getHead (PVar _ i _) = "PVar:" ++ show i  -- Use index, not name
+  getHead (FPVar x _) = "FPVar:" ++ x       -- Free variables use name
   getHead (PMacro n _ _) = "PMacro:" ++ n
   getHead (LamP _ _ _ _) = "LamP"  -- Don't include binder name
   getHead (AppP _ _ _) = "AppP"

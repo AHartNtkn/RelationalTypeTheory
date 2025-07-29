@@ -9,7 +9,7 @@ import Core.Syntax
 import Core.Environment (noTheorems, noMacros, extendMacroEnvironment)
 import Parser.Mixfix (defaultFixity)
 import Parser.Raw
-import Parser.Elaborate
+import Parser.Elaborate (emptyCtxWithBuiltins, elaborateTerm, elaborateRType, elaborateProof, elaborateDeclaration)
 import Parser.Context (ElaborateContext(..))
 import Test.Hspec
 import TestHelpers
@@ -82,7 +82,7 @@ testParseDeclaration tVars rVars pVars env input expected =
    in case runParser rawDeclaration "test" (input) of
         Left err -> expectationFailure $ "Raw parse failed: " ++ errorBundlePretty err
         Right rawResult -> 
-          case elaborate elabCtx rawResult of
+          case runExcept (runReaderT (elaborateDeclaration rawResult) elabCtx) of
             Left frontEndErr -> expectationFailure $ "Elaboration failed: " ++ show frontEndErr
             Right result -> result `shouldBeEqual` expected
 
@@ -96,7 +96,7 @@ testParseFile tVars rVars pVars env input expected =
    in case runParser parseFile "test" (input) of
         Left err -> expectationFailure $ "Raw parse failed: " ++ errorBundlePretty err
         Right rawResults -> 
-          case mapM (elaborate elabCtx) rawResults of
+          case mapM (\raw -> runExcept (runReaderT (elaborateDeclaration raw) elabCtx)) rawResults of
             Left frontEndErr -> expectationFailure $ "Elaboration failed: " ++ show frontEndErr
             Right results -> results `shouldBeEqual` expected
 
@@ -1463,6 +1463,6 @@ theoremReferencingSpec = describe "Theorem referencing" $ do
     case runParser parseFile "test" (input) of
       Left _ -> return () -- Expected failure during raw parsing
       Right rawResults -> 
-        case mapM (elaborate (ElaborateContext noMacros noTheorems 0 0 0 Map.empty Map.empty Map.empty)) rawResults of
+        case mapM (\raw -> runExcept (runReaderT (elaborateDeclaration raw) (ElaborateContext noMacros noTheorems 0 0 0 Map.empty Map.empty Map.empty))) rawResults of
           Left _ -> return () -- Expected failure during elaboration
           Right _ -> expectationFailure "Expected elaboration error for undeclared theorem reference"

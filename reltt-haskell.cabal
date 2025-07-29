@@ -49,8 +49,10 @@ library
       Module.System
       Core.Utils
   other-modules:
+      Operations.Generic.Elaborate
       Operations.Generic.PrettyPrint
       Operations.Generic.Token
+      Operations.Resolve
       Paths_reltt_haskell
   autogen-modules:
       Paths_reltt_haskell

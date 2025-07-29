@@ -23,7 +23,8 @@ import System.IO (hFlush, hSetEncoding, stdin, stdout, utf8)
 import Text.Megaparsec (initialPos, parse, errorBundlePretty, Parsec)
 import Operations.Generic.Expansion (expandFully, ExpansionResult(..))
 -- Parser implementation using raw parser + elaboration
-import Parser.Elaborate (elaborateDeclaration, elaborateRType, elaborateProof, elaborateJudgment, emptyCtxWithBuiltins)
+import Parser.Elaborate (elaborateDeclaration, elaborateJudgment, emptyCtxWithBuiltins)
+import qualified Operations.Generic.Elaborate as Generic
 import Parser.Raw (rawProof, rawRType, rawDeclaration, rawJudgment)
 import Data.Void (Void)
 import Parser.Context (ElaborateM)
@@ -50,7 +51,7 @@ runParserWithMacroEnv _env parser input =
 parseProof :: Parser Proof
 parseProof = do
   rawP <- rawProof
-  case runElaborate (elaborateProof rawP) of
+  case runElaborate (Generic.elaborate rawP) of
     Right p -> return p
     Left err -> fail err
 
@@ -66,7 +67,7 @@ parseRelJudgment = do
 parseRType :: Parser RType
 parseRType = do
   rawR <- rawRType
-  case runElaborate (elaborateRType rawR) of
+  case runElaborate (Generic.elaborate rawR) of
     Right r -> return r
     Left err -> fail err
 

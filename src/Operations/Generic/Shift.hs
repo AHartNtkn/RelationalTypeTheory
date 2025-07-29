@@ -60,6 +60,7 @@ instance ShiftAst Term where
     Var name i pos
       | i >= cutoff -> Var name (i + shiftAmount) pos
       | otherwise -> term
+    FVar _ _ -> term                     -- Free variables don't shift
     Lam name body pos -> 
       Lam name (shiftAbove (cutoff + 1) shiftAmount body) pos
     App t1 t2 pos -> 
@@ -73,6 +74,7 @@ instance ShiftAst Term where
         then let newIdx = i + shiftAmount
              in if newIdx < 0 then Nothing else Just (Var name newIdx pos)
         else Just term
+    FVar _ _ -> Just term                 -- Free variables don't shift
     Lam name body pos -> do
       shiftedBody <- shiftAboveWithBoundsCheck (cutoff + 1) shiftAmount body
       return $ Lam name shiftedBody pos
@@ -97,6 +99,7 @@ instance ShiftAst RType where
     RVar name i pos
       | i >= cutoff -> RVar name (i + shiftAmount) pos
       | otherwise -> ty
+    FRVar _ _ -> ty                       -- Free variables don't shift
     RMacro name args pos -> 
       RMacro name (map (shiftAbove cutoff shiftAmount) args) pos
     Arr r1 r2 pos -> 
@@ -120,6 +123,7 @@ instance ShiftAst Proof where
     PVar name i pos
       | i >= cutoff -> PVar name (i + shiftAmount) pos
       | otherwise -> proof
+    FPVar _ _ -> proof                    -- Free variables don't shift
     LamP name ty body pos ->
       LamP name ty (shiftAbove (cutoff + 1) shiftAmount body) pos
     AppP p1 p2 pos ->

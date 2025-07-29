@@ -57,12 +57,14 @@ stripJudgmentPositions (RelJudgment t1 rt t2) =
 
 stripTermPositions :: Term -> Term
 stripTermPositions (Var name idx _) = Var name idx dummyPos
+stripTermPositions (FVar name _) = FVar name dummyPos
 stripTermPositions (Lam name body _) = Lam name (stripTermPositions body) dummyPos  
 stripTermPositions (App t1 t2 _) = App (stripTermPositions t1) (stripTermPositions t2) dummyPos
 stripTermPositions (TMacro name args _) = TMacro name (map stripTermPositions args) dummyPos
 
 stripRTypePositions :: RType -> RType
 stripRTypePositions (RVar name idx _) = RVar name idx dummyPos
+stripRTypePositions (FRVar name _) = FRVar name dummyPos
 stripRTypePositions (Arr rt1 rt2 _) = Arr (stripRTypePositions rt1) (stripRTypePositions rt2) dummyPos
 stripRTypePositions (All name rt _) = All name (stripRTypePositions rt) dummyPos
 stripRTypePositions (Comp rt1 rt2 _) = Comp (stripRTypePositions rt1) (stripRTypePositions rt2) dummyPos

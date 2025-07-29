@@ -42,7 +42,8 @@ import Text.Megaparsec (SourcePos)
 
 -- | Lambda calculus terms
 data Term
-  = Var String Int SourcePos         -- ^ Variable with name, de Bruijn index, position
+  = Var String Int SourcePos         -- ^ Bound variable with name, de Bruijn index, position
+  | FVar String SourcePos            -- ^ Free variable (unresolved)
   | Lam String Term SourcePos        -- ^ Lambda abstraction
   | App Term Term SourcePos          -- ^ Application
   | TMacro String [Term] SourcePos   -- ^ Term macro application
@@ -50,7 +51,8 @@ data Term
 
 -- | Relational types
 data RType
-  = RVar String Int SourcePos           -- ^ Type variable
+  = RVar String Int SourcePos           -- ^ Bound relational variable
+  | FRVar String SourcePos              -- ^ Free relational variable (unresolved)
   | RMacro String [RType] SourcePos     -- ^ Type macro application
   | Arr RType RType SourcePos           -- ^ Arrow type (→)
   | All String RType SourcePos          -- ^ Universal quantification (∀)
@@ -61,7 +63,8 @@ data RType
 
 -- | Proof terms
 data Proof
-  = PVar String Int SourcePos                              -- ^ Proof variable
+  = PVar String Int SourcePos                              -- ^ Bound proof variable
+  | FPVar String SourcePos                                 -- ^ Free proof variable (unresolved)
   | PTheoremApp String [TheoremArg] SourcePos              -- ^ Theorem application
   | LamP String RType Proof SourcePos                      -- ^ Proof lambda
   | AppP Proof Proof SourcePos                             -- ^ Proof application
@@ -197,6 +200,7 @@ data ModuleInfo = ModuleInfo
 -- | Extract source position from Term
 termPos :: Term -> SourcePos
 termPos (Var _ _ pos) = pos
+termPos (FVar _ pos) = pos
 termPos (Lam _ _ pos) = pos
 termPos (App _ _ pos) = pos
 termPos (TMacro _ _ pos) = pos
@@ -204,6 +208,7 @@ termPos (TMacro _ _ pos) = pos
 -- | Extract source position from RType
 rtypePos :: RType -> SourcePos
 rtypePos (RVar _ _ pos) = pos
+rtypePos (FRVar _ pos) = pos
 rtypePos (RMacro _ _ pos) = pos
 rtypePos (Arr _ _ pos) = pos
 rtypePos (All _ _ pos) = pos
@@ -214,6 +219,7 @@ rtypePos (Prom _ pos) = pos
 -- | Extract source position from Proof
 proofPos :: Proof -> SourcePos
 proofPos (PVar _ _ pos) = pos
+proofPos (FPVar _ pos) = pos
 proofPos (PTheoremApp _ _ pos) = pos
 proofPos (LamP _ _ _ pos) = pos
 proofPos (AppP _ _ pos) = pos
