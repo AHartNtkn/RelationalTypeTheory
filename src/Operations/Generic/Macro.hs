@@ -47,6 +47,7 @@ class SubstAst a => MacroAst a where
 instance MacroAst Term where
   shiftN           = shift
   varNameOf (Var v _ _) = Just v
+  varNameOf (FVar v _)  = Just v
   varNameOf _           = Nothing
   mapBinders f = go
     where
@@ -63,6 +64,7 @@ instance MacroAst Term where
 instance MacroAst RType where
   shiftN           = shiftAbove 0
   varNameOf (RVar v _ _) = Just v
+  varNameOf (FRVar v _)  = Just v
   varNameOf _            = Nothing
   mapBinders f = go
     where
@@ -81,6 +83,7 @@ instance MacroAst RType where
 instance MacroAst Proof where
   shiftN      = shift
   varNameOf (PVar v _ _) = Just v
+  varNameOf (FPVar v _)  = Just v
   varNameOf _            = Nothing
   mapBinders f = go
     where
