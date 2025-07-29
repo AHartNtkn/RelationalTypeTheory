@@ -1,14 +1,12 @@
 module Main (main) where
 
-import Core.Context (emptyTypingContext, extendProofContext, extendRelContext, extendTermContext, extendTheoremEnvironment)
+import Core.Context (emptyContext, extendProofContext, extendRelContext, extendTermContext, extendTheoremContext, extendMacroContext)
 import Control.Monad (when)
 import Core.Errors (formatError, RelTTError(..), ErrorContext(..))
 import Core.Syntax
-import Core.Environment (noMacros, noTheorems, extendMacroEnvironment)
 import Parser.Mixfix (defaultFixity)
 import Module.System (parseModuleWithDependencies)
-import Parser.Elaborate
-import Parser.Context
+import Parser.Elaborate (elaborate)
 import qualified Core.Raw as Raw
 import Parser.Raw
 import Text.Megaparsec (runParser, errorBundlePretty)
@@ -44,8 +42,8 @@ parseArgs args = case args of
   _ -> Left "Usage: reltt-haskell [--check|--parse-only|--verbose|--repl] [<file>]"
 
 -- Build context from bindings
-buildContextFromBindings :: [Binding] -> TypingContext
-buildContextFromBindings bindings = foldl addBinding emptyTypingContext bindings
+buildContextFromBindings :: [Binding] -> Context
+buildContextFromBindings bindings = foldl addBinding emptyContext bindings
   where
     addBinding ctx (TermBinding name) = extendTermContext name (RMacro "Type" [] (initialPos "<builtin>")) ctx
     addBinding ctx (RelBinding name) = extendRelContext name ctx
@@ -58,31 +56,31 @@ extractDeclarations decls =
       theoremDefs = [d | d@(TheoremDef _ _ _ _) <- decls]
    in (macroDefs, theoremDefs)
 
--- Build macro environment from declarations
-buildMacroEnvironmentFromDeclarations :: [Declaration] -> Either RelTTError MacroEnvironment
-buildMacroEnvironmentFromDeclarations decls = do
-  let env = foldr addMacro noMacros decls
-  return env
+-- Build unified context from declarations
+buildContextFromDeclarations :: [Declaration] -> Context
+buildContextFromDeclarations decls = foldr addDeclaration emptyContext decls
   where
-    addMacro (MacroDef name params body) env =
-      extendMacroEnvironment name params body (defaultFixity name) env
-    addMacro _ env = env
+    addDeclaration (MacroDef name params body) ctx =
+      -- Convert string params to ParamInfo
+      let paramInfos = map (\paramName -> ParamInfo paramName (inferParamKind body) False []) params
+      in extendMacroContext name paramInfos body (defaultFixity name) ctx
+    addDeclaration (TheoremDef name bindings judgment proof) ctx =
+      extendTheoremContext name bindings judgment proof ctx
+    addDeclaration _ ctx = ctx
 
--- Build theorem environment from declarations
-buildTheoremEnvironmentFromDeclarations :: [Declaration] -> TheoremEnvironment
-buildTheoremEnvironmentFromDeclarations decls = foldr addTheorem noTheorems decls
-  where
-    addTheorem (TheoremDef name bindings judgment proof) env =
-      extendTheoremEnvironment name bindings judgment proof env
-    addTheorem _ env = env
+-- Helper function to infer parameter kind from macro body
+inferParamKind :: MacroBody -> VarKind
+inferParamKind (TermMacro _) = TermK
+inferParamKind (RelMacro _) = RelK  
+inferParamKind (ProofMacro _) = ProofK
 
--- Check a theorem in an environment
-checkTheoremInEnvironment :: MacroEnvironment -> TheoremEnvironment -> Declaration -> Either RelTTError ()
-checkTheoremInEnvironment macroDefs theoremDefs (TheoremDef _ bindings judgment proof) = do
-  let ctx = buildContextFromBindings bindings
-  _ <- checkProof ctx macroDefs theoremDefs proof judgment
+-- Check a theorem in a context
+checkTheoremInContext :: Context -> Declaration -> Either RelTTError ()
+checkTheoremInContext _ (TheoremDef _ bindings judgment proof) = do
+  let bindingCtx = buildContextFromBindings bindings
+  _ <- checkProof bindingCtx proof judgment
   return ()
-checkTheoremInEnvironment _ _ _ = Left $ InternalError "Expected theorem declaration" (ErrorContext (initialPos "<check>") "check")
+checkTheoremInContext _ _ = Left $ InternalError "Expected theorem declaration" (ErrorContext (initialPos "<check>") "check")
 
 -- Parse-only mode (using new parser pipeline)
 parseOnlyMode :: String -> IO ()
@@ -90,11 +88,11 @@ parseOnlyMode filename = do
   content <- readFile filename
   case runParser parseFile filename content of
     Left parseErr -> putStrLn $ "Parse error: " ++ errorBundlePretty parseErr
-    Right rawDecls -> case elaborateDeclarationsSequentially emptyCtxWithBuiltins rawDecls [] of
+    Right rawDecls -> case elaborateDeclarationsSequentially emptyContext rawDecls [] of
       Left elaborateErr -> putStrLn $ "Elaboration error: " ++ elaborateErr
       Right decls -> mapM_ (putStrLn . prettyDeclaration) decls
   where
-    elaborateDeclarationsSequentially :: ElaborateContext -> [Raw.RawDeclaration] -> [Declaration] -> Either String [Declaration]
+    elaborateDeclarationsSequentially :: Context -> [Raw.RawDeclaration] -> [Declaration] -> Either String [Declaration]
     elaborateDeclarationsSequentially _ [] acc = Right (reverse acc)
     elaborateDeclarationsSequentially ctx (rawDecl:rest) acc = do
       case elaborate ctx rawDecl of
@@ -103,16 +101,13 @@ parseOnlyMode filename = do
           let newCtx = updateContextWithDeclaration decl ctx
           elaborateDeclarationsSequentially newCtx rest (decl:acc)
     
-    updateContextWithDeclaration :: Declaration -> ElaborateContext -> ElaborateContext
+    updateContextWithDeclaration :: Declaration -> Context -> Context
     updateContextWithDeclaration (MacroDef name params body) ctx =
-      let newMacroEnv = extendMacroEnvironment name params body (defaultFixity name) (macroEnv ctx)
-      in ctx { macroEnv = newMacroEnv }
+      let paramInfos = map (\paramName -> ParamInfo paramName (inferParamKind body) False []) params
+      in extendMacroContext name paramInfos body (defaultFixity name) ctx
     updateContextWithDeclaration (TheoremDef name bindings judgment proof) ctx =
-      let newTheoremEnv = extendTheoremEnvironment name bindings judgment proof (theoremEnv ctx)
-      in ctx { theoremEnv = newTheoremEnv }
-    updateContextWithDeclaration (ImportDecl _) ctx = ctx
-    updateContextWithDeclaration (ExportDecl _) ctx = ctx
-    updateContextWithDeclaration (FixityDecl _ _) ctx = ctx
+      extendTheoremContext name bindings judgment proof ctx
+    updateContextWithDeclaration _ ctx = ctx
 
 -- Proof checking mode (using import-aware parsing)
 proofCheckMode :: String -> Bool -> IO ()
@@ -141,29 +136,22 @@ proofCheckMode filename verbose = do
       let (macroDefs, theoremDefs) = extractDeclarations decls
       when verbose $ putStrLn $ "Found " ++ show (length macroDefs) ++ " macros and " ++ show (length theoremDefs) ++ " theorems"
 
-      case buildMacroEnvironmentFromDeclarations macroDefs of
-        Left err -> do
-          putStrLn $ "Macro environment error: " ++ formatError err
+      -- Build unified context
+      let context = buildContextFromDeclarations decls
+      when verbose $ putStrLn "Context built successfully"
+
+      -- Check all theorems
+      let results = map (checkTheoremInContext context) theoremDefs
+      let errors = [err | Left err <- results]
+
+      if null errors
+        then do
+          putStrLn $ "All " ++ show (length theoremDefs) ++ " theorems type check successfully!"
+          exitSuccess
+        else do
+          putStrLn $ "Found " ++ show (length errors) ++ " errors:"
+          mapM_ (\err -> putStrLn (formatError err) >> putStrLn "") errors
           exitFailure
-        Right macroEnvironment -> do
-          when verbose $ putStrLn "Macro environment built successfully"
-
-          -- Build theorem environment
-          let theoremDefs' = buildTheoremEnvironmentFromDeclarations theoremDefs
-          when verbose $ putStrLn $ "Built theorem environment with " ++ show (length theoremDefs) ++ " theorems"
-
-          -- Check all theorems
-          let results = map (checkTheoremInEnvironment macroEnvironment theoremDefs') theoremDefs
-          let errors = [err | Left err <- results]
-
-          if null errors
-            then do
-              putStrLn $ "All " ++ show (length theoremDefs) ++ " theorems type check successfully!"
-              exitSuccess
-            else do
-              putStrLn $ "Found " ++ show (length errors) ++ " errors:"
-              mapM_ (\err -> putStrLn (formatError err) >> putStrLn "") errors
-              exitFailure
 
 main :: IO ()
 main = do

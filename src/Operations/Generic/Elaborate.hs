@@ -20,18 +20,16 @@ module Operations.Generic.Elaborate
 import Control.Monad.Except
 import Control.Monad.Reader
 import qualified Data.Map as Map
-import Data.Proxy
-import Text.Megaparsec (SourcePos)
 
 import Core.Syntax
 import Core.Raw
 import Core.Errors
-import Parser.Context
+import Core.Context
 import Operations.Generic.Mixfix (MixfixAst(..), reparseG)
 import Operations.Generic.Token (toTok, hasOperatorG)
 import Parser.Mixfix (mixfixKeywords)
 import Operations.Generic.Macro (elabMacroAppG, MacroAst(..))
-import Operations.Resolve (ResolveAst, fromElaborateContext)
+import Operations.Resolve (ResolveAst)
 
 --------------------------------------------------------------------------------
 -- | Core typeclass for AST elaboration
@@ -42,7 +40,7 @@ class MixfixAst raw => ElaborateAst raw typed | raw -> typed where
   elaborateSpecial :: raw -> ElaborateM typed
   
   -- | Get the appropriate bound variables context (used by handleVar)
-  getBoundVarsCtx :: ElaborateContext -> Map.Map String Int
+  getBoundVarsCtx :: Context -> Map.Map String Int
   
   -- | Create a bound variable node (used by handleVar)
   mkBoundVar :: String -> Int -> SourcePos -> typed
@@ -80,7 +78,7 @@ elaborate = elaborateSpecial
 --------------------------------------------------------------------------------
 
 instance ElaborateAst RawTerm Term where
-  getBoundVarsCtx = boundVars
+  getBoundVarsCtx ctx = Map.map fst (termBindings ctx)
   mkBoundVar = Var
   mkFreeVar = FVar
   mkMacroApp name args pos = TMacro name args pos
@@ -105,8 +103,7 @@ instance ElaborateAst RawTerm Term where
     RTLam name rawBody pos -> do
       ctx <- ask
       let varName = nameString name
-          newCtx = ctx { boundVars = Map.insert varName 0 (Map.map (+1) (boundVars ctx))
-                       , termDepth = termDepth ctx + 1 }
+          newCtx = bindTermVar varName ctx
       body <- local (const newCtx) (elaborate rawBody)
       return $ Lam varName body pos
     
@@ -122,7 +119,7 @@ instance ElaborateAst RawTerm Term where
         termMacroHandler args macroName params macroPos = do
           ctx <- ask
           -- Check if it's a bound variable first
-          case Map.lookup macroName (boundVars ctx) of
+          case Map.lookup macroName (termBindings ctx) of
             Just _ -> elaborateAppLeft raw  -- Bound variable - use regular application
             Nothing -> do
               elaboratedArgs <- mapM elaborate args
@@ -135,7 +132,7 @@ instance ElaborateAst RawTerm Term where
 --------------------------------------------------------------------------------
 
 instance ElaborateAst RawRType RType where
-  getBoundVarsCtx = boundRelVars
+  getBoundVarsCtx = relBindings
   mkBoundVar = RVar
   mkFreeVar = FRVar
   mkMacroApp name args pos = RMacro name args pos
@@ -166,8 +163,7 @@ instance ElaborateAst RawRType RType where
     RRAll name rawBody pos -> do
       ctx <- ask
       let varName = nameString name
-          newCtx = ctx { boundRelVars = Map.insert varName 0 (Map.map (+1) (boundRelVars ctx))
-                       , relDepth = relDepth ctx + 1 }
+          newCtx = bindRelVar varName ctx
       body <- local (const newCtx) (elaborate rawBody)
       return $ All varName body pos
     
@@ -183,7 +179,7 @@ instance ElaborateAst RawRType RType where
     
     raw@(RRComp _ _ pos) -> do
       ctx <- ask
-      let ops = mixfixKeywords (macroEnv ctx)
+      let ops = mixfixKeywords (ctx)
           toks = map (toTok ops) (flattenApps raw)
       if hasOperatorG toks
         then reparseG elaborate pos (flattenApps raw)
@@ -192,7 +188,6 @@ instance ElaborateAst RawRType RType where
             left <- elaborate rawLeft
             right <- elaborate rawRight
             return $ Comp left right pos
-          _ -> elaborate raw
     
     RRConv rawRType pos -> do
       rtype <- elaborate rawRType
@@ -209,7 +204,7 @@ instance ElaborateAst RawRType RType where
 --------------------------------------------------------------------------------
 
 instance ElaborateAst RawProof Proof where
-  getBoundVarsCtx ctx = Map.map fst (boundProofVars ctx)
+  getBoundVarsCtx ctx = Map.map (\(i, _, _) -> i) (proofBindings ctx)
   mkBoundVar = PVar
   mkFreeVar = FPVar
   mkMacroApp name args pos = PMacro name args pos
@@ -254,7 +249,7 @@ instance ElaborateAst RawProof Proof where
     RPTheorem name rawArgs pos -> do
       ctx <- ask
       let theoremName = nameString name
-      case Map.lookup theoremName (theoremDefinitions (theoremEnv ctx)) of
+      case Map.lookup theoremName (theoremDefinitions ctx) of
         Nothing -> throwError $ UnknownTheorem theoremName (ErrorContext pos "theorem lookup")
         Just (bindings, _, _) -> do
           when (length bindings /= length rawArgs) $
@@ -268,17 +263,14 @@ instance ElaborateAst RawProof Proof where
       elaboratedRType <- elaborate rawRType
       let varName = nameString name
           judgment = RelJudgment (Var "dummy" 0 pos) elaboratedRType (Var "dummy" 0 pos)
-          newCtx = ctx { boundProofVars = Map.insert varName (0, judgment) 
-                                           (Map.map (\(i,j) -> (i+1,j)) (boundProofVars ctx))
-                       , proofDepth = proofDepth ctx + 1 }
+          newCtx = bindProofVar varName judgment ctx
       body <- local (const newCtx) (elaborate rawBody)
       return $ LamP varName elaboratedRType body pos
     
     RPLamT name rawBody pos -> do
       ctx <- ask
       let varName = nameString name
-          newCtx = ctx { boundRelVars = Map.insert varName 0 (Map.map (+1) (boundRelVars ctx))
-                       , relDepth = relDepth ctx + 1 }
+          newCtx = bindRelVar varName ctx
       body <- local (const newCtx) (elaborate rawBody)
       return $ TyLam varName body pos
     
@@ -301,8 +293,7 @@ instance ElaborateAst RawProof Proof where
     RPRho x rawT1 rawT2 rawP1 rawP2 pos -> do
       ctx <- ask
       let xName = nameString x
-          ctxWithX = ctx { boundVars = Map.insert xName 0 (Map.map (+1) (boundVars ctx))
-                         , termDepth = termDepth ctx + 1 }
+          ctxWithX = bindTermVar xName ctx
       t1 <- local (const ctxWithX) (elaborate rawT1)
       t2 <- local (const ctxWithX) (elaborate rawT2)
       p1 <- elaborate rawP1
@@ -316,14 +307,9 @@ instance ElaborateAst RawProof Proof where
           uName = nameString u
           vName = nameString v
           dummyJudgment = RelJudgment (Var "dummy" 0 pos) (RVar "dummy" 0 pos) (Var "dummy" 0 pos)
-          ctxWithX = ctx { boundVars = Map.insert xName 0 (Map.map (+1) (boundVars ctx))
-                         , termDepth = termDepth ctx + 1 }
-          ctxWithU = ctxWithX { boundProofVars = Map.insert uName (0, dummyJudgment)
-                                                   (Map.map (\(i,j) -> (i+1,j)) (boundProofVars ctxWithX))
-                              , proofDepth = proofDepth ctxWithX + 1 }
-          ctxWithUV = ctxWithU { boundProofVars = Map.insert vName (1, dummyJudgment)
-                                                    (boundProofVars ctxWithU)
-                               , proofDepth = proofDepth ctxWithU + 1 }
+          ctxWithX = bindTermVar xName ctx
+          ctxWithU = bindProofVar uName dummyJudgment ctxWithX
+          ctxWithUV = bindProofVar vName dummyJudgment ctxWithU
       q <- local (const ctxWithUV) (elaborate rawQ)
       return $ Pi p xName uName vName q pos
     
@@ -391,7 +377,7 @@ handleVar name pos = do
       return $ mkBoundVar @raw @typed varName bindingDepth pos
     Nothing -> 
       -- Try looking up as a macro with zero arguments
-      case Map.lookup varName (macroDefinitions (macroEnv ctx)) of
+      case Map.lookup varName (macroDefinitions (ctx)) of
         Just ([], macroBody) -> 
           if isValidMacroKind @raw @typed macroBody
             then return $ mkMacroApp @raw @typed varName [] pos
@@ -405,7 +391,6 @@ handleVar name pos = do
           -- Unknown variable - emit as free variable
           return $ mkFreeVar @raw @typed varName pos
 
-
 -- | Generic application handler that factors out common structure
 handleAppGeneric :: forall raw typed. (ElaborateAst raw typed, Eq raw, Show raw) 
                  => raw 
@@ -416,7 +401,7 @@ handleAppGeneric :: forall raw typed. (ElaborateAst raw typed, Eq raw, Show raw)
 handleAppGeneric raw pos fallback macroHandler = do
   ctx <- ask
   let flattened = flattenApps raw
-      ops = mixfixKeywords (macroEnv ctx)
+      ops = mixfixKeywords (ctx)
       toks = map (toTok ops) flattened
   
   if hasOperatorG toks
@@ -425,7 +410,7 @@ handleAppGeneric raw pos fallback macroHandler = do
       (firstRaw : args) -> do
         case extractVarName @raw @typed firstRaw of
           Just macroName -> do
-            case Map.lookup macroName (macroDefinitions (macroEnv ctx)) of
+            case Map.lookup macroName (macroDefinitions (ctx)) of
               Nothing -> fallback raw
               Just (params, _) -> macroHandler args macroName params pos
           Nothing -> fallback raw
@@ -465,14 +450,13 @@ handleExplicitMacro :: forall raw typed. (ElaborateAst raw typed, MacroAst typed
 handleExplicitMacro nm args pos = do
   let name = nameString nm
   ctx <- ask
-  case Map.lookup name (macroDefinitions (macroEnv ctx)) of
+  case Map.lookup name (macroDefinitions (ctx)) of
     Nothing -> throwError $ UnknownMacro name (ErrorContext pos "macro lookup")
     Just (sig, macroBody) -> 
       case extractMacroBody @raw @typed macroBody of
         Just body -> do
           elaboratedArgs <- mapM elaborate args
-          let resolveEnv = fromElaborateContext ctx
-          case elabMacroAppG (macroEnv ctx) resolveEnv name sig body elaboratedArgs of
+          case elabMacroAppG ctx name sig body elaboratedArgs of
             Right result -> return result
             Left err -> throwError $ InvalidMixfixPattern 
                          ("Macro application failed for " ++ name ++ ": " ++ show err) 

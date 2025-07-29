@@ -65,32 +65,32 @@ class MacroAst a => ExpandAst a where
   bodyToAst :: MacroBodyType a -> a
   
   -- | Expand recursively into subterms (for full expansion)
-  expandSubterms :: MacroEnvironment -> ExpansionMode -> a -> Either RelTTError a
+  expandSubterms :: Context -> ExpansionMode -> a -> Either RelTTError a
 
 --------------------------------------------------------------------------------
 -- | Generic operations
 --------------------------------------------------------------------------------
 
 -- | Expand with step limit
-expandWithLimit :: ExpandAst a => MacroEnvironment -> ExpansionMode -> Int -> a -> Either RelTTError (ExpansionResult a)
+expandWithLimit :: ExpandAst a => Context -> ExpansionMode -> Int -> a -> Either RelTTError (ExpansionResult a)
 expandWithLimit env mode maxSteps ast = 
   if maxSteps <= 0
     then Left $ InternalError "Macro expansion step limit exceeded" (ErrorContext (initialPos "<expansion>") "expansion")
     else expandStep env mode maxSteps 0 ast
 
 -- | Fully expand all macros
-expandFully :: ExpandAst a => MacroEnvironment -> a -> Either RelTTError (ExpansionResult a)
+expandFully :: ExpandAst a => Context -> a -> Either RelTTError (ExpansionResult a)
 expandFully env = expandWithLimit env FullExpansion 1000
 
 -- | Expand to weak head normal form
-expandWHNF :: ExpandAst a => MacroEnvironment -> a -> Either RelTTError (ExpansionResult a)
+expandWHNF :: ExpandAst a => Context -> a -> Either RelTTError (ExpansionResult a)
 expandWHNF env = expandWithLimit env WeakHeadExpansion 1000
 
 --------------------------------------------------------------------------------
 -- | Internal expansion logic
 --------------------------------------------------------------------------------
 
-expandStep :: forall a. ExpandAst a => MacroEnvironment -> ExpansionMode -> Int -> Int -> a -> Either RelTTError (ExpansionResult a)
+expandStep :: forall a. ExpandAst a => Context -> ExpansionMode -> Int -> Int -> a -> Either RelTTError (ExpansionResult a)
 expandStep env mode remainingSteps stepsSoFar ast = 
   case getMacroApp ast of
     Just (name, args, pos) ->
@@ -157,6 +157,7 @@ instance ExpandAst Term where
   
   expandSubterms env mode term = case term of
     Var _ _ _ -> Right term
+    FVar _ _ -> Right term               -- Free variables don't expand
     Lam name body pos -> do
       expandedBody <- expandWithLimit env mode 1000 body
       return $ Lam name (expandedValue expandedBody) pos
@@ -185,6 +186,7 @@ instance ExpandAst RType where
   
   expandSubterms env mode rtype = case rtype of
     RVar _ _ _ -> Right rtype
+    FRVar _ _ -> Right rtype             -- Free relation variables don't expand
     RMacro _ _ _ -> Right rtype  -- Already handled by main logic
     Arr r1 r2 pos -> do
       exp1 <- expandWithLimit env mode 1000 r1
@@ -223,6 +225,7 @@ instance ExpandAst Proof where
   
   expandSubterms env mode proof = case proof of
     PVar _ _ _ -> Right proof
+    FPVar _ _ -> Right proof             -- Free proof variables don't expand
     PTheoremApp _ _ _ -> Right proof  -- Theorem applications don't expand
     Iota _ _ _ -> Right proof  -- Terms in iota don't expand
     PMacro _ _ _ -> Right proof  -- Already handled by main logic

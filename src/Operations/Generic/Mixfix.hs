@@ -32,7 +32,7 @@ import Control.Monad.Except (throwError)
 import Core.Syntax
 import Core.Raw
 import Core.Errors
-import Parser.Context
+import Core.Context
 import Parser.Mixfix (splitMixfix, mixfixKeywords)
 import Operations.Generic.Token (ToTokenAst, toTok, Tok(..))
 
@@ -96,7 +96,7 @@ instance MixfixAst RawProof where
 --------------------------------------------------------------------------------
 
 -- | Build precedence table from macro environment
-precTable :: MacroEnvironment -> PrecTable
+precTable :: Context -> PrecTable
 precTable env = IntMap.fromListWith (++)
   [ (p, [(keyword, assoc)])
   | (macroName, fixity) <- Map.toList (macroFixities env)
@@ -111,7 +111,7 @@ precTable env = IntMap.fromListWith (++)
   ]
 
 -- | Collect prefix macros at precedence level k
-prefixMacros :: Int -> MacroEnvironment -> [(String, [String])]
+prefixMacros :: Int -> Context -> [(String, [String])]
 prefixMacros k env =
   [ (m, splitMixfix m)
   | (m, Prefix p) <- Map.toList (macroFixities env)
@@ -119,7 +119,7 @@ prefixMacros k env =
   ]
 
 -- | Collect postfix macros at precedence level k  
-postfixMacros :: Int -> MacroEnvironment -> [(String, [String])]
+postfixMacros :: Int -> Context -> [(String, [String])]
 postfixMacros k env =
   [ (m, splitMixfix m)
   | (m, Postfix p) <- Map.toList (macroFixities env)
@@ -127,7 +127,7 @@ postfixMacros k env =
   ]
 
 -- | Collect closed macros at precedence level k
-closedMacros :: Int -> MacroEnvironment -> [(String, [String])]
+closedMacros :: Int -> Context -> [(String, [String])]
 closedMacros k env =
   [ (m, splitMixfix m)
   | (m, Closed p) <- Map.toList (macroFixities env)
@@ -179,14 +179,14 @@ matchClosed (mName, lits) toks0 = go lits toks0 [] Nothing
 reduceLevelG :: MixfixAst a => Int -> [Tok a] -> ElaborateM [Tok a]
 reduceLevelG k toks = do
   ctx <- ask
-  let lits = fromMaybe [] (IntMap.lookup k (precTable (macroEnv ctx)))
+  let lits = fromMaybe [] (IntMap.lookup k (precTable ctx))
   go ctx lits toks
   where
     go ctx lits (TV a : TOP op pos : TV b : rest)
       | Just _assoc <- lookup op lits = do
           let (args, rest') = collect op [a, b] rest
               macroName = "_" ++ intercalate "_" (replicate (length args - 1) op) ++ "_"
-          case Map.lookup macroName (macroDefinitions (macroEnv ctx)) of
+          case Map.lookup macroName (macroDefinitions ctx) of
             Just (params, _) | length params == length args -> do
               let rawNode = makeMacro (Name macroName) args pos
               go ctx lits (TV rawNode : rest')
@@ -204,7 +204,7 @@ reduceLevelG k toks = do
 -- | Generic prefix operator reduction
 reducePrefixG :: MixfixAst a => Int -> [Tok a] -> ElaborateM [Tok a]
 reducePrefixG k toks = do
-  env <- asks macroEnv
+  env <- ask
   let pms = prefixMacros k env
   pure (loop toks pms)
   where
@@ -219,7 +219,7 @@ reducePrefixG k toks = do
 -- | Generic closed operator reduction
 reduceClosedG :: MixfixAst a => Int -> [Tok a] -> ElaborateM [Tok a]
 reduceClosedG k toks = do
-  env <- asks macroEnv
+  env <- ask
   let cms = closedMacros k env
   pure (loop toks cms)
   where
@@ -234,7 +234,7 @@ reduceClosedG k toks = do
 -- | Generic postfix operator reduction
 reducePostfixG :: MixfixAst a => Int -> [Tok a] -> ElaborateM [Tok a]
 reducePostfixG k toks = do
-  env <- asks macroEnv
+  env <- ask
   let pms = postfixMacros k env
       loop [] = []
       loop ts@(TV a : rest) =
@@ -266,9 +266,9 @@ runLevelsG ks toks = foldM (\acc k -> fixM (fullPassG k) acc) toks ks
 reparseG :: (MixfixAst a, Eq a, Show a) => (a -> ElaborateM b) -> SourcePos -> [a] -> ElaborateM b
 reparseG elaborateFunc pos rawList = do
   ctx <- ask
-  let ops = mixfixKeywords (macroEnv ctx)
+  let ops = mixfixKeywords ctx
       toks0 = map (toTok ops) rawList
-      precs = reverse (IntMap.keys (precTable (macroEnv ctx)))
+      precs = reverse (IntMap.keys (precTable ctx))
   toks1 <- runLevelsG precs toks0
   case toks1 of
     [TV raw] -> elaborateFunc raw

@@ -16,7 +16,7 @@ module TestHelpers
     shouldBeEqualDeclaration,
     buildContextFromBindings,
     parseFileDeclarations,
-    buildEnvironmentsFromDeclarations,
+    buildContextFromDeclarations,
     simpleParamInfo,
     simpleTermMacro,
     simpleRelMacro,
@@ -26,11 +26,8 @@ where
 import Core.Context
 import Control.Monad (unless)
 import Parser.Elaborate
-import Parser.Elaborate (emptyCtxWithBuiltins)
-import Parser.Context (ElaborateContext(..))
-import Core.Context (extendTheoremEnvironment)
+import Core.Context (Context, extendTheoremContext, extendMacroContext, emptyContext, extendTermContext, extendRelContext, extendProofContext)
 import Core.Syntax
-import Core.Environment (noMacros, noTheorems, extendMacroEnvironment)
 import Parser.Mixfix (defaultFixity)
 import qualified Core.Raw as Raw
 import Parser.Raw (parseFile)
@@ -164,8 +161,8 @@ instance (PositionInsensitive a) => PositionInsensitive [a] where
     expectationFailure $ "Lists have different lengths:\nExpected: " ++ show (length expected) ++ " elements\nActual: " ++ show (length actual) ++ " elements"
 
 -- | Build typing context from parsed theorem bindings
-buildContextFromBindings :: [Binding] -> TypingContext
-buildContextFromBindings bindings = buildContext emptyTypingContext bindings
+buildContextFromBindings :: [Binding] -> Context
+buildContextFromBindings bindings = buildContext emptyContext bindings
   where
     ip = initialPos "test"
     buildContext ctx [] = ctx
@@ -186,9 +183,9 @@ parseFileDeclarations :: String -> Either String [Declaration]
 parseFileDeclarations content = 
   case runParser parseFile "test" content of
     Left parseErr -> Left $ "Parse error: " ++ errorBundlePretty parseErr
-    Right rawDecls -> elaborateDeclarationsSequentially emptyCtxWithBuiltins rawDecls []
+    Right rawDecls -> elaborateDeclarationsSequentially emptyContext rawDecls []
   where
-    elaborateDeclarationsSequentially :: ElaborateContext -> [Raw.RawDeclaration] -> [Declaration] -> Either String [Declaration]
+    elaborateDeclarationsSequentially :: Context -> [Raw.RawDeclaration] -> [Declaration] -> Either String [Declaration]
     elaborateDeclarationsSequentially _ [] acc = Right (reverse acc)
     elaborateDeclarationsSequentially ctx (rawDecl:remaining) acc = do
       case elaborate ctx rawDecl of
@@ -198,27 +195,30 @@ parseFileDeclarations content =
           let newCtx = updateContextWithDeclaration decl ctx
           elaborateDeclarationsSequentially newCtx remaining (decl:acc)
     
-    updateContextWithDeclaration :: Declaration -> ElaborateContext -> ElaborateContext
+    updateContextWithDeclaration :: Declaration -> Context -> Context
     updateContextWithDeclaration (MacroDef name params body) ctx =
-      let newMacroEnv = extendMacroEnvironment name params body (defaultFixity "TEST") (macroEnv ctx)
-      in ctx { macroEnv = newMacroEnv }
+      let paramInfos = map (\pName -> ParamInfo pName (inferParamKind body) False []) params
+      in extendMacroContext name paramInfos body (defaultFixity "TEST") ctx
     updateContextWithDeclaration (TheoremDef name bindings judgment proof) ctx =
-      let newTheoremEnv = extendTheoremEnvironment name bindings judgment proof (theoremEnv ctx)
-      in ctx { theoremEnv = newTheoremEnv }
+      extendTheoremContext name bindings judgment proof ctx
     updateContextWithDeclaration _ ctx = ctx  -- Other declaration types don't affect elaboration context
 
--- | Build macro and theorem environments from parsed declarations
-buildEnvironmentsFromDeclarations :: [Declaration] -> (MacroEnvironment, TheoremEnvironment)
-buildEnvironmentsFromDeclarations decls = 
-  let macros = [(name, params, body) | MacroDef name params body <- decls]
-      theorems = [(name, bindings, judgment, proof) | TheoremDef name bindings judgment proof <- decls]
-      macroEnv' = foldl (\env (name, params, body) -> 
-                         extendMacroEnvironment name params body (defaultFixity "TEST") env) 
-                       noMacros macros
-      theoremEnv' = foldl (\env (name, bindings, judgment, proof) -> 
-                           extendTheoremEnvironment name bindings judgment proof env) 
-                         noTheorems theorems
-  in (macroEnv', theoremEnv')
+-- Helper function to infer parameter kind from macro body
+inferParamKind :: MacroBody -> VarKind
+inferParamKind (TermMacro _) = TermK
+inferParamKind (RelMacro _) = RelK  
+inferParamKind (ProofMacro _) = ProofK
+
+-- | Build unified context from parsed declarations
+buildContextFromDeclarations :: [Declaration] -> Context
+buildContextFromDeclarations decls = foldr addDeclaration emptyContext decls
+  where
+    addDeclaration (MacroDef name params body) ctx =
+      let paramInfos = map (\pName -> ParamInfo pName (inferParamKind body) False []) params
+      in extendMacroContext name paramInfos body (defaultFixity "TEST") ctx
+    addDeclaration (TheoremDef name bindings judgment proof) ctx =
+      extendTheoremContext name bindings judgment proof ctx
+    addDeclaration _ ctx = ctx
 
 -- | Helper functions for creating test macro signatures
 simpleParamInfo :: String -> VarKind -> ParamInfo

@@ -21,7 +21,8 @@ module Operations.Generic.Equality
   ) where
 
 import qualified Data.Map as Map
-import Core.Syntax (Term(..), RType(..), Proof(..), TheoremArg(..), MacroEnvironment(..), MacroArg(..))
+import Core.Syntax (Term(..), RType(..), Proof(..), TheoremArg(..), MacroArg(..))
+import Core.Context (Context(..))
 import Operations.Generic.Expansion (ExpandAst(..), getMacroApp, isRightBody, bodyToAst)
 import Operations.Generic.Macro (renameBinderVarsG, substituteArgsG)
 
@@ -41,11 +42,11 @@ class ExpandAst a => EqualityAst a where
 --------------------------------------------------------------------------------
 
 -- | Alpha equality: expand macros only when structural comparison fails
-alphaEquality :: EqualityAst a => MacroEnvironment -> a -> a -> Bool
+alphaEquality :: EqualityAst a => Context -> a -> a -> Bool
 alphaEquality env x y = alphaEqualityStep env x y 100  -- Max 100 expansion steps
 
 -- | Internal alpha equality with step limit to prevent infinite loops
-alphaEqualityStep :: EqualityAst a => MacroEnvironment -> a -> a -> Int -> Bool
+alphaEqualityStep :: EqualityAst a => Context -> a -> a -> Int -> Bool
 alphaEqualityStep env x y stepsLeft
   | stepsLeft <= 0 = False  -- Prevent infinite expansion
   | structuralEq x y = True  -- Fast path: structural equality
@@ -77,7 +78,7 @@ alphaEqualityStep env x y stepsLeft
           False
 
 -- | Expand exactly one macro application, returning Nothing if not a macro or expansion fails
-expandOneMacro :: forall a. ExpandAst a => MacroEnvironment -> a -> Maybe a
+expandOneMacro :: forall a. ExpandAst a => Context -> a -> Maybe a
 expandOneMacro env ast = 
   case getMacroApp ast of
     Nothing -> Nothing  -- Not a macro

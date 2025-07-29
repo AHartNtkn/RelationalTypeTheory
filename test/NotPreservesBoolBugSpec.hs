@@ -4,12 +4,12 @@ module NotPreservesBoolBugSpec (spec) where
 
 import Core.Context
 import Core.Syntax
-import Core.Environment (noMacros, extendMacroEnvironment)
+import Core.Context (emptyContext, extendMacroContext)
 import Operations.Generic.Expansion (expandFully)
 import Parser.Mixfix (defaultFixity)
 import TypeCheck.Proof
 import Test.Hspec
-import TestHelpers
+import TestHelpers (buildContextFromDeclarations, buildContextFromBindings, simpleParamInfo, parseFileDeclarations)
 import Text.Megaparsec (initialPos)
 
 spec :: Spec
@@ -34,12 +34,12 @@ parseAndRunBoolRttContentSpec = describe "Parse and run bool.rtt content" $ do
       Right decls -> do
         -- Extract macro definitions and theorem
         let theorems = [d | d@(TheoremDef _ _ _ _) <- decls]
-            (macroEnv, theoremEnv) = buildEnvironmentsFromDeclarations decls
+            context = buildContextFromDeclarations decls
 
         case theorems of
           [TheoremDef _ bindings judgment proof] -> do
             let ctx = buildContextFromBindings bindings
-            case checkProof ctx macroEnv theoremEnv proof judgment of
+            case checkProof context proof judgment of
               Left err ->
                 expectationFailure $ "Proof checking failed: " ++ show err
               Right _ ->
@@ -52,17 +52,17 @@ extractAndTestJudgmentComparisonSpec = describe "Judgment comparison focus" $ do
   it "verifies that macro and expanded forms are considered equal" $ do
     let pos = initialPos "test"
         macrEnv =
-          extendMacroEnvironment
+          extendMacroContext
             "Not"
-            ["b"]
+            [simpleParamInfo "b" TermK]
             (TermMacro $ Lam "t" (Lam "f" (App (App (Var "b" 0 pos) (Var "f" 0 pos) pos) (Var "t" 1 pos) pos) pos) pos)
             (defaultFixity "TEST")
-            $ extendMacroEnvironment
+            $ extendMacroContext
               "Bool"
               []
               (RelMacro $ All "X" (Arr (RVar "X" 0 pos) (Arr (RVar "X" 0 pos) (RVar "X" 0 pos) pos) pos) pos)
               (defaultFixity "TEST")
-              noMacros
+              emptyContext
 
         -- Expected judgment (with macro)
         expectedJudgment =

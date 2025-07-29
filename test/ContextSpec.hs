@@ -2,11 +2,10 @@
 
 module ContextSpec (spec) where
 
-import Core.Context
 import qualified Data.Map as Map
 import Core.Errors
 import Core.Syntax
-import Core.Environment (noMacros, noTheorems, extendMacroEnvironment)
+import Core.Context (emptyContext, extendMacroContext, extendTermContext, extendRelContext, extendProofContext, extendTheoremContext, lookupTerm, lookupRel, lookupProof, lookupTheorem, emptyTypeEnvironment, extendTypeEnvironment, lookupTypeVar, lookupMacro, shiftContext, isFreshInContext, contextSize, validateContext)
 import Parser.Mixfix (defaultFixity)
 import Test.Hspec
 import Text.Megaparsec (initialPos)
@@ -25,17 +24,14 @@ spec = do
 contextConstructionSpec :: Spec
 contextConstructionSpec = describe "context construction" $ do
   it "creates empty contexts correctly" $ do
-    let termCtx = emptyTypingContext
-        typeEnv = emptyTypeEnvironment
-        macroEnv = noMacros
-    Map.size (termBindings termCtx) `shouldBe` 0
-    Map.size (relBindings termCtx) `shouldBe` 0
-    Map.size (proofBindings termCtx) `shouldBe` 0
-    Map.size (typeVarBindings typeEnv) `shouldBe` 0
-    Map.size (macroDefinitions macroEnv) `shouldBe` 0
+    let ctx = emptyContext
+    Map.size (termBindings ctx) `shouldBe` 0
+    Map.size (relBindings ctx) `shouldBe` 0
+    Map.size (proofBindings ctx) `shouldBe` 0
+    Map.size (macroDefinitions ctx) `shouldBe` 0
 
   it "extends context with term binding" $ do
-    let ctx = emptyTypingContext
+    let ctx = emptyContext
         relType = RMacro "Int" [] (initialPos "test")
         ctx' = extendTermContext "x" relType ctx
     case lookupTerm "x" ctx' of
@@ -44,7 +40,7 @@ contextConstructionSpec = describe "context construction" $ do
       Right (idx, _) -> expectationFailure $ "Expected index 0, got: " ++ show idx
 
   it "extends context with relation binding" $ do
-    let ctx = emptyTypingContext
+    let ctx = emptyContext
         ctx' = extendRelContext "R" ctx
     case lookupRel "R" ctx' of
       Right 0 -> return ()
@@ -52,7 +48,7 @@ contextConstructionSpec = describe "context construction" $ do
       Right idx -> expectationFailure $ "Expected index 0, got: " ++ show idx
 
   it "extends context with proof binding" $ do
-    let ctx = emptyTypingContext
+    let ctx = emptyContext
         judgment = RelJudgment (Var "x" (-1) (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "y" (-1) (initialPos "test"))
         ctx' = extendProofContext "p" judgment ctx
     case lookupProof "p" ctx' of
@@ -64,7 +60,7 @@ contextConstructionSpec = describe "context construction" $ do
 variableLookupSpec :: Spec
 variableLookupSpec = describe "variable lookup" $ do
   it "successfully looks up bound term variables" $ do
-    let ctx = emptyTypingContext
+    let ctx = emptyContext
         relType = RMacro "Bool" [] (initialPos "test")
         ctx' = extendTermContext "flag" relType ctx
     case lookupTerm "flag" ctx' of
@@ -73,14 +69,14 @@ variableLookupSpec = describe "variable lookup" $ do
       Right (idx, _) -> expectationFailure $ "Expected index 0, got: " ++ show idx
 
   it "fails to look up unbound variables" $ do
-    let ctx = emptyTypingContext
+    let ctx = emptyContext
     case lookupTerm "nonexistent" ctx of
       Left (UnboundVariable "nonexistent" _) -> return ()
       Left otherErr -> expectationFailure $ "Expected UnboundVariable, got: " ++ show otherErr
       Right _ -> expectationFailure "Expected lookup to fail"
 
   it "handles multiple bindings with correct de Bruijn indices" $ do
-    let ctx = emptyTypingContext
+    let ctx = emptyContext
         ctx1 = extendTermContext "x" (RMacro "A" [] (initialPos "test")) ctx
         ctx2 = extendTermContext "y" (RMacro "B" [] (initialPos "test")) ctx1
         ctx3 = extendTermContext "z" (RMacro "C" [] (initialPos "test")) ctx2
@@ -96,13 +92,12 @@ variableLookupSpec = describe "variable lookup" $ do
       Left err -> expectationFailure $ "Expected successful lookup, got: " ++ show err
 
   it "looks up macros in environment" $ do
-    let env = noMacros
-        params = ["A", "B"]
+    let params = [ParamInfo "A" RelK False [], ParamInfo "B" RelK False []]
         body = RelMacro (Comp (RVar "A" 0 (initialPos "test")) (RVar "B" 1 (initialPos "test")) (initialPos "test"))
-        env' = extendMacroEnvironment "Pair" params body (defaultFixity "TEST") env
+        env' = extendMacroContext "Pair" params body (defaultFixity "TEST") emptyContext
     case lookupMacro "Pair" env' of
       Right (ps, b) -> do
-        ps `shouldBe` params
+        map pName ps `shouldBe` ["A", "B"]
         b `shouldBe` body
       Left err -> expectationFailure $ "Expected successful lookup, got: " ++ show err
 
@@ -110,7 +105,7 @@ variableLookupSpec = describe "variable lookup" $ do
 contextManipulationSpec :: Spec
 contextManipulationSpec = describe "context manipulation" $ do
   it "shifts context indices correctly" $ do
-    let ctx = emptyTypingContext
+    let ctx = emptyContext
         ctx1 = extendTermContext "x" (RMacro "A" [] (initialPos "test")) ctx
         ctx2 = extendRelContext "R" ctx1
         shifted = shiftContext 2 ctx2
@@ -119,13 +114,13 @@ contextManipulationSpec = describe "context manipulation" $ do
       results -> expectationFailure $ "Expected shifted indices, got: " ++ show results
 
   it "checks freshness correctly" $ do
-    let ctx = emptyTypingContext
+    let ctx = emptyContext
         ctx' = extendTermContext "x" (RMacro "A" [] (initialPos "test")) ctx
     isFreshInContext "x" ctx' `shouldBe` False
     isFreshInContext "y" ctx' `shouldBe` True
 
   it "calculates context size correctly" $ do
-    let ctx = emptyTypingContext
+    let ctx = emptyContext
         ctx1 = extendTermContext "x" (RMacro "A" [] (initialPos "test")) ctx
         ctx2 = extendRelContext "R" ctx1
         ctx3 = extendProofContext "p" (RelJudgment (Var "a" (-1) (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "b" (-1) (initialPos "test"))) ctx2
@@ -138,7 +133,7 @@ contextManipulationSpec = describe "context manipulation" $ do
 validationSpec :: Spec
 validationSpec = describe "context validation" $ do
   it "validates well-formed contexts" $ do
-    let ctx = emptyTypingContext
+    let ctx = emptyContext
         ctx1 = extendTermContext "x" (RMacro "A" [] (initialPos "test")) ctx
         ctx2 = extendRelContext "R" ctx1
     case validateContext ctx2 of
@@ -148,19 +143,17 @@ validationSpec = describe "context validation" $ do
   it "detects invalid de Bruijn indices" $ do
     -- This test requires manually constructing an invalid context
     -- since the normal extend functions create valid indices
-    let invalidCtx =
-          TypingContext
-            (Map.fromList [("x", (5, RMacro "A" [] (initialPos "test")))]) -- Invalid index 5 in size-1 context
-            Map.empty
-            Map.empty
-            0
+    let invalidCtx = emptyContext
+          { termBindings = Map.fromList [("x", (5, Just (RMacro "A" [] (initialPos "test"))))] -- Invalid index 5 in size-1 context
+          , termDepth = 1
+          }
     case validateContext invalidCtx of
       Left (InvalidDeBruijnIndex 5 _) -> return ()
       Left otherErr -> expectationFailure $ "Expected InvalidDeBruijnIndex, got: " ++ show otherErr
       Right () -> expectationFailure "Expected validation to fail"
 
   it "handles empty contexts" $ do
-    let ctx = emptyTypingContext
+    let ctx = emptyContext
     case validateContext ctx of
       Right () -> return ()
       Left err -> expectationFailure $ "Empty context should be valid, got: " ++ show err
@@ -169,16 +162,16 @@ validationSpec = describe "context validation" $ do
 integrationSpec :: Spec
 integrationSpec = describe "context integration" $ do
   it "combines typing context with environments" $ do
-    let typingCtx = extendTermContext "x" (RMacro "Int" [] (initialPos "test")) emptyTypingContext
+    let typingCtx = extendTermContext "x" (RMacro "Int" [] (initialPos "test")) emptyContext
         typeEnv = extendTypeEnvironment "X" (RMacro "String" [] (initialPos "test")) emptyTypeEnvironment
-        macroEnv = extendMacroEnvironment "Id" [] (RelMacro (RMacro "Identity" [] (initialPos "test"))) (defaultFixity "TEST") noMacros
+        macroEnv = extendMacroContext "Id" [] (RelMacro (RMacro "Identity" [] (initialPos "test"))) (defaultFixity "TEST") emptyContext
     -- Test that all three contexts can coexist
     case (lookupTerm "x" typingCtx, lookupTypeVar "X" typeEnv, lookupMacro "Id" macroEnv) of
       (Right _, Right _, Right _) -> return ()
       results -> expectationFailure $ "Expected all lookups to succeed, got: " ++ show results
 
   it "handles complex nested contexts" $ do
-    let ctx = emptyTypingContext
+    let ctx = emptyContext
         -- Build a complex context with multiple variable types
         ctx1 = extendTermContext "x" (RMacro "A" [] (initialPos "test")) ctx
         ctx2 = extendRelContext "R" ctx1
@@ -198,7 +191,7 @@ contextStressTestSpec = describe "context operations stress testing" $ do
           if n <= 0
             then ctx
             else buildLargeContext (n - 1) (extendTermContext ("var" ++ show n) (RMacro ("Type" ++ show n) [] (initialPos "test")) ctx)
-        largeCtx = buildLargeContext 150 emptyTypingContext
+        largeCtx = buildLargeContext 150 emptyContext
     -- Test lookup of variables at different depths
     -- var150 is the most recent (index 0), var1 is the oldest (index 149)
     case (lookupTerm "var1" largeCtx, lookupTerm "var75" largeCtx, lookupTerm "var150" largeCtx) of
@@ -217,7 +210,7 @@ contextStressTestSpec = describe "context operations stress testing" $ do
                   (RelJudgment (Var ("t" ++ show n) 1 (initialPos "test")) (RVar ("r" ++ show n) 0 (initialPos "test")) (Var "x" (-1) (initialPos "test")))
                   relCtx
            in buildMixedContext (n - 1) proofCtx
-        mixedCtx = buildMixedContext 50 emptyTypingContext
+        mixedCtx = buildMixedContext 50 emptyContext
     -- Verify indices are correctly maintained across different binding types
     case (lookupTerm "t25" mixedCtx, lookupRel "r25" mixedCtx, lookupProof "p25" mixedCtx) of
       (Right (_, _), Right _, Right (_, _)) -> return ()
@@ -225,7 +218,7 @@ contextStressTestSpec = describe "context operations stress testing" $ do
 
   it "handles variable name conflicts and shadowing" $ do
     -- Create multiple variables with same base name but different suffixes
-    let ctx = emptyTypingContext
+    let ctx = emptyContext
         ctx1 = extendTermContext "x" (RMacro "A" [] (initialPos "test")) ctx
         ctx2 = extendTermContext "x1" (RMacro "B" [] (initialPos "test")) ctx1
         ctx3 = extendTermContext "x_prime" (RMacro "C" [] (initialPos "test")) ctx2
@@ -240,7 +233,7 @@ contextStressTestSpec = describe "context operations stress testing" $ do
           if n <= 0
             then ctx
             else buildContext (n - 1) (extendTermContext ("v" ++ show n) (RMacro "Type" [] (initialPos "test")) ctx)
-        originalCtx = buildContext 100 emptyTypingContext
+        originalCtx = buildContext 100 emptyContext
         massiveShift = shiftContext 500 originalCtx
     -- v100 is most recent (index 0 + 500 shift = 500), v1 is oldest (index 99 + 500 shift = 599)
     case (lookupTerm "v1" massiveShift, lookupTerm "v50" massiveShift, lookupTerm "v100" massiveShift) of
@@ -253,7 +246,7 @@ contextStressTestSpec = describe "context operations stress testing" $ do
           if n <= 0
             then ctx
             else buildSimilarNames (n - 1) (extendTermContext ("variable_" ++ show n) (RMacro "Type" [] (initialPos "test")) ctx)
-        similarCtx = buildSimilarNames 200 emptyTypingContext
+        similarCtx = buildSimilarNames 200 emptyContext
     -- Test freshness of various name patterns
     isFreshInContext "variable_1" similarCtx `shouldBe` False
     isFreshInContext "variable_201" similarCtx `shouldBe` True
@@ -267,11 +260,14 @@ contextStressTestSpec = describe "context operations stress testing" $ do
           let macroName = "Macro" ++ show n
               params = ["A" ++ show n, "B" ++ show n]
               body = RelMacro (Comp (RVar ("A" ++ show n) 0 (initialPos "test")) (RVar ("B" ++ show n) 1 (initialPos "test")) (initialPos "test"))
-           in buildMacroEnv (n - 1) (extendMacroEnvironment macroName params body (defaultFixity "TEST") env)
-        largeMacroEnv = buildMacroEnv 100 noMacros
+           in buildMacroEnv (n - 1) (extendMacroContext macroName (map (\p -> ParamInfo p RelK False []) params) body (defaultFixity "TEST") env)
+        largeMacroEnv = buildMacroEnv 100 emptyContext
     -- Test lookup performance and correctness
     case (lookupMacro "Macro1" largeMacroEnv, lookupMacro "Macro50" largeMacroEnv, lookupMacro "Macro100" largeMacroEnv) of
-      (Right (["A1", "B1"], _), Right (["A50", "B50"], _), Right (["A100", "B100"], _)) -> return ()
+      (Right (ps1, _), Right (ps50, _), Right (ps100, _)) -> do
+        map pName ps1 `shouldBe` ["A1", "B1"]
+        map pName ps50 `shouldBe` ["A50", "B50"]
+        map pName ps100 `shouldBe` ["A100", "B100"]
       results -> expectationFailure $ "Large macro environment failed: " ++ show results
 
   it "handles type environments with complex type hierarchies" $ do
@@ -292,7 +288,7 @@ contextStressTestSpec = describe "context operations stress testing" $ do
 
   it "validates contexts with pathological binding patterns" $ do
     -- Create a context that stress-tests validation
-    let ctx = emptyTypingContext
+    let ctx = emptyContext
         -- Add many bindings of different types in a specific pattern
         addManyBindings 0 c = c
         addManyBindings n c =
@@ -310,7 +306,7 @@ contextStressTestSpec = describe "context operations stress testing" $ do
     let buildAndCheck n =
           let buildCtx 0 ctx = ctx
               buildCtx i ctx = buildCtx (i - 1) (extendTermContext ("rapid" ++ show i) (RMacro "Type" [] (initialPos "test")) ctx)
-              builtCtx = buildCtx n emptyTypingContext
+              builtCtx = buildCtx n emptyContext
            in contextSize builtCtx
         size50 = buildAndCheck 50
         size100 = buildAndCheck 100
@@ -331,7 +327,7 @@ contextStressTestSpec = describe "context operations stress testing" $ do
                       (RelJudgment (Var "x" (-1) (initialPos "test")) (RVar ("rel" ++ show n) 0 (initialPos "test")) (Var "y" (-1) (initialPos "test")))
                       relCtx
                in buildScatteredContext (n - 1) proofCtx
-        scatteredCtx = buildScatteredContext 75 emptyTypingContext
+        scatteredCtx = buildScatteredContext 75 emptyContext
     -- Test lookup at various depths
     case (lookupTerm "scattered1" scatteredCtx, lookupTerm "scattered37" scatteredCtx, lookupTerm "scattered75" scatteredCtx) of
       (Right (_, _), Right (_, _), Right (_, _)) -> return ()
@@ -341,21 +337,21 @@ contextStressTestSpec = describe "context operations stress testing" $ do
 theoremEnvironmentSpec :: Spec
 theoremEnvironmentSpec = describe "theorem environment operations" $ do
   it "creates empty theorem environments correctly" $ do
-    let theoremEnv = noTheorems
+    let theoremEnv = emptyContext
     Map.size (theoremDefinitions theoremEnv) `shouldBe` 0
 
   it "extends theorem environment with single theorem" $ do
     let bindings = [TermBinding "t"]
         judgment = RelJudgment (Var "t" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "t" 0 (initialPos "test"))
         proof = Iota (Var "t" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")) (initialPos "test")
-        theoremEnv = extendTheoremEnvironment "identity" bindings judgment proof noTheorems
+        theoremEnv = extendTheoremContext "identity" bindings judgment proof emptyContext
     Map.size (theoremDefinitions theoremEnv) `shouldBe` 1
 
   it "looks up theorems correctly" $ do
     let bindings = [TermBinding "t"]
         judgment = RelJudgment (Var "t" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "t" 0 (initialPos "test"))
         proof = Iota (Var "t" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")) (initialPos "test")
-        theoremEnv = extendTheoremEnvironment "identity" bindings judgment proof noTheorems
+        theoremEnv = extendTheoremContext "identity" bindings judgment proof emptyContext
     case lookupTheorem "identity" theoremEnv of
       Right (foundBindings, foundJudgment, foundProof) -> do
         foundBindings `shouldBe` bindings
@@ -364,7 +360,7 @@ theoremEnvironmentSpec = describe "theorem environment operations" $ do
       Left err -> expectationFailure $ "Expected successful theorem lookup: " ++ show err
 
   it "fails lookup for undefined theorems" $ do
-    let theoremEnv = noTheorems
+    let theoremEnv = emptyContext
     case lookupTheorem "nonexistent" theoremEnv of
       Left _ -> return () -- Expected failure
       Right _ -> expectationFailure "Expected failure for undefined theorem lookup"
@@ -372,14 +368,14 @@ theoremEnvironmentSpec = describe "theorem environment operations" $ do
   it "handles multiple theorem definitions" $ do
     -- Create multiple theorems
     let theorem1 =
-          extendTheoremEnvironment
+          extendTheoremContext
             "identity"
             [TermBinding "t"]
             (RelJudgment (Var "t" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "t" 0 (initialPos "test")))
             (Iota (Var "t" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")) (initialPos "test"))
-            noTheorems
+            emptyContext
         theorem2 =
-          extendTheoremEnvironment
+          extendTheoremContext
             "composition"
             [TermBinding "x", TermBinding "y", TermBinding "z"]
             (RelJudgment (Var "x" 2 (initialPos "test")) (Comp (RMacro "R" [] (initialPos "test")) (RMacro "S" [] (initialPos "test")) (initialPos "test")) (Var "z" 0 (initialPos "test")))
@@ -402,7 +398,7 @@ theoremEnvironmentSpec = describe "theorem environment operations" $ do
           ]
         complexJudgment = RelJudgment (Var "t" 0 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (Var "t" 0 (initialPos "test"))
         complexProof = PVar "p" 0 (initialPos "test")
-        theoremEnv = extendTheoremEnvironment "complex" complexBindings complexJudgment complexProof noTheorems
+        theoremEnv = extendTheoremContext "complex" complexBindings complexJudgment complexProof emptyContext
 
     case lookupTheorem "complex" theoremEnv of
       Right (foundBindings, foundJudgment, foundProof) -> do
@@ -414,14 +410,14 @@ theoremEnvironmentSpec = describe "theorem environment operations" $ do
   it "handles theorem environment extension with duplicates" $ do
     -- Test behavior when extending with same theorem name (should overwrite)
     let theorem1 =
-          extendTheoremEnvironment
+          extendTheoremContext
             "test"
             [TermBinding "x"]
             (RelJudgment (Var "x" 0 (initialPos "test")) (RMacro "R1" [] (initialPos "test")) (Var "x" 0 (initialPos "test")))
             (PVar "proof1" 0 (initialPos "test"))
-            noTheorems
+            emptyContext
         theorem2 =
-          extendTheoremEnvironment
+          extendTheoremContext
             "test" -- Same name
             [TermBinding "y"]
             (RelJudgment (Var "y" 0 (initialPos "test")) (RMacro "R2" [] (initialPos "test")) (Var "y" 0 (initialPos "test")))
@@ -444,8 +440,8 @@ theoremEnvironmentSpec = describe "theorem environment operations" $ do
               bindings = [TermBinding ("t" ++ show n)]
               judgment = RelJudgment (Var ("t" ++ show n) 0 (initialPos "test")) (RMacro ("R" ++ show n) [] (initialPos "test")) (Var ("t" ++ show n) 0 (initialPos "test"))
               proof = Iota (Var ("t" ++ show n) 0 (initialPos "test")) (Var ("t" ++ show n) 0 (initialPos "test")) (initialPos "test")
-           in buildTheoremEnv (n - 1) (extendTheoremEnvironment name bindings judgment proof env)
-        largeEnv = buildTheoremEnv 100 noTheorems
+           in buildTheoremEnv (n - 1) (extendTheoremContext name bindings judgment proof env)
+        largeEnv = buildTheoremEnv 100 emptyContext
 
     Map.size (theoremDefinitions largeEnv) `shouldBe` 100
 
@@ -457,12 +453,12 @@ theoremEnvironmentSpec = describe "theorem environment operations" $ do
   it "validates theorem environment consistency" $ do
     -- Test that theorem environments maintain expected invariants
     let validTheorem =
-          extendTheoremEnvironment
+          extendTheoremContext
             "valid"
             [TermBinding "t"]
             (RelJudgment (Var "t" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "t" 0 (initialPos "test")))
             (Iota (Var "t" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")) (initialPos "test"))
-            noTheorems
+            emptyContext
 
     -- Test basic invariants
     Map.size (theoremDefinitions validTheorem) `shouldBe` 1

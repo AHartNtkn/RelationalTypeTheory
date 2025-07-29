@@ -1,17 +1,23 @@
 module Core.Context
-  ( emptyTypingContext,
+  ( -- Context type and constructor
+    Context(..),
+    -- Context creation and manipulation
+    emptyContext,
     emptyTypeEnvironment,
     extendTermContext,
     extendRelContext,
     extendProofContext,
     extendTypeEnvironment,
-    extendTheoremEnvironment,
+    extendMacroContext,
+    extendTheoremContext,
+    -- Variable lookup
     lookupTerm,
     lookupRel,
     lookupProof,
     lookupTypeVar,
     lookupMacro,
     lookupTheorem,
+    -- Context utilities
     shiftContext,
     isFreshInContext,
     contextSize,
@@ -19,7 +25,11 @@ module Core.Context
     boundVarsInContext,
     freshVar,
     freshVarPair,
-    -- Re-export from Lib to avoid conflicts
+    -- Elaboration functions (moved from Parser.Context)
+    bindTermVar,
+    bindRelVar,
+    bindProofVar,
+    ElaborateM,
   )
 where
 
@@ -28,40 +38,95 @@ import qualified Data.Set as Set
 import Core.Errors
 import Core.Syntax
 import Operations.Generic.Shift (shift, shiftTermsInRType)
+import Core.Raw (dummyPos)
 import Text.Megaparsec (initialPos)
+import Control.Monad.Reader
+import Control.Monad.Except
 
--- | Create an empty typing context
-emptyTypingContext :: TypingContext
-emptyTypingContext = TypingContext Map.empty Map.empty Map.empty 0
+-- | Built-in macro fixities
+builtinFixities :: [(String,Fixity)]
+builtinFixities =
+  [ ("∀_._"        , Prefix  4)   -- quantifier  (prefix, closes with '.')
+  , ("λ_._"        , Prefix  4)
+  , ("Λ_._"        , Prefix  4)
+  , ("λ_:_._"      , Prefix  4)
+  , ("_{_}"        , Postfix 4)   -- type application
+  , ("_˘"          , Postfix 8)   -- converse
+  , ("_∘_"         , Infixr  6)   -- composition
+  , ("_→_"         , Infixr  2)   -- function arrow
+  , ("ι⟨_,_⟩"      , Prefix  7)   -- iota
+  , ("_,_"         , Infixr  1)
+  , ("_⇃_⇂_"       , Prefix  4)
+  , ("π_-_._._._"  , Prefix  4)
+  ]
+
+-- | Helper to create simple ParamInfo for non-cross-category macros
+simpleParams :: VarKind -> [String] -> [ParamInfo]
+simpleParams kind names = [ParamInfo n kind False [] | n <- names]
+
+-- | Built-in macro bodies with parameter lists
+builtinMacroBodies :: [(String, [ParamInfo], MacroBody)]
+builtinMacroBodies =
+  [ ("λ_._"       , [ParamInfo "x" TermK True [], ParamInfo "t" TermK False [0]]     , TermMacro $ Lam "x" (Var "t" 0 dummyPos) dummyPos)
+  , ("∀_._"       , [ParamInfo "X" RelK True [], ParamInfo "T" RelK False [0]]       , RelMacro $ All "X" (RVar "T" 0 dummyPos) dummyPos)
+  , ("_˘"         , simpleParams RelK ["R"]           , RelMacro $ Conv (RVar "R" 0 dummyPos) dummyPos)
+  , ("_∘_"        , simpleParams RelK ["R","S"]       , RelMacro $ Comp (RVar "R" 1 dummyPos) (RVar "S" 0 dummyPos) dummyPos)
+  , ("_→_"        , simpleParams RelK ["A","B"]       , RelMacro $ Arr (RVar "A" 1 dummyPos) (RVar "B" 0 dummyPos) dummyPos)
+  , ("ι⟨_,_⟩"     , simpleParams TermK ["t1","t2"]    , ProofMacro $ Iota (Var "t1" 1 dummyPos) (Var "t2" 0 dummyPos) dummyPos)
+  , ("_,_"        , simpleParams ProofK ["p","q"]     , ProofMacro $ Pair (PVar "p" 1 dummyPos) (PVar "q" 0 dummyPos) dummyPos)
+  , ("λ_:_._"     , [ParamInfo "x" TermK True [], ParamInfo "T" RelK False [], ParamInfo "p" ProofK False [0]]  , ProofMacro $ LamP "x" (RVar "T" 1 dummyPos) (PVar "p" 0 dummyPos) dummyPos)
+  , ("Λ_._"       , [ParamInfo "X" RelK True [], ParamInfo "p" ProofK False [0]]      , ProofMacro $ TyLam "X" (PVar "p" 0 dummyPos) dummyPos)
+  , ("_{_}"       , [ParamInfo "p" ProofK False [], ParamInfo "R" RelK False []]      , ProofMacro $ TyApp (PVar "p" 1 dummyPos) (RVar "R" 0 dummyPos) dummyPos)
+  , ("_⇃_⇂_"      , [ParamInfo "t1" TermK False [], ParamInfo "p" ProofK False [], ParamInfo "t2" TermK False []], ProofMacro $ ConvProof (Var "t1" 2 dummyPos) (PVar "p" 1 dummyPos) (Var "t2" 0 dummyPos) dummyPos)
+  , ("π_-_._._._" , [ParamInfo "p" ProofK False [], ParamInfo "x" TermK True [], ParamInfo "u" ProofK True [1], ParamInfo "v" ProofK True [1], ParamInfo "q" ProofK False [1,2,3]], ProofMacro $ Pi (PVar "p" 4 dummyPos) "x" "u" "v" (PVar "q" 0 dummyPos) dummyPos)
+  ]
+
+-- | Create context with builtins loaded (standard starting point)
+emptyContext :: Context
+emptyContext = 
+  let builtinMacros = Map.fromList [(n, (pInfo, body)) | (n, pInfo, body) <- builtinMacroBodies]
+      builtinFixityMap = Map.fromList builtinFixities
+  in Context 
+  { termBindings = Map.empty
+  , relBindings = Map.empty
+  , proofBindings = Map.empty
+  , termDepth = 0
+  , relDepth = 0
+  , proofDepth = 0
+  , macroDefinitions = builtinMacros
+  , macroFixities = builtinFixityMap
+  , theoremDefinitions = Map.empty
+  , gensymCounter = 0
+  }
 
 -- | Create an empty type environment
 emptyTypeEnvironment :: TypeEnvironment
 emptyTypeEnvironment = TypeEnvironment Map.empty
 
 -- | Extend context with a term binding
-extendTermContext :: String -> RType -> TypingContext -> TypingContext
+extendTermContext :: String -> RType -> Context -> Context
 extendTermContext name ty ctx =
   let newIndex = 0
-      shiftedTerms = Map.map (\(idx, t) -> (idx + 1, t)) (termBindings ctx)
+      shiftedTerms = Map.map (\(idx, mty) -> (idx + 1, mty)) (termBindings ctx)
    in ctx
-        { termBindings = Map.insert name (newIndex, ty) shiftedTerms
+        { termBindings = Map.insert name (newIndex, Just ty) shiftedTerms
         }
 
 -- | Extend context with a relation binding
-extendRelContext :: String -> TypingContext -> TypingContext
+extendRelContext :: String -> Context -> Context
 extendRelContext name ctx =
   let newIndex = 0
       shiftedRels = Map.map (+ 1) (relBindings ctx)
    in ctx {relBindings = Map.insert name newIndex shiftedRels}
 
 -- | Extend context with a proof binding
-extendProofContext :: String -> RelJudgment -> TypingContext -> TypingContext
+extendProofContext :: String -> RelJudgment -> Context -> Context
 extendProofContext name judgment ctx =
   let proofIdx = 0
       termDepthWhenStored = Map.size (termBindings ctx)
-      shiftedProofs = Map.map (\(i, d, j) -> (i + 1, d, j)) (proofBindings ctx)
+      shiftedProofs = Map.map (\(i, md, mj) -> (i + 1, md, mj)) (proofBindings ctx)
    in ctx
-        { proofBindings = Map.insert name (proofIdx, termDepthWhenStored, judgment) shiftedProofs
+        { proofBindings = Map.insert name (proofIdx, Just termDepthWhenStored, Just judgment) shiftedProofs
         }
 
 -- | Extend type environment with a type variable binding
@@ -69,30 +134,26 @@ extendTypeEnvironment :: String -> RType -> TypeEnvironment -> TypeEnvironment
 extendTypeEnvironment name ty env =
   env {typeVarBindings = Map.insert name ty (typeVarBindings env)}
 
--- | Extend theorem environment with a theorem definition
-extendTheoremEnvironment :: String -> [Binding] -> RelJudgment -> Proof -> TheoremEnvironment -> TheoremEnvironment
-extendTheoremEnvironment name bindings judgment proof env =
-  env {theoremDefinitions = Map.insert name (bindings, judgment, proof) (theoremDefinitions env)}
-
 -- | Look up a term variable in the context
-lookupTerm :: String -> TypingContext -> Either RelTTError (Int, RType)
+lookupTerm :: String -> Context -> Either RelTTError (Int, RType)
 lookupTerm name ctx =
   case Map.lookup name (termBindings ctx) of
-    Just result -> Right result
+    Just (index, Just ty) -> Right (index, ty)
+    Just (index, Nothing) -> Left $ InternalError ("Term " ++ name ++ " has no type information") (ErrorContext (initialPos "<context>") "term lookup")
     Nothing -> Left $ throwUnboundVar name (initialPos "<context>") "term lookup"
 
 -- | Look up a relation variable in the context
-lookupRel :: String -> TypingContext -> Either RelTTError Int
+lookupRel :: String -> Context -> Either RelTTError Int
 lookupRel name ctx =
   case Map.lookup name (relBindings ctx) of
     Just idx -> Right idx
     Nothing -> Left $ throwUnboundVar name (initialPos "<context>") "relation lookup"
 
 -- | Look up a proof variable in the context
-lookupProof :: String -> TypingContext -> Either RelTTError (Int, RelJudgment)
+lookupProof :: String -> Context -> Either RelTTError (Int, RelJudgment)
 lookupProof name ctx =
   case Map.lookup name (proofBindings ctx) of
-    Just (proofIdx, storedDepth, judgment) -> do
+    Just (proofIdx, Just storedDepth, Just judgment) -> do
       let currentDepth = Map.size (termBindings ctx)
           termShift = currentDepth - storedDepth
           RelJudgment t1 rt t2 = judgment
@@ -102,6 +163,8 @@ lookupProof name ctx =
               (shiftTermsInRType termShift rt)
               (shift termShift t2)
       Right (proofIdx, shiftedJudgment)
+    Just (proofIdx, Nothing, Just _) -> Left $ InternalError ("Proof " ++ name ++ " has no depth information") (ErrorContext (initialPos "<context>") "proof lookup")
+    Just (proofIdx, _, Nothing) -> Left $ InternalError ("Proof " ++ name ++ " has no judgment information") (ErrorContext (initialPos "<context>") "proof lookup")
     Nothing -> Left $ throwUnboundVar name (initialPos "<context>") "proof lookup"
 
 -- | Look up a type variable in the environment
@@ -111,44 +174,44 @@ lookupTypeVar name env =
     Just ty -> Right ty
     Nothing -> Left $ UnboundTypeVariable name (ErrorContext (initialPos "<context>") "type variable lookup")
 
--- | Look up a macro in the environment
-lookupMacro :: String -> MacroEnvironment -> Either RelTTError ([String], MacroBody)
-lookupMacro name env =
-  case Map.lookup name (macroDefinitions env) of
-    Just (sig, body) -> Right (map pName sig, body)
-    Nothing -> Left $ throwMacroError name (initialPos "<context>") "macro lookup"
+-- | Look up a macro in the context
+lookupMacro :: String -> Context -> Either RelTTError MacroSig
+lookupMacro name ctx =
+  case Map.lookup name (macroDefinitions ctx) of
+    Just macroSig -> Right macroSig
+    Nothing -> Left $ UnboundMacro name (ErrorContext (initialPos "<context>") "macro lookup")
 
--- | Look up a theorem in the environment
-lookupTheorem :: String -> TheoremEnvironment -> Either RelTTError ([Binding], RelJudgment, Proof)
-lookupTheorem name env =
-  case Map.lookup name (theoremDefinitions env) of
-    Just def -> Right def
-    Nothing -> Left $ throwUnboundVar name (initialPos "<context>") "theorem lookup"
+-- | Look up a theorem in the context
+lookupTheorem :: String -> Context -> Either RelTTError ([Binding], RelJudgment, Proof)
+lookupTheorem name ctx =
+  case Map.lookup name (theoremDefinitions ctx) of
+    Just theorem -> Right theorem
+    Nothing -> Left $ UnknownTheorem name (ErrorContext (initialPos "<context>") "theorem lookup")
 
 -- | Shift all de Bruijn indices in a context by a given amount
-shiftContext :: Int -> TypingContext -> TypingContext
+shiftContext :: Int -> Context -> Context
 shiftContext shiftAmount ctx =
-  let shiftedTerms = Map.map (\(idx, ty) -> (idx + shiftAmount, ty)) (termBindings ctx)
+  let shiftedTerms = Map.map (\(idx, mty) -> (idx + shiftAmount, mty)) (termBindings ctx)
       shiftedRels = Map.map (+ shiftAmount) (relBindings ctx)
-      shiftedProofs = Map.map (\(idx, d, j) -> (idx + shiftAmount, d, j)) (proofBindings ctx)
-   in TypingContext shiftedTerms shiftedRels shiftedProofs (gensymCounter ctx)
+      shiftedProofs = Map.map (\(idx, md, mj) -> (idx + shiftAmount, md, mj)) (proofBindings ctx)
+   in ctx { termBindings = shiftedTerms, relBindings = shiftedRels, proofBindings = shiftedProofs }
 
 -- | Check if a variable name is fresh (not bound) in the context
-isFreshInContext :: String -> TypingContext -> Bool
+isFreshInContext :: String -> Context -> Bool
 isFreshInContext name ctx =
   not (Map.member name (termBindings ctx))
     && not (Map.member name (relBindings ctx))
     && not (Map.member name (proofBindings ctx))
 
 -- | Get the total number of bindings in a context
-contextSize :: TypingContext -> Int
+contextSize :: Context -> Int
 contextSize ctx =
   Map.size (termBindings ctx)
     + Map.size (relBindings ctx)
     + Map.size (proofBindings ctx)
 
 -- | Validate that a context is well-formed
-validateContext :: TypingContext -> Either RelTTError ()
+validateContext :: Context -> Either RelTTError ()
 validateContext ctx = do
   -- Check that all de Bruijn indices are valid
   let termIndices = Map.elems $ Map.map fst (termBindings ctx)
@@ -165,8 +228,8 @@ validateContext ctx = do
         then Left $ InvalidDeBruijnIndex maxIndex (ErrorContext (initialPos "<context>") "context validation")
         else Right ()
 
--- | Get all bound variable names in a typing context
-boundVarsInContext :: TypingContext -> Set.Set String
+-- | Get all bound variable names in a context
+boundVarsInContext :: Context -> Set.Set String
 boundVarsInContext ctx =
   Set.unions [ Set.fromList (Map.keys (termBindings ctx))
              , Set.fromList (Map.keys (relBindings ctx))
@@ -174,7 +237,7 @@ boundVarsInContext ctx =
              ]
 
 -- | Generate a fresh variable name and return updated context
-freshVar :: String -> TypingContext -> (String, TypingContext)
+freshVar :: String -> Context -> (String, Context)
 freshVar prefix ctx =
   let counter = gensymCounter ctx
       newName = prefix ++ show counter
@@ -182,10 +245,51 @@ freshVar prefix ctx =
    in (newName, newCtx)
 
 -- | Generate a pair of fresh variable names with the same counter and return updated context
-freshVarPair :: String -> String -> TypingContext -> (String, String, TypingContext)
+freshVarPair :: String -> String -> Context -> (String, String, Context)
 freshVarPair prefix1 prefix2 ctx =
   let counter = gensymCounter ctx
       name1 = prefix1 ++ show counter
       name2 = prefix2 ++ show counter
       newCtx = ctx {gensymCounter = counter + 1}
    in (name1, name2, newCtx)
+
+-- | Extend context with a macro definition (requires explicit parameter info)
+extendMacroContext :: String -> [ParamInfo] -> MacroBody -> Fixity -> Context -> Context
+extendMacroContext name pInfo body fixity ctx =
+  ctx { macroDefinitions = Map.insert name (pInfo, body) (macroDefinitions ctx)
+      , macroFixities = Map.insert name fixity (macroFixities ctx)
+      }
+
+
+-- | Extend context with a theorem definition  
+extendTheoremContext :: String -> [Binding] -> RelJudgment -> Proof -> Context -> Context
+extendTheoremContext name bindings judgment proof ctx =
+  ctx { theoremDefinitions = Map.insert name (bindings, judgment, proof) (theoremDefinitions ctx) }
+
+-- | Elaboration monad (moved from Parser.Context)
+type ElaborateM = ReaderT Context (Except RelTTError)
+
+-- | Helper functions for shifting maps during binding
+shiftIntMap :: Map.Map k Int -> Map.Map k Int
+shiftIntMap = Map.map (+1)
+
+shiftProofMap :: Map.Map String (Int, Maybe Int, Maybe RelJudgment) -> Map.Map String (Int, Maybe Int, Maybe RelJudgment)
+shiftProofMap = Map.map (\(i, md, mj) -> (i+1, md, mj))
+
+-- | Bind a new term variable in the context (for elaboration)
+bindTermVar :: String -> Context -> Context
+bindTermVar x ctx =
+  ctx { termBindings = Map.insert x (0, Nothing) (Map.map (\(i, mty) -> (i+1, mty)) (termBindings ctx))
+      , termDepth = termDepth ctx + 1 }
+
+-- | Bind a new relational variable in the context (for elaboration)
+bindRelVar :: String -> Context -> Context
+bindRelVar r ctx =
+  ctx { relBindings = Map.insert r 0 (shiftIntMap (relBindings ctx))
+      , relDepth = relDepth ctx + 1 }
+
+-- | Bind a new proof variable in the context (for elaboration)
+bindProofVar :: String -> RelJudgment -> Context -> Context
+bindProofVar p j ctx =
+  ctx { proofBindings = Map.insert p (0, Nothing, Just j) (shiftProofMap (proofBindings ctx))
+      , proofDepth = proofDepth ctx + 1 }

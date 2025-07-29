@@ -6,14 +6,25 @@ import Control.Monad.Reader
 import Control.Monad.Except
 import qualified Data.Map as Map
 import Core.Syntax
-import Core.Environment (noTheorems, noMacros, extendMacroEnvironment)
+import Core.Context (emptyContext, extendMacroContext)
 import Parser.Mixfix (defaultFixity)
 import Parser.Raw
-import Parser.Elaborate (emptyCtxWithBuiltins, elaborateTerm, elaborateRType, elaborateProof, elaborateDeclaration)
-import Parser.Context (ElaborateContext(..))
+import Parser.Elaborate (elaborateTerm, elaborateRType, elaborateProof, elaborateDeclaration)
+import Core.Context
 import Test.Hspec
-import TestHelpers
+import TestHelpers (simpleParamInfo, shouldBeEqual)
 import Text.Megaparsec (errorBundlePretty, initialPos, runParser)
+
+-- Helper function to build test context with variable bindings
+buildTestContext :: Context -> [String] -> [String] -> [String] -> Context
+buildTestContext baseCtx termVars relVars proofVars =
+  let addTermVars ctx [] = ctx
+      addTermVars ctx (v:vs) = addTermVars (extendTermContext v (RMacro "TestType" [] (initialPos "test")) ctx) vs
+      addRelVars ctx [] = ctx  
+      addRelVars ctx (v:vs) = addRelVars (extendRelContext v ctx) vs
+      addProofVars ctx [] = ctx
+      addProofVars ctx (v:vs) = addProofVars (extendProofContext v (RelJudgment (Var "dummy" 0 (initialPos "test")) (RVar "dummy" 0 (initialPos "test")) (Var "dummy" 0 (initialPos "test"))) ctx) vs
+  in addProofVars (addRelVars (addTermVars baseCtx termVars) relVars) proofVars
 
 spec :: Spec
 spec = do
@@ -31,12 +42,12 @@ spec = do
   parserErrorSpec
 
 -- Test helper for terms using new parser pipeline (Raw + Elaborate)
-testParseTerm :: [String] -> [String] -> [String] -> MacroEnvironment -> String -> Term -> Expectation
+testParseTerm :: [String] -> [String] -> [String] -> Context -> String -> Term -> Expectation
 testParseTerm tVars rVars pVars env input expected =
   let boundVarMap = Map.fromList (zip tVars (reverse [0 .. length tVars - 1]))
       boundRelVarMap = Map.fromList (zip rVars (reverse [0 .. length rVars - 1]))
       boundProofVarMap = Map.fromList [(pVar, (i, RelJudgment (Var "dummy" 0 (initialPos "test")) (RVar "dummy" 0 (initialPos "test")) (Var "dummy" 0 (initialPos "test")))) | (pVar, i) <- zip pVars (reverse [0 .. length pVars - 1])]
-      elabCtx = ElaborateContext env noTheorems (length tVars) (length rVars) (length pVars) boundVarMap boundRelVarMap boundProofVarMap
+      elabCtx = buildTestContext env tVars rVars pVars
    in case runParser rawTerm "test" (input) of
         Left err -> expectationFailure $ "Raw parse failed: " ++ errorBundlePretty err
         Right rawResult -> 
@@ -45,12 +56,12 @@ testParseTerm tVars rVars pVars env input expected =
             Right result -> result `shouldBeEqual` expected
 
 -- Test helper for relational types using new parser pipeline
-testParseRType :: [String] -> [String] -> [String] -> MacroEnvironment -> String -> RType -> Expectation
+testParseRType :: [String] -> [String] -> [String] -> Context -> String -> RType -> Expectation
 testParseRType tVars rVars pVars env input expected =
   let boundVarMap = Map.fromList (zip tVars (reverse [0 .. length tVars - 1]))
       boundRelVarMap = Map.fromList (zip rVars (reverse [0 .. length rVars - 1]))
       boundProofVarMap = Map.fromList [(pVar, (i, RelJudgment (Var "dummy" 0 (initialPos "test")) (RVar "dummy" 0 (initialPos "test")) (Var "dummy" 0 (initialPos "test")))) | (pVar, i) <- zip pVars (reverse [0 .. length pVars - 1])]
-      elabCtx = ElaborateContext env noTheorems (length tVars) (length rVars) (length pVars) boundVarMap boundRelVarMap boundProofVarMap
+      elabCtx = buildTestContext env tVars rVars pVars
    in case runParser rawRType "test" (input) of
         Left err -> expectationFailure $ "Raw parse failed: " ++ errorBundlePretty err
         Right rawResult -> 
@@ -59,12 +70,12 @@ testParseRType tVars rVars pVars env input expected =
             Right result -> result `shouldBeEqual` expected
 
 -- Test helper for proofs using new parser pipeline
-testParseProof :: [String] -> [String] -> [String] -> MacroEnvironment -> String -> Proof -> Expectation
+testParseProof :: [String] -> [String] -> [String] -> Context -> String -> Proof -> Expectation
 testParseProof tVars rVars pVars env input expected =
   let boundVarMap = Map.fromList (zip tVars (reverse [0 .. length tVars - 1]))
       boundRelVarMap = Map.fromList (zip rVars (reverse [0 .. length rVars - 1]))
       boundProofVarMap = Map.fromList [(pVar, (i, RelJudgment (Var "dummy" 0 (initialPos "test")) (RVar "dummy" 0 (initialPos "test")) (Var "dummy" 0 (initialPos "test")))) | (pVar, i) <- zip pVars (reverse [0 .. length pVars - 1])]
-      elabCtx = ElaborateContext env noTheorems (length tVars) (length rVars) (length pVars) boundVarMap boundRelVarMap boundProofVarMap
+      elabCtx = buildTestContext env tVars rVars pVars
    in case runParser rawProof "test" (input) of
         Left err -> expectationFailure $ "Raw parse failed: " ++ errorBundlePretty err
         Right rawResult -> 
@@ -73,12 +84,12 @@ testParseProof tVars rVars pVars env input expected =
             Right result -> result `shouldBeEqual` expected
 
 -- Test helper for declarations using new parser pipeline
-testParseDeclaration :: [String] -> [String] -> [String] -> MacroEnvironment -> String -> Declaration -> Expectation
+testParseDeclaration :: [String] -> [String] -> [String] -> Context -> String -> Declaration -> Expectation
 testParseDeclaration tVars rVars pVars env input expected =
   let boundVarMap = Map.fromList (zip tVars (reverse [0 .. length tVars - 1]))
       boundRelVarMap = Map.fromList (zip rVars (reverse [0 .. length rVars - 1]))
       boundProofVarMap = Map.fromList [(pVar, (i, RelJudgment (Var "dummy" 0 (initialPos "test")) (RVar "dummy" 0 (initialPos "test")) (Var "dummy" 0 (initialPos "test")))) | (pVar, i) <- zip pVars (reverse [0 .. length pVars - 1])]
-      elabCtx = ElaborateContext env noTheorems (length tVars) (length rVars) (length pVars) boundVarMap boundRelVarMap boundProofVarMap
+      elabCtx = buildTestContext env tVars rVars pVars
    in case runParser rawDeclaration "test" (input) of
         Left err -> expectationFailure $ "Raw parse failed: " ++ errorBundlePretty err
         Right rawResult -> 
@@ -87,12 +98,12 @@ testParseDeclaration tVars rVars pVars env input expected =
             Right result -> result `shouldBeEqual` expected
 
 -- Test helper for parsing files using new parser pipeline
-testParseFile :: [String] -> [String] -> [String] -> MacroEnvironment -> String -> [Declaration] -> Expectation
+testParseFile :: [String] -> [String] -> [String] -> Context -> String -> [Declaration] -> Expectation
 testParseFile tVars rVars pVars env input expected =
   let boundVarMap = Map.fromList (zip tVars (reverse [0 .. length tVars - 1]))
       boundRelVarMap = Map.fromList (zip rVars (reverse [0 .. length rVars - 1]))
       boundProofVarMap = Map.fromList [(pVar, (i, RelJudgment (Var "dummy" 0 (initialPos "test")) (RVar "dummy" 0 (initialPos "test")) (Var "dummy" 0 (initialPos "test")))) | (pVar, i) <- zip pVars (reverse [0 .. length pVars - 1])]
-      elabCtx = ElaborateContext env noTheorems (length tVars) (length rVars) (length pVars) boundVarMap boundRelVarMap boundProofVarMap
+      elabCtx = buildTestContext env tVars rVars pVars
    in case runParser parseFile "test" (input) of
         Left err -> expectationFailure $ "Raw parse failed: " ++ errorBundlePretty err
         Right rawResults -> 
@@ -114,12 +125,12 @@ testParseRTypeFailure input =
     Right result -> expectationFailure $ "Expected parse failure, but got: " ++ show result
 
 -- Test helper for RType elaboration failures
-testParseRTypeElaborationFailure :: [String] -> [String] -> [String] -> MacroEnvironment -> String -> Expectation
+testParseRTypeElaborationFailure :: [String] -> [String] -> [String] -> Context -> String -> Expectation
 testParseRTypeElaborationFailure tVars rVars pVars env input =
   let boundVarMap = Map.fromList (zip tVars (reverse [0 .. length tVars - 1]))
       boundRelVarMap = Map.fromList (zip rVars (reverse [0 .. length rVars - 1]))
       boundProofVarMap = Map.fromList [(pVar, (i, RelJudgment (Var "dummy" 0 (initialPos "test")) (RVar "dummy" 0 (initialPos "test")) (Var "dummy" 0 (initialPos "test")))) | (pVar, i) <- zip pVars (reverse [0 .. length pVars - 1])]
-      elabCtx = ElaborateContext env noTheorems (length tVars) (length rVars) (length pVars) boundVarMap boundRelVarMap boundProofVarMap
+      elabCtx = buildTestContext env tVars rVars pVars
    in case runParser rawRType "test" (input) of
         Left err -> expectationFailure $ "Raw parse failed: " ++ errorBundlePretty err
         Right rawResult -> 
@@ -142,52 +153,53 @@ testParseDeclarationFailure input =
 termParserSpec :: Spec
 termParserSpec = describe "Term parser" $ do
   it "parses variables" $ do
-    testParseTerm ["x"] [] [] noMacros "x" (Var "x" 0 (initialPos "test")) -- bound variable
-    testParseTerm ["foo"] [] [] noMacros "foo" (Var "foo" 0 (initialPos "test")) -- bound variable
-    testParseTerm ["x123"] [] [] noMacros "x123" (Var "x123" 0 (initialPos "test")) -- bound variable
-    testParseTerm ["foo_bar"] [] [] noMacros "foo_bar" (Var "foo_bar" 0 (initialPos "test")) -- with underscore
-    testParseTerm ["test_123"] [] [] noMacros "test_123" (Var "test_123" 0 (initialPos "test")) -- underscore and numbers
-    testParseTerm ["a_b_c"] [] [] noMacros "a_b_c" (Var "a_b_c" 0 (initialPos "test")) -- multiple underscores
-    testParseTerm ["x'"] [] [] noMacros "x'" (Var "x'" 0 (initialPos "test")) -- with apostrophe
-    testParseTerm ["foo'"] [] [] noMacros "foo'" (Var "foo'" 0 (initialPos "test")) -- with apostrophe
-    testParseTerm ["x''"] [] [] noMacros "x''" (Var "x''" 0 (initialPos "test")) -- multiple apostrophes
+    testParseTerm ["x"] [] [] emptyContext "x" (Var "x" 0 (initialPos "test")) -- bound variable
+    testParseTerm ["foo"] [] [] emptyContext "foo" (Var "foo" 0 (initialPos "test")) -- bound variable
+    testParseTerm ["x123"] [] [] emptyContext "x123" (Var "x123" 0 (initialPos "test")) -- bound variable
+    testParseTerm ["foo_bar"] [] [] emptyContext "foo_bar" (Var "foo_bar" 0 (initialPos "test")) -- with underscore
+    testParseTerm ["test_123"] [] [] emptyContext "test_123" (Var "test_123" 0 (initialPos "test")) -- underscore and numbers
+    testParseTerm ["a_b_c"] [] [] emptyContext "a_b_c" (Var "a_b_c" 0 (initialPos "test")) -- multiple underscores
+    testParseTerm ["x'"] [] [] emptyContext "x'" (Var "x'" 0 (initialPos "test")) -- with apostrophe
+    testParseTerm ["foo'"] [] [] emptyContext "foo'" (Var "foo'" 0 (initialPos "test")) -- with apostrophe
+    testParseTerm ["x''"] [] [] emptyContext "x''" (Var "x''" 0 (initialPos "test")) -- multiple apostrophes
   it "parses lambda abstractions" $ do
-    testParseTerm [] [] [] noMacros "λ x . x" (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) -- x bound at index 0
-    testParseTerm [] [] [] noMacros "\\x . x" (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) -- x bound at index 0
-    testParseTerm [] [] [] noMacros "λ x . λ y . x" (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) -- x bound at index 1 (distance from binding)
-    testParseTerm [] [] [] noMacros "λ x_1. x_1" (Lam "x_1" (Var "x_1" 0 (initialPos "test")) (initialPos "test")) -- lambda with underscore in variable name
+    testParseTerm [] [] [] emptyContext "λ x . x" (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) -- x bound at index 0
+    testParseTerm [] [] [] emptyContext "\\x . x" (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) -- x bound at index 0
+    testParseTerm [] [] [] emptyContext "λ x . λ y . x" (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) -- x bound at index 1 (distance from binding)
+    testParseTerm [] [] [] emptyContext "λ x_1. x_1" (Lam "x_1" (Var "x_1" 0 (initialPos "test")) (initialPos "test")) -- lambda with underscore in variable name
   it "parses complex nested lambda abstractions" $ do
-    testParseTerm [] [] [] noMacros "λ x . λ y . λ z . x" (Lam "x" (Lam "y" (Lam "z" (Var "x" 2 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) -- x at distance 2
-    testParseTerm [] [] [] noMacros "λ x . λ y . λ z . y" (Lam "x" (Lam "y" (Lam "z" (Var "y" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) -- y at distance 1
-    testParseTerm [] [] [] noMacros "λ x . λ y . λ z . z" (Lam "x" (Lam "y" (Lam "z" (Var "z" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) -- z at distance 0
+    testParseTerm [] [] [] emptyContext "λ x . λ y . λ z . x" (Lam "x" (Lam "y" (Lam "z" (Var "x" 2 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) -- x at distance 2
+    testParseTerm [] [] [] emptyContext "λ x . λ y . λ z . y" (Lam "x" (Lam "y" (Lam "z" (Var "y" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) -- y at distance 1
+    testParseTerm [] [] [] emptyContext "λ x . λ y . λ z . z" (Lam "x" (Lam "y" (Lam "z" (Var "z" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) -- z at distance 0
   it "parses variable shadowing scenarios" $ do
-    testParseTerm [] [] [] noMacros "λ x . λ x . x" (Lam "x" (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) -- inner x shadows outer x
+    testParseTerm [] [] [] emptyContext "λ x . λ x . x" (Lam "x" (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) -- inner x shadows outer x
   it "parses applications" $ do
-    testParseTerm ["f", "x"] [] [] noMacros "f x" (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"))
-    testParseTerm ["f", "x", "y"] [] [] noMacros "f x y" (App (App (Var "f" 2 (initialPos "test")) (Var "x" 1 (initialPos "test")) (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test"))
+    testParseTerm ["f", "x"] [] [] emptyContext "f x" (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"))
+    testParseTerm ["f", "x", "y"] [] [] emptyContext "f x y" (App (App (Var "f" 2 (initialPos "test")) (Var "x" 1 (initialPos "test")) (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test"))
 
   it "parses parentheses correctly" $ do
-    testParseTerm [] [] [] noMacros "(λ x . x)" (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))
-    testParseTerm ["f", "x", "y"] [] [] noMacros "(f x) y" (App (App (Var "f" 2 (initialPos "test")) (Var "x" 1 (initialPos "test")) (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test"))
-    testParseTerm ["f", "x", "y"] [] [] noMacros "f (x y)" (App (Var "f" 2 (initialPos "test")) (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseTerm [] [] [] emptyContext "(λ x . x)" (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))
+    testParseTerm ["f", "x", "y"] [] [] emptyContext "(f x) y" (App (App (Var "f" 2 (initialPos "test")) (Var "x" 1 (initialPos "test")) (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test"))
+    testParseTerm ["f", "x", "y"] [] [] emptyContext "f (x y)" (App (Var "f" 2 (initialPos "test")) (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
 -- Helper to create dummy term macros for parsing tests (body doesn't matter for parsing)
-createTermMacroEnv :: [(String, [String])] -> MacroEnvironment
+createTermMacroEnv :: [(String, [String])] -> Context
 createTermMacroEnv macroDefs =
   foldr
     ( \(name, params) env ->
         let dummyBody = TermMacro (Var "dummy" 0 (initialPos "test")) -- Dummy body for parsing tests
-         in extendMacroEnvironment name params dummyBody (defaultFixity "TEST") env
+            paramInfos = map (\p -> simpleParamInfo p TermK) params
+         in extendMacroContext name paramInfos dummyBody (defaultFixity "TEST") env
     )
-    noMacros
+    emptyContext
     macroDefs
 
 termMacroParserSpec :: Spec
 termMacroParserSpec = describe "Term macro parser (TMacro)" $ do
   it "parses regular applications without macro context" $ do
-    testParseTerm ["f", "x"] [] [] noMacros "f x" (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"))
-    testParseTerm ["f", "x", "y"] [] [] noMacros "f x y" (App (App (Var "f" 2 (initialPos "test")) (Var "x" 1 (initialPos "test")) (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test"))
-    testParseTerm ["g", "a", "b", "c"] [] [] noMacros "g a b c" (App (App (App (Var "g" 3 (initialPos "test")) (Var "a" 2 (initialPos "test")) (initialPos "test")) (Var "b" 1 (initialPos "test")) (initialPos "test")) (Var "c" 0 (initialPos "test")) (initialPos "test"))
+    testParseTerm ["f", "x"] [] [] emptyContext "f x" (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"))
+    testParseTerm ["f", "x", "y"] [] [] emptyContext "f x y" (App (App (Var "f" 2 (initialPos "test")) (Var "x" 1 (initialPos "test")) (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test"))
+    testParseTerm ["g", "a", "b", "c"] [] [] emptyContext "g a b c" (App (App (App (Var "g" 3 (initialPos "test")) (Var "a" 2 (initialPos "test")) (initialPos "test")) (Var "b" 1 (initialPos "test")) (initialPos "test")) (Var "c" 0 (initialPos "test")) (initialPos "test"))
 
   it "parses term macros with single argument" $ do
     let env = createTermMacroEnv [("f", ["x"])]
@@ -260,7 +272,7 @@ contextAwareMacroParserSpec = describe "Context-aware macro detection" $ do
   it "rejects partial macro applications" $ do
     let env = createTermMacroEnv [("f", ["x", "y"])]
     -- When macro expects 2 args but gets 1, it should error in elaboration
-    let elabCtx = ElaborateContext env noTheorems 1 0 0 (Map.fromList [("x", 0)]) Map.empty Map.empty
+    let elabCtx = buildTestContext env ["x"] [] []
     case runParser rawTerm "test" "f x" of
       Left err -> expectationFailure $ "Raw parse failed: " ++ errorBundlePretty err
       Right rawResult -> 
@@ -320,7 +332,7 @@ advancedTermMacroScenarioSpec = describe "Advanced term macro scenarios" $ do
   it "rejects TMacro arity edge cases" $ do
     let env = createTermMacroEnv [("binary", ["x", "y"]), ("ternary", ["x", "y", "z"])]
     -- Under-application (partial application) should error in elaboration
-    let elabCtx = ElaborateContext env noTheorems 3 0 0 (Map.fromList [("x", 2), ("y", 1), ("z", 0)]) Map.empty Map.empty
+    let elabCtx = buildTestContext env ["x", "y", "z"] [] []
     case runParser rawTerm "test" "binary x" of
       Left err -> expectationFailure $ "Raw parse failed: " ++ errorBundlePretty err
       Right rawResult -> 
@@ -382,52 +394,52 @@ advancedTermMacroScenarioSpec = describe "Advanced term macro scenarios" $ do
 macroBodyDisambiguationSpec :: Spec
 macroBodyDisambiguationSpec = describe "MacroBody disambiguation" $ do
   it "parses macro definitions with term bodies" $ do
-    testParseDeclaration [] [] [] noMacros "TermMacro x ≔ x;" (MacroDef "TermMacro" ["x"] (TermMacro (Var "x" 0 (initialPos "test"))))
-    testParseDeclaration [] [] [] noMacros "Lambda ≔ λ x . x;" (MacroDef "Lambda" [] (TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))))
-    testParseDeclaration [] [] [] noMacros "AppMacro f x ≔ f x;" (MacroDef "AppMacro" ["f", "x"] (TermMacro (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "TermMacro x ≔ x;" (MacroDef "TermMacro" ["x"] (TermMacro (Var "x" 0 (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "Lambda ≔ λ x . x;" (MacroDef "Lambda" [] (TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "AppMacro f x ≔ f x;" (MacroDef "AppMacro" ["f", "x"] (TermMacro (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"))))
 
   it "parses macro definitions with relational type bodies" $ do
-    testParseDeclaration [] [] [] noMacros "Arrow A B ≔ A -> B;" (MacroDef "Arrow" ["A", "B"] (RelMacro (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))))
-    testParseDeclaration [] [] [] noMacros "Composition R S ≔ R ∘ S;" (MacroDef "Composition" ["R", "S"] (RelMacro (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"))))
-    testParseDeclaration [] [] [] noMacros "Universal X ≔ ∀ Y . X -> Y;" (MacroDef "Universal" ["X"] (RelMacro (All "Y" (Arr (RVar "X" 1 (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "Arrow A B ≔ A -> B;" (MacroDef "Arrow" ["A", "B"] (RelMacro (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "Composition R S ≔ R ∘ S;" (MacroDef "Composition" ["R", "S"] (RelMacro (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "Universal X ≔ ∀ Y . X -> Y;" (MacroDef "Universal" ["X"] (RelMacro (All "Y" (Arr (RVar "X" 1 (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))))
 
   it "parses parenthesized terms as term macros" $ do
-    testParseDeclaration [] [] [] noMacros "ParenId ≔ (λ x . x);" (MacroDef "ParenId" [] (TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))))
-    testParseDeclaration [] [] [] noMacros "ParenApp f x ≔ (f x);" (MacroDef "ParenApp" ["f", "x"] (TermMacro (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "ParenId ≔ (λ x . x);" (MacroDef "ParenId" [] (TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "ParenApp f x ≔ (f x);" (MacroDef "ParenApp" ["f", "x"] (TermMacro (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"))))
 
   it "tries term parsing first, then falls back to relational" $ do
     -- Lambda terms should parse as terms
-    testParseDeclaration [] [] [] noMacros "TermFirst x ≔ λ y . x y;" (MacroDef "TermFirst" ["x"] (TermMacro (Lam "y" (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "TermFirst x ≔ λ y . x y;" (MacroDef "TermFirst" ["x"] (TermMacro (Lam "y" (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))))
     -- Relational operators should parse as relational
-    testParseDeclaration [] [] [] noMacros "RelSecond R ≔ R -> R;" (MacroDef "RelSecond" ["R"] (RelMacro (Arr (RVar "R" 0 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "RelSecond R ≔ R -> R;" (MacroDef "RelSecond" ["R"] (RelMacro (Arr (RVar "R" 0 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (initialPos "test"))))
 
   it "handles complex macro body disambiguation" $ do
     -- Lambda terms should parse as terms
     testParseDeclaration [] [] []
-      noMacros
+      emptyContext
       "LambdaBody ≔ λ x . λ y . x y;"
       (MacroDef "LambdaBody" [] (TermMacro (Lam "x" (Lam "y" (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))))
 
     -- Compositions should parse as relational types
-    testParseDeclaration [] [] [] noMacros "CompBody R S ≔ R ∘ S;" (MacroDef "CompBody" ["R", "S"] (RelMacro (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "CompBody R S ≔ R ∘ S;" (MacroDef "CompBody" ["R", "S"] (RelMacro (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"))))
     -- Arrows should parse as relational types
-    testParseDeclaration [] [] [] noMacros "ArrowBody A B ≔ A -> B;" (MacroDef "ArrowBody" ["A", "B"] (RelMacro (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "ArrowBody A B ≔ A -> B;" (MacroDef "ArrowBody" ["A", "B"] (RelMacro (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))))
 
   it "handles macro body with quantifiers" $ do
-    testParseDeclaration [] [] [] noMacros "ForallBody ≔ ∀ X . X;" (MacroDef "ForallBody" [] (RelMacro (All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test"))))
-    testParseDeclaration [] [] [] noMacros "ForallComp R ≔ ∀ X . R ∘ X;" (MacroDef "ForallComp" ["R"] (RelMacro (All "X" (Comp (RVar "R" 1 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "ForallBody ≔ ∀ X . X;" (MacroDef "ForallBody" [] (RelMacro (All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "ForallComp R ≔ ∀ X . R ∘ X;" (MacroDef "ForallComp" ["R"] (RelMacro (All "X" (Comp (RVar "R" 1 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))))
 
   it "handles macro body with converse operations" $ do
-    testParseDeclaration [] [] [] noMacros "ConvBody R ≔ R ˘;" (MacroDef "ConvBody" ["R"] (RelMacro (Conv (RVar "R" 0 (initialPos "test")) (initialPos "test"))))
-    testParseDeclaration [] [] [] noMacros "ConvComp R S ≔ (R ∘ S)˘;" (MacroDef "ConvComp" ["R", "S"] (RelMacro (Conv (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "ConvBody R ≔ R ˘;" (MacroDef "ConvBody" ["R"] (RelMacro (Conv (RVar "R" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "ConvComp R S ≔ (R ∘ S)˘;" (MacroDef "ConvComp" ["R", "S"] (RelMacro (Conv (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))))
 
   it "handles nested disambiguation in complex expressions" $ do
     -- Complex term with applications
-    testParseDeclaration [] [] [] noMacros "ComplexTerm f g x ≔ (λh. h (f x)) g;" ( MacroDef "ComplexTerm" ["f", "g", "x"] (TermMacro (App (Lam "h" (App (Var "h" 0 (initialPos "test")) (App (Var "f" 3 (initialPos "test")) (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "g" 1 (initialPos "test")) (initialPos "test")))  )
+    testParseDeclaration [] [] [] emptyContext "ComplexTerm f g x ≔ (λh. h (f x)) g;" ( MacroDef "ComplexTerm" ["f", "g", "x"] (TermMacro (App (Lam "h" (App (Var "h" 0 (initialPos "test")) (App (Var "f" 3 (initialPos "test")) (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "g" 1 (initialPos "test")) (initialPos "test")))  )
 
     -- Complex relational type with nested structure
     testParseDeclaration [] [] []
-      noMacros
+      emptyContext
       "ComplexRel R S T ≔ ∀ X . (R ∘ X) -> (S ˘ ∘ T);"
       ( MacroDef
           "ComplexRel"
@@ -439,142 +451,142 @@ rtypeParserSpec :: Spec
 rtypeParserSpec = describe "RType parser" $ do
   it "parses Unicode and ASCII alternatives consistently" $ do
     -- Arrow types
-    testParseRType [] ["A", "B"] [] noMacros "A -> B" (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))
-    testParseRType [] ["A", "B"] [] noMacros "A → B" (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["A", "B"] [] emptyContext "A -> B" (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["A", "B"] [] emptyContext "A → B" (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))
     -- Universal quantification
-    testParseRType [] ["A"] [] noMacros "∀x . A" (All "x" (RVar "A" 1 (initialPos "test")) (initialPos "test"))
-    testParseRType [] ["A"] [] noMacros "forall x . A" (All "x" (RVar "A" 1 (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["A"] [] emptyContext "∀x . A" (All "x" (RVar "A" 1 (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["A"] [] emptyContext "forall x . A" (All "x" (RVar "A" 1 (initialPos "test")) (initialPos "test"))
     -- Converse operations
-    testParseRType [] ["R"] [] noMacros "R ˘" (Conv (RVar "R" 0 (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["R"] [] emptyContext "R ˘" (Conv (RVar "R" 0 (initialPos "test")) (initialPos "test"))
     -- Composition
-    testParseRType [] ["R", "S"] [] noMacros "R ∘ S" (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["R", "S"] [] emptyContext "R ∘ S" (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"))
   it "parses relation variables with bound context" $ do
-    testParseRType [] ["A"] [] noMacros "A" (RVar "A" 0 (initialPos "test"))
-    testParseRType [] ["R"] [] noMacros "R" (RVar "R" 0 (initialPos "test"))
+    testParseRType [] ["A"] [] emptyContext "A" (RVar "A" 0 (initialPos "test"))
+    testParseRType [] ["R"] [] emptyContext "R" (RVar "R" 0 (initialPos "test"))
 
   it "parses arrow types with bound variables" $ do
-    testParseRType [] ["A", "B"] [] noMacros "A -> B" (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))
-    testParseRType [] ["A", "B"] [] noMacros "A → B" (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))
-    testParseRType [] ["A", "B", "C"] [] noMacros "A -> B -> C" (Arr (RVar "A" 2 (initialPos "test")) (Arr (RVar "B" 1 (initialPos "test")) (RVar "C" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["A", "B"] [] emptyContext "A -> B" (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["A", "B"] [] emptyContext "A → B" (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["A", "B", "C"] [] emptyContext "A -> B -> C" (Arr (RVar "A" 2 (initialPos "test")) (Arr (RVar "B" 1 (initialPos "test")) (RVar "C" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "parses universal quantification with mixed bound variables" $ do
-    testParseRType [] ["A"] [] noMacros "∀x . A" (All "x" (RVar "A" 1 (initialPos "test")) (initialPos "test")) -- A bound in context, x bound by quantifier
-    testParseRType [] ["A"] [] noMacros "forall x . A" (All "x" (RVar "A" 1 (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["A"] [] emptyContext "∀x . A" (All "x" (RVar "A" 1 (initialPos "test")) (initialPos "test")) -- A bound in context, x bound by quantifier
+    testParseRType [] ["A"] [] emptyContext "forall x . A" (All "x" (RVar "A" 1 (initialPos "test")) (initialPos "test"))
 
   it "parses bound variables correctly in quantifier scope" $ do
-    testParseRType [] [] [] noMacros "∀x . x" (All "x" (RVar "x" 0 (initialPos "test")) (initialPos "test"))
-    testParseRType [] ["S"] [] noMacros "∀R . R ∘ S" (All "R" (Comp (RVar "R" 0 (initialPos "test")) (RVar "S" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseRType [] [] [] emptyContext "∀x . x" (All "x" (RVar "x" 0 (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["S"] [] emptyContext "∀R . R ∘ S" (All "R" (Comp (RVar "R" 0 (initialPos "test")) (RVar "S" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "parses nested quantification with multiple bound variables" $ do
-    testParseRType [] [] [] noMacros "∀x . ∀y . x ∘ y" (All "x" (All "y" (Comp (RVar "x" 1 (initialPos "test")) (RVar "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
-    testParseRType [] [] [] noMacros "∀R . ∀S. R ∘ S ˘" (All "R" (All "S" (Comp (RVar "R" 1 (initialPos "test")) (Conv (RVar "S" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseRType [] [] [] emptyContext "∀x . ∀y . x ∘ y" (All "x" (All "y" (Comp (RVar "x" 1 (initialPos "test")) (RVar "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseRType [] [] [] emptyContext "∀R . ∀S. R ∘ S ˘" (All "R" (All "S" (Comp (RVar "R" 1 (initialPos "test")) (Conv (RVar "S" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "parses deeply nested quantification" $ do
-    testParseRType [] [] [] noMacros "∀A. ∀B. ∀C. A ∘ B ∘ C" (All "A" (All "B" (All "C" (Comp (Comp (RVar "A" 2 (initialPos "test")) (RVar "B" 1 (initialPos "test")) (initialPos "test")) (RVar "C" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseRType [] [] [] emptyContext "∀A. ∀B. ∀C. A ∘ B ∘ C" (All "A" (All "B" (All "C" (Comp (Comp (RVar "A" 2 (initialPos "test")) (RVar "B" 1 (initialPos "test")) (initialPos "test")) (RVar "C" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "parses relation variable shadowing" $ do
-    testParseRType [] [] [] noMacros "∀R . ∀R . R" (All "R" (All "R" (RVar "R" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) -- inner R shadows outer R
+    testParseRType [] [] [] emptyContext "∀R . ∀R . R" (All "R" (All "R" (RVar "R" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) -- inner R shadows outer R
   it "parses mixed bound and unbound variables" $ do
-    testParseRType [] ["Unbound"] [] noMacros "∀x . x ∘ Unbound" (All "x" (Comp (RVar "x" 0 (initialPos "test")) (RVar "Unbound" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))
-    testParseRType [] ["Unbound"] [] noMacros "∀R . Unbound ∘ R" (All "R" (Comp (RVar "Unbound" 1 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["Unbound"] [] emptyContext "∀x . x ∘ Unbound" (All "x" (Comp (RVar "x" 0 (initialPos "test")) (RVar "Unbound" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["Unbound"] [] emptyContext "∀R . Unbound ∘ R" (All "R" (Comp (RVar "Unbound" 1 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "parses composition" $ do
-    testParseRType [] ["R", "S"] [] noMacros "R ∘ S" (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"))
-    testParseRType [] ["R", "S", "T"] [] noMacros "R ∘ S ∘ T" (Comp (Comp (RVar "R" 2 (initialPos "test")) (RVar "S" 1 (initialPos "test")) (initialPos "test")) (RVar "T" 0 (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["R", "S"] [] emptyContext "R ∘ S" (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["R", "S", "T"] [] emptyContext "R ∘ S ∘ T" (Comp (Comp (RVar "R" 2 (initialPos "test")) (RVar "S" 1 (initialPos "test")) (initialPos "test")) (RVar "T" 0 (initialPos "test")) (initialPos "test"))
 
   it "parses converse" $ do
-    testParseRType [] ["R"] [] noMacros "R ˘" (Conv (RVar "R" 0 (initialPos "test")) (initialPos "test"))
-    testParseRType [] ["R", "S"] [] noMacros "(R ∘ S)˘" (Conv (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["R"] [] emptyContext "R ˘" (Conv (RVar "R" 0 (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["R", "S"] [] emptyContext "(R ∘ S)˘" (Conv (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "parses promotion" $ do
-    testParseRType [] [] [] noMacros "λ x . x" (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseRType [] [] [] emptyContext "λ x . x" (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "parses promotion (parens)" $ do
-    testParseRType [] [] [] noMacros "(λ x . x)" (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseRType [] [] [] emptyContext "(λ x . x)" (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "distinguishes between promotion and macro applications" $ do
     -- Test with a context that has no macros - should parse as promotion
-    testParseRType ["y"] [] [] noMacros "(λ x . x y)" (Prom (Lam "x" (App (Var "x" 0 (initialPos "test")) (Var "y" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseRType ["y"] [] [] emptyContext "(λ x . x y)" (Prom (Lam "x" (App (Var "x" 0 (initialPos "test")) (Var "y" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
     -- Test basic bound identifier - should parse as RVar
-    testParseRType [] ["SomeType"] [] noMacros "SomeType" (RVar "SomeType" 0 (initialPos "test"))
+    testParseRType [] ["SomeType"] [] emptyContext "SomeType" (RVar "SomeType" 0 (initialPos "test"))
 
   it "parses type application" $ do
-    let listEnv = extendMacroEnvironment "List" ["A"] (RelMacro (RVar "A" 0 (initialPos "test"))) (defaultFixity "TEST") noMacros
+    let listEnv = extendMacroContext "List" [simpleParamInfo "A" RelK] (RelMacro (RVar "A" 0 (initialPos "test"))) (defaultFixity "TEST") emptyContext
     testParseRType [] ["A"] [] listEnv "List A" (RMacro "List" [MRel (RVar "A" 0 (initialPos "test"))] (initialPos "test"))
-    let pairEnv = extendMacroEnvironment "Pair" ["A", "B"] (RelMacro (RVar "A" 1 (initialPos "test"))) (defaultFixity "TEST") noMacros
+    let pairEnv = extendMacroContext "Pair" [simpleParamInfo "A" RelK, simpleParamInfo "B" RelK] (RelMacro (RVar "A" 1 (initialPos "test"))) (defaultFixity "TEST") emptyContext
     testParseRType [] ["A", "B"] [] pairEnv "Pair A B" (RMacro "Pair" [MRel (RVar "A" 1 (initialPos "test")), MRel (RVar "B" 0 (initialPos "test"))] (initialPos "test"))
 
   it "rejects unknown macros in type applications" $ do
     -- These should fail during elaboration, not parsing
-    testParseRTypeElaborationFailure [] ["A"] [] noMacros "List A"  
-    testParseRTypeElaborationFailure [] ["A", "B"] [] noMacros "Pair A B"
+    testParseRTypeElaborationFailure [] ["A"] [] emptyContext "List A"  
+    testParseRTypeElaborationFailure [] ["A", "B"] [] emptyContext "Pair A B"
 
   it "respects operator precedence" $ do
-    testParseRType [] ["A", "B", "C"] [] noMacros "A -> B ∘ C" (Arr (RVar "A" 2 (initialPos "test")) (Comp (RVar "B" 1 (initialPos "test")) (RVar "C" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
-    testParseRType [] ["R", "S"] [] noMacros "R ∘ S ˘" (Comp (RVar "R" 1 (initialPos "test")) (Conv (RVar "S" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["A", "B", "C"] [] emptyContext "A -> B ∘ C" (Arr (RVar "A" 2 (initialPos "test")) (Comp (RVar "B" 1 (initialPos "test")) (RVar "C" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["R", "S"] [] emptyContext "R ∘ S ˘" (Comp (RVar "R" 1 (initialPos "test")) (Conv (RVar "S" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "respects complex operator precedence and associativity" $ do
     -- Converse has highest precedence
-    testParseRType [] ["A", "B", "C"] [] noMacros "A ∘ B˘ ∘ C" (Comp (Comp (RVar "A" 2 (initialPos "test")) (Conv (RVar "B" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (RVar "C" 0 (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["A", "B", "C"] [] emptyContext "A ∘ B˘ ∘ C" (Comp (Comp (RVar "A" 2 (initialPos "test")) (Conv (RVar "B" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (RVar "C" 0 (initialPos "test")) (initialPos "test"))
     -- Composition is left-associative
-    testParseRType [] ["A", "B", "C", "D"] [] noMacros "A ∘ B ∘ C ∘ D" (Comp (Comp (Comp (RVar "A" 3 (initialPos "test")) (RVar "B" 2 (initialPos "test")) (initialPos "test")) (RVar "C" 1 (initialPos "test")) (initialPos "test")) (RVar "D" 0 (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["A", "B", "C", "D"] [] emptyContext "A ∘ B ∘ C ∘ D" (Comp (Comp (Comp (RVar "A" 3 (initialPos "test")) (RVar "B" 2 (initialPos "test")) (initialPos "test")) (RVar "C" 1 (initialPos "test")) (initialPos "test")) (RVar "D" 0 (initialPos "test")) (initialPos "test"))
     -- Arrow is right-associative
-    testParseRType [] ["A", "B", "C", "D"] [] noMacros "A -> B -> C -> D" (Arr (RVar "A" 3 (initialPos "test")) (Arr (RVar "B" 2 (initialPos "test")) (Arr (RVar "C" 1 (initialPos "test")) (RVar "D" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["A", "B", "C", "D"] [] emptyContext "A -> B -> C -> D" (Arr (RVar "A" 3 (initialPos "test")) (Arr (RVar "B" 2 (initialPos "test")) (Arr (RVar "C" 1 (initialPos "test")) (RVar "D" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
     -- Mixed precedence: converse > composition > arrow
-    testParseRType [] ["A", "B", "C", "D"] [] noMacros "A -> B ∘ C˘ -> D" (Arr (RVar "A" 3 (initialPos "test")) (Arr (Comp (RVar "B" 2 (initialPos "test")) (Conv (RVar "C" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (RVar "D" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["A", "B", "C", "D"] [] emptyContext "A -> B ∘ C˘ -> D" (Arr (RVar "A" 3 (initialPos "test")) (Arr (Comp (RVar "B" 2 (initialPos "test")) (Conv (RVar "C" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (RVar "D" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
 proofParserSpec :: Spec
 proofParserSpec = describe "Proof parser" $ do
   it "parses Unicode and ASCII alternatives for proofs" $ do
     -- Lambda abstractions
-    testParseProof [] ["A"] ["p"] noMacros "λ x: A. p" (LamP "x" (RVar "A" 0 (initialPos "test")) (PVar "p" 1 (initialPos "test")) (initialPos "test"))
-    testParseProof [] ["A"] ["p"] noMacros "\\x: A. p" (LamP "x" (RVar "A" 0 (initialPos "test")) (PVar "p" 1 (initialPos "test")) (initialPos "test"))
+    testParseProof [] ["A"] ["p"] emptyContext "λ x: A. p" (LamP "x" (RVar "A" 0 (initialPos "test")) (PVar "p" 1 (initialPos "test")) (initialPos "test"))
+    testParseProof [] ["A"] ["p"] emptyContext "\\x: A. p" (LamP "x" (RVar "A" 0 (initialPos "test")) (PVar "p" 1 (initialPos "test")) (initialPos "test"))
     -- Type lambda
-    testParseProof [] [] ["p"] noMacros "Λα. p" (TyLam "α" (PVar "p" 0 (initialPos "test")) (initialPos "test"))
-    testParseProof [] [] ["p"] noMacros "/\\ α. p" (TyLam "α" (PVar "p" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p"] emptyContext "Λα. p" (TyLam "α" (PVar "p" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p"] emptyContext "/\\ α. p" (TyLam "α" (PVar "p" 0 (initialPos "test")) (initialPos "test"))
     -- Iota (term promotion introduction)
-    testParseProof ["x", "y"] [] [] noMacros "ι⟨ x , y⟩" (Iota (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test"))
-    testParseProof ["x", "y"] [] [] noMacros "ι<x, y>" (Iota (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test"))
-    testParseProof ["x", "y"] [] [] noMacros "iota<x, y>" (Iota (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof ["x", "y"] [] [] emptyContext "ι⟨ x , y⟩" (Iota (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof ["x", "y"] [] [] emptyContext "ι<x, y>" (Iota (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof ["x", "y"] [] [] emptyContext "iota<x, y>" (Iota (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test"))
     -- Converse operations
-    testParseProof [] [] ["p"] noMacros "∪ᵢ p" (ConvIntro (PVar "p" 0 (initialPos "test")) (initialPos "test"))
-    testParseProof [] [] ["p"] noMacros "convIntro p" (ConvIntro (PVar "p" 0 (initialPos "test")) (initialPos "test"))
-    testParseProof [] [] ["p"] noMacros "∪ₑ p" (ConvElim (PVar "p" 0 (initialPos "test")) (initialPos "test"))
-    testParseProof [] [] ["p"] noMacros "convElim p" (ConvElim (PVar "p" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p"] emptyContext "∪ᵢ p" (ConvIntro (PVar "p" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p"] emptyContext "convIntro p" (ConvIntro (PVar "p" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p"] emptyContext "∪ₑ p" (ConvElim (PVar "p" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p"] emptyContext "convElim p" (ConvElim (PVar "p" 0 (initialPos "test")) (initialPos "test"))
     -- Pi elimination
-    testParseProof [] [] ["p", "q"] noMacros "π p - x . y . z .q" (Pi (PVar "p" 1 (initialPos "test")) "x" "y" "z" (PVar "q" 2 (initialPos "test")) (initialPos "test"))
-    testParseProof [] [] ["p", "q"] noMacros "pi p - x . y . z .q" (Pi (PVar "p" 1 (initialPos "test")) "x" "y" "z" (PVar "q" 2 (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p", "q"] emptyContext "π p - x . y . z .q" (Pi (PVar "p" 1 (initialPos "test")) "x" "y" "z" (PVar "q" 2 (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p", "q"] emptyContext "pi p - x . y . z .q" (Pi (PVar "p" 1 (initialPos "test")) "x" "y" "z" (PVar "q" 2 (initialPos "test")) (initialPos "test"))
     -- Rho elimination
-    testParseProof ["t1", "t2"] [] ["p", "q"] noMacros "ρ{ x . t1, t2} p - q" (RhoElim "x" (Var "t1" 2 (initialPos "test")) (Var "t2" 1 (initialPos "test")) (PVar "p" 1 (initialPos "test")) (PVar "q" 0 (initialPos "test")) (initialPos "test"))
-    testParseProof ["t1", "t2"] [] ["p", "q"] noMacros "rho{x . t1, t2} p - q" (RhoElim "x" (Var "t1" 2 (initialPos "test")) (Var "t2" 1 (initialPos "test")) (PVar "p" 1 (initialPos "test")) (PVar "q" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof ["t1", "t2"] [] ["p", "q"] emptyContext "ρ{ x . t1, t2} p - q" (RhoElim "x" (Var "t1" 2 (initialPos "test")) (Var "t2" 1 (initialPos "test")) (PVar "p" 1 (initialPos "test")) (PVar "q" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof ["t1", "t2"] [] ["p", "q"] emptyContext "rho{x . t1, t2} p - q" (RhoElim "x" (Var "t1" 2 (initialPos "test")) (Var "t2" 1 (initialPos "test")) (PVar "p" 1 (initialPos "test")) (PVar "q" 0 (initialPos "test")) (initialPos "test"))
   it "parses proof variables and constants" $ do
-    testParseProof [] [] ["p"] noMacros "p" (PVar "p" 0 (initialPos "test"))
-    testParseProof [] [] ["axiom"] noMacros "axiom" (PVar "axiom" 0 (initialPos "test"))
+    testParseProof [] [] ["p"] emptyContext "p" (PVar "p" 0 (initialPos "test"))
+    testParseProof [] [] ["axiom"] emptyContext "axiom" (PVar "axiom" 0 (initialPos "test"))
 
   it "parses proof lambda abstractions" $ do
-    testParseProof [] ["A"] ["p"] noMacros "λ x: A. p" (LamP "x" (RVar "A" 0 (initialPos "test")) (PVar "p" 1 (initialPos "test")) (initialPos "test"))
-    testParseProof [] ["A", "B"] ["p"] noMacros "\\x: A -> B. p" (LamP "x" (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test")) (PVar "p" 1 (initialPos "test")) (initialPos "test"))
+    testParseProof [] ["A"] ["p"] emptyContext "λ x: A. p" (LamP "x" (RVar "A" 0 (initialPos "test")) (PVar "p" 1 (initialPos "test")) (initialPos "test"))
+    testParseProof [] ["A", "B"] ["p"] emptyContext "\\x: A -> B. p" (LamP "x" (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test")) (PVar "p" 1 (initialPos "test")) (initialPos "test"))
 
   it "parses type lambda abstractions" $ do
-    testParseProof [] [] ["p"] noMacros "Λα. p" (TyLam "α" (PVar "p" 0 (initialPos "test")) (initialPos "test"))
-    testParseProof [] [] ["p"] noMacros "/\\ α. p" (TyLam "α" (PVar "p" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p"] emptyContext "Λα. p" (TyLam "α" (PVar "p" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p"] emptyContext "/\\ α. p" (TyLam "α" (PVar "p" 0 (initialPos "test")) (initialPos "test"))
 
   it "parses type applications" $ do
-    testParseProof [] ["A"] ["p"] noMacros "p{A}" (TyApp (PVar "p" 0 (initialPos "test")) (RVar "A" 0 (initialPos "test")) (initialPos "test"))
-    testParseProof [] ["B"] ["q"] noMacros "(Λα. q){B}" (TyApp (TyLam "α" (PVar "q" 0 (initialPos "test")) (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] ["A"] ["p"] emptyContext "p{A}" (TyApp (PVar "p" 0 (initialPos "test")) (RVar "A" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] ["B"] ["q"] emptyContext "(Λα. q){B}" (TyApp (TyLam "α" (PVar "q" 0 (initialPos "test")) (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))
 
   it "parses proof applications" $ do
-    testParseProof [] [] ["p", "q"] noMacros "p q" (AppP (PVar "p" 1 (initialPos "test")) (PVar "q" 0 (initialPos "test")) (initialPos "test"))
-    testParseProof [] [] ["p", "q", "r"] noMacros "p q r" (AppP (AppP (PVar "p" 2 (initialPos "test")) (PVar "q" 1 (initialPos "test")) (initialPos "test")) (PVar "r" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p", "q"] emptyContext "p q" (AppP (PVar "p" 1 (initialPos "test")) (PVar "q" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p", "q", "r"] emptyContext "p q r" (AppP (AppP (PVar "p" 2 (initialPos "test")) (PVar "q" 1 (initialPos "test")) (initialPos "test")) (PVar "r" 0 (initialPos "test")) (initialPos "test"))
 
   it "parses conversion proofs" $ do
-    testParseProof ["t", "u"] [] ["p"] noMacros "t ⇃ p ⇂ u" (ConvProof (Var "t" 1 (initialPos "test")) (PVar "p" 0 (initialPos "test")) (Var "u" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof ["t", "u"] [] ["p"] emptyContext "t ⇃ p ⇂ u" (ConvProof (Var "t" 1 (initialPos "test")) (PVar "p" 0 (initialPos "test")) (Var "u" 0 (initialPos "test")) (initialPos "test"))
     -- Test the specific case that was failing: parenthesized lambda applications
     testParseProof
       ["f", "a"]
       []
       ["p"]
-      noMacros
+      emptyContext
       "((λ z . z) (f a)) ⇃ p ⇂ (f ((λ w . w) a))"
       ( ConvProof
           (App (Lam "z" (Var "z" 0 (initialPos "test")) (initialPos "test")) (App (Var "f" 1 (initialPos "test")) (Var "a" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
@@ -587,7 +599,7 @@ proofParserSpec = describe "Proof parser" $ do
       ["x", "y"]
       []
       ["q"]
-      noMacros
+      emptyContext
       "((λa. a) x) ⇃ q ⇂ ((λb.b) y)"
       ( ConvProof
           (App (Lam "a" (Var "a" 0 (initialPos "test")) (initialPos "test")) (Var "x" 1 (initialPos "test")) (initialPos "test"))
@@ -600,7 +612,7 @@ proofParserSpec = describe "Proof parser" $ do
       ["a", "g", "f"]
       []
       ["r"]
-      noMacros
+      emptyContext
       "((λ x .f (g x)) a) ⇃ r ⇂ (f (g a))"
       ( ConvProof
           (App (Lam "x" (App (Var "f" 3 (initialPos "test")) (App (Var "g" 2 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "a" 0 (initialPos "test")) (initialPos "test"))
@@ -614,14 +626,14 @@ proofParserSpec = describe "Proof parser" $ do
       ["t1", "t2"]
       []
       ["p", "q"]
-      noMacros
+      emptyContext
       "ρ{ x . t1, t2} p - q"
       (RhoElim "x" (Var "t1" 2 (initialPos "test")) (Var "t2" 1 (initialPos "test")) (PVar "p" 1 (initialPos "test")) (PVar "q" 0 (initialPos "test")) (initialPos "test"))
     testParseProof
       ["u", "v"]
       []
       ["r", "s"]
-      noMacros
+      emptyContext
       "rho{y . u, v} r - s"
       (RhoElim "y" (Var "u" 2 (initialPos "test")) (Var "v" 1 (initialPos "test")) (PVar "r" 1 (initialPos "test")) (PVar "s" 0 (initialPos "test")) (initialPos "test"))
 
@@ -631,14 +643,14 @@ proofParserSpec = describe "Proof parser" $ do
       ["a"]
       []
       ["p", "q"]
-      noMacros
+      emptyContext
       "ρ{ x . x, a} p - q"
       (RhoElim "x" (Var "x" 0 (initialPos "test")) (Var "a" 1 (initialPos "test")) (PVar "p" 1 (initialPos "test")) (PVar "q" 0 (initialPos "test")) (initialPos "test"))
     testParseProof
       ["b"]
       []
       ["r", "s"]
-      noMacros
+      emptyContext
       "rho{y . y, b} r - s"
       (RhoElim "y" (Var "y" 0 (initialPos "test")) (Var "b" 1 (initialPos "test")) (PVar "r" 1 (initialPos "test")) (PVar "s" 0 (initialPos "test")) (initialPos "test"))
     -- Both terms use the bound variable
@@ -646,7 +658,7 @@ proofParserSpec = describe "Proof parser" $ do
       []
       []
       ["p", "q"]
-      noMacros
+      emptyContext
       "ρ{ z . z, z} p - q"
       (RhoElim "z" (Var "z" 0 (initialPos "test")) (Var "z" 0 (initialPos "test")) (PVar "p" 1 (initialPos "test")) (PVar "q" 0 (initialPos "test")) (initialPos "test"))
     -- More complex terms with the bound variable
@@ -654,7 +666,7 @@ proofParserSpec = describe "Proof parser" $ do
       ["f"]
       []
       ["p", "q"]
-      noMacros
+      emptyContext
       "ρ{ x . f x, x} p - q"
       (RhoElim "x" (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (Var "x" 0 (initialPos "test")) (PVar "p" 1 (initialPos "test")) (PVar "q" 0 (initialPos "test")) (initialPos "test"))
 
@@ -663,14 +675,14 @@ proofParserSpec = describe "Proof parser" $ do
       []
       []
       ["p", "q"]
-      noMacros
+      emptyContext
       "π p - x . y . z .q"
       (Pi (PVar "p" 1 (initialPos "test")) "x" "y" "z" (PVar "q" 2 (initialPos "test")) (initialPos "test"))
     testParseProof
       []
       []
       ["r", "s"]
-      noMacros
+      emptyContext
       "pi r - a.b.c.s"
       (Pi (PVar "r" 1 (initialPos "test")) "a" "b" "c" (PVar "s" 2 (initialPos "test")) (initialPos "test"))
 
@@ -680,33 +692,33 @@ proofParserSpec = describe "Proof parser" $ do
       []
       []
       ["p"]
-      noMacros
+      emptyContext
       "π p - x . u . v .(u,v)"
       (Pi (PVar "p" 0 (initialPos "test")) "x" "u" "v" (Pair (PVar "u" 1 (initialPos "test")) (PVar "v" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "parses converse operations" $ do
-    testParseProof [] [] ["p"] noMacros "∪ᵢ p" (ConvIntro (PVar "p" 0 (initialPos "test")) (initialPos "test"))
-    testParseProof [] [] ["p"] noMacros "convIntro p" (ConvIntro (PVar "p" 0 (initialPos "test")) (initialPos "test"))
-    testParseProof [] [] ["p"] noMacros "∪ₑ p" (ConvElim (PVar "p" 0 (initialPos "test")) (initialPos "test"))
-    testParseProof [] [] ["p"] noMacros "convElim p" (ConvElim (PVar "p" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p"] emptyContext "∪ᵢ p" (ConvIntro (PVar "p" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p"] emptyContext "convIntro p" (ConvIntro (PVar "p" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p"] emptyContext "∪ₑ p" (ConvElim (PVar "p" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p"] emptyContext "convElim p" (ConvElim (PVar "p" 0 (initialPos "test")) (initialPos "test"))
 
   it "parses pairs" $ do
-    testParseProof [] [] ["p", "q"] noMacros "(p, q)" (Pair (PVar "p" 1 (initialPos "test")) (PVar "q" 0 (initialPos "test")) (initialPos "test"))
-    testParseProof [] [] ["p", "q", "r"] noMacros "(p, (q, r))" (Pair (PVar "p" 2 (initialPos "test")) (Pair (PVar "q" 1 (initialPos "test")) (PVar "r" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p", "q"] emptyContext "(p, q)" (Pair (PVar "p" 1 (initialPos "test")) (PVar "q" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] [] ["p", "q", "r"] emptyContext "(p, (q, r))" (Pair (PVar "p" 2 (initialPos "test")) (Pair (PVar "q" 1 (initialPos "test")) (PVar "r" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "parses complex proof lambda abstractions with nested types" $ do
     testParseProof
       []
       []
       ["p"]
-      noMacros
+      emptyContext
       "λ x: ∀A. A -> A. p"
       (LamP "x" (All "A" (Arr (RVar "A" 0 (initialPos "test")) (RVar "A" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (PVar "p" 1 (initialPos "test")) (initialPos "test"))
     testParseProof
       []
       ["A", "B"]
       ["q"]
-      noMacros
+      emptyContext
       "λy: A ∘ B˘. q"
       (LamP "y" (Comp (RVar "A" 1 (initialPos "test")) (Conv (RVar "B" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (PVar "q" 1 (initialPos "test")) (initialPos "test"))
 
@@ -715,7 +727,7 @@ proofParserSpec = describe "Proof parser" $ do
       []
       []
       ["q"]
-      noMacros
+      emptyContext
       "Λα. λp: α. Λβ. q"
       (TyLam "α" (LamP "p" (RVar "α" 0 (initialPos "test")) (TyLam "β" (PVar "q" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
@@ -724,14 +736,14 @@ proofParserSpec = describe "Proof parser" $ do
       []
       []
       ["p"]
-      noMacros
+      emptyContext
       "p{∀A. A -> A}"
       (TyApp (PVar "p" 0 (initialPos "test")) (All "A" (Arr (RVar "A" 0 (initialPos "test")) (RVar "A" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
     testParseProof
       []
       ["A", "B", "C"]
       ["p"]
-      noMacros
+      emptyContext
       "(p{A}){B ∘ C}"
       (TyApp (TyApp (PVar "p" 0 (initialPos "test")) (RVar "A" 2 (initialPos "test")) (initialPos "test")) (Comp (RVar "B" 1 (initialPos "test")) (RVar "C" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
@@ -739,34 +751,34 @@ declarationParserSpec :: Spec
 declarationParserSpec = describe "Declaration parser" $ do
   it "parses Unicode and ASCII alternatives for declarations" $ do
     -- Macro definition symbols
-    testParseDeclaration [] [] [] noMacros "Id ≔ (λ x . x);" (MacroDef "Id" [] (TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))))
-    testParseDeclaration [] [] [] noMacros "Id ≔ (λ x . x);" (MacroDef "Id" [] (TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "Id ≔ (λ x . x);" (MacroDef "Id" [] (TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "Id ≔ (λ x . x);" (MacroDef "Id" [] (TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))))
     -- Theorem definition symbols
     testParseDeclaration [] [] []
-      noMacros
+      emptyContext
       "⊢ test (t : Term) (u : Term) (A : Rel) (p : t [A] u) : t [A] u ≔ p;"
       (TheoremDef "test" [TermBinding "t", TermBinding "u", RelBinding "A", ProofBinding "p" (RelJudgment (Var "t" 1 (initialPos "test")) (RVar "A" 0 (initialPos "test")) (Var "u" 0 (initialPos "test")))] (RelJudgment (Var "t" 1 (initialPos "test")) (RVar "A" 0 (initialPos "test")) (Var "u" 0 (initialPos "test"))) (PVar "p" 0 (initialPos "test")))
     testParseDeclaration [] [] []
-      noMacros
+      emptyContext
       "theorem test (t : Term) (u : Term) (A : Rel) (p : t [A] u) : t [A] u ≔ p;"
       (TheoremDef "test" [TermBinding "t", TermBinding "u", RelBinding "A", ProofBinding "p" (RelJudgment (Var "t" 1 (initialPos "test")) (RVar "A" 0 (initialPos "test")) (Var "u" 0 (initialPos "test")))] (RelJudgment (Var "t" 1 (initialPos "test")) (RVar "A" 0 (initialPos "test")) (Var "u" 0 (initialPos "test"))) (PVar "p" 0 (initialPos "test")))
   it "parses macro definitions" $ do
     testParseDeclaration [] [] []
-      noMacros
+      emptyContext
       "Id ≔ (λ x . x);"
       (MacroDef "Id" [] (TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))))
     testParseDeclaration [] [] []
-      noMacros
+      emptyContext
       "Comp R S ≔ R ∘ S;"
       (MacroDef "Comp" ["R", "S"] (RelMacro (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"))))
-    testParseDeclaration [] [] [] noMacros "Id ≔ (λ x . x);"
+    testParseDeclaration [] [] [] emptyContext "Id ≔ (λ x . x);"
       (MacroDef "Id" [] (TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))))
     -- Test macro name with underscores
-    testParseDeclaration [] [] [] noMacros "BoolEq ≔ ∀ X . X → X → X;"
+    testParseDeclaration [] [] [] emptyContext "BoolEq ≔ ∀ X . X → X → X;"
       (MacroDef "BoolEq" [] (RelMacro (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))))
 
   it "parses theorem definitions" $ do
-    let idMacroEnv = extendMacroEnvironment "Id" [] (RelMacro (RVar "dummy" 0 (initialPos "test"))) (defaultFixity "TEST") noMacros
+    let idMacroEnv = extendMacroContext "Id" [] (RelMacro (RVar "dummy" 0 (initialPos "test"))) (defaultFixity "TEST") emptyContext
     testParseDeclaration [] [] [] idMacroEnv "⊢ refl (t : Term) : t [Id] t ≔ ι⟨t, t⟩;"
       ( TheoremDef
           "refl"
@@ -775,7 +787,7 @@ declarationParserSpec = describe "Declaration parser" $ do
           (Iota (Var "t" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")) (initialPos "test"))
       )
 
-    let symMacroEnv = extendMacroEnvironment "Sym" ["R"] (RelMacro (RVar "dummy" 0 (initialPos "test"))) (defaultFixity "TEST") noMacros
+    let symMacroEnv = extendMacroContext "Sym" [simpleParamInfo "R" RelK] (RelMacro (RVar "dummy" 0 (initialPos "test"))) (defaultFixity "TEST") emptyContext
     testParseDeclaration [] [] [] symMacroEnv "theorem sym (t : Term) (u : Term) (R : Rel) (p : t [R] u) : u [Sym R] t ≔ ∪ᵢ p;"
       ( TheoremDef
           "sym"
@@ -785,7 +797,7 @@ declarationParserSpec = describe "Declaration parser" $ do
       )
 
     -- Test theorem name with underscores
-    testParseDeclaration [] [] [] noMacros "⊢ id_test : (λ x . x) [(λ x . x)] (λ x . x) ≔ ι⟨λ x . x, λ x . x⟩;"
+    testParseDeclaration [] [] [] emptyContext "⊢ id_test : (λ x . x) [(λ x . x)] (λ x . x) ≔ ι⟨λ x . x, λ x . x⟩;"
       ( TheoremDef
           "id_test"
           []
@@ -795,7 +807,7 @@ declarationParserSpec = describe "Declaration parser" $ do
 
   it "parses relational judgments with complex terms" $ do
     -- Lambda terms in judgments
-    let idMacroEnv2 = extendMacroEnvironment "Id" [] (RelMacro (RVar "dummy" 0 (initialPos "test"))) (defaultFixity "TEST") noMacros
+    let idMacroEnv2 = extendMacroContext "Id" [] (RelMacro (RVar "dummy" 0 (initialPos "test"))) (defaultFixity "TEST") emptyContext
     testParseDeclaration [] [] [] idMacroEnv2 "⊢ beta : (λ x . x) [Id] (λ y . y) ≔ ι⟨λ x . x, λ y . y⟩;"
       ( TheoremDef
           "beta"
@@ -805,7 +817,7 @@ declarationParserSpec = describe "Declaration parser" $ do
       )
 
     -- Application terms in judgments
-    testParseDeclaration [] [] [] noMacros "⊢ app (f : Term) (x : Term) (R : Rel) (p : (f x) [R] (f x)) : (f x) [R] (f x) ≔ p;"
+    testParseDeclaration [] [] [] emptyContext "⊢ app (f : Term) (x : Term) (R : Rel) (p : (f x) [R] (f x)) : (f x) [R] (f x) ≔ p;"
       ( TheoremDef
           "app"
           [TermBinding "f", TermBinding "x", RelBinding "R", ProofBinding "p" (RelJudgment (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (RVar "R" 0 (initialPos "test")) (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")))]
@@ -814,7 +826,7 @@ declarationParserSpec = describe "Declaration parser" $ do
       )
 
     -- Mixed bound and free variables
-    testParseDeclaration [] [] [] noMacros "⊢ mixed (x : Term) (g : Term) (z : Term) (S : Rel) (p : (λ y . x) [S] (g z)) : (λ y . x) [S] (g z) ≔ p;"
+    testParseDeclaration [] [] [] emptyContext "⊢ mixed (x : Term) (g : Term) (z : Term) (S : Rel) (p : (λ y . x) [S] (g z)) : (λ y . x) [S] (g z) ≔ p;"
       ( TheoremDef
           "mixed"
           [TermBinding "x", TermBinding "g", TermBinding "z", RelBinding "S", ProofBinding "p" (RelJudgment (Lam "y" (Var "x" 3 (initialPos "test")) (initialPos "test")) (RVar "S" 0 (initialPos "test")) (App (Var "g" 1 (initialPos "test")) (Var "z" 0 (initialPos "test")) (initialPos "test")))]
@@ -823,7 +835,7 @@ declarationParserSpec = describe "Declaration parser" $ do
       )
 
     -- Nested lambda terms
-    let compMacroEnv = extendMacroEnvironment "Comp" ["A", "B"] (RelMacro (Comp (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))) (defaultFixity "TEST") noMacros
+    let compMacroEnv = extendMacroContext "Comp" [simpleParamInfo "A" RelK, simpleParamInfo "B" RelK] (RelMacro (Comp (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))) (defaultFixity "TEST") emptyContext
     testParseDeclaration [] [] [] compMacroEnv "⊢ nested (A : Rel) (B : Rel) (p : (λ x . λ y . x y) [Comp A B] (λ z . z)) : (λ x . λ y . x y) [Comp A B] (λ z . z) ≔ p;"
       ( TheoremDef
           "nested"
@@ -846,7 +858,7 @@ declarationParserSpec = describe "Declaration parser" $ do
       )
 
   it "parses relation bindings" $ do
-    testParseDeclaration [] [] [] noMacros "⊢ test (t : Term) (u : Term) (A : Rel) (p : t [A] u) : t [A] u ≔ p;"
+    testParseDeclaration [] [] [] emptyContext "⊢ test (t : Term) (u : Term) (A : Rel) (p : t [A] u) : t [A] u ≔ p;"
       ( TheoremDef
           "test"
           [TermBinding "t", TermBinding "u", RelBinding "A", ProofBinding "p" (RelJudgment (Var "t" 1 (initialPos "test")) (RVar "A" 0 (initialPos "test")) (Var "u" 0 (initialPos "test")))]
@@ -861,7 +873,7 @@ declarationParserSpec = describe "Declaration parser" $ do
               "Sym R ≔ R ˘;",
               "⊢ refl (t : Term) : t [Id] t ≔ ι⟨t, t⟩;"
             ]
-    testParseFile [] [] [] noMacros input
+    testParseFile [] [] [] emptyContext input
       [ MacroDef "Id" [] (TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))),
         MacroDef "Sym" ["R"] (RelMacro (Conv (RVar "R" 0 (initialPos "test")) (initialPos "test"))),
         TheoremDef
@@ -874,7 +886,7 @@ declarationParserSpec = describe "Declaration parser" $ do
   -- Add tests to verify macro vs variable context behavior
   it "correctly distinguishes macros vs variables based on context" $ do
     -- Test without macro context - should parse as RVar
-    testParseDeclaration [] [] [] noMacros "⊢ test (t : Term) (u : Term) (Unbound : Rel) (p : t [Unbound] u) : t [Unbound] u ≔ p;"
+    testParseDeclaration [] [] [] emptyContext "⊢ test (t : Term) (u : Term) (Unbound : Rel) (p : t [Unbound] u) : t [Unbound] u ≔ p;"
       (TheoremDef "test" [TermBinding "t", TermBinding "u", RelBinding "Unbound", ProofBinding "p" (RelJudgment (Var "t" 1 (initialPos "test")) (RVar "Unbound" 0 (initialPos "test")) (Var "u" 0 (initialPos "test")))] (RelJudgment (Var "t" 1 (initialPos "test")) (RVar "Unbound" 0 (initialPos "test")) (Var "u" 0 (initialPos "test"))) (PVar "p" 0 (initialPos "test")))
 
     -- Test with proper file context that defines 0-arity macro
@@ -883,7 +895,7 @@ declarationParserSpec = describe "Declaration parser" $ do
             [ "Rel0 ≔ ∀ X . X;",
               "⊢ test (t : Term) (u : Term) (p : t [Rel0] u) : t [Rel0] u ≔ p;"
             ]
-    testParseFile [] [] [] noMacros macroFileInput0
+    testParseFile [] [] [] emptyContext macroFileInput0
       [ MacroDef "Rel0" [] (RelMacro (All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test"))),
         TheoremDef "test" [TermBinding "t", TermBinding "u", ProofBinding "p" (RelJudgment (Var "t" 1 (initialPos "test")) (RMacro "Rel0" [] (initialPos "test")) (Var "u" 0 (initialPos "test")))] (RelJudgment (Var "t" 1 (initialPos "test")) (RMacro "Rel0" [] (initialPos "test")) (Var "u" 0 (initialPos "test"))) (PVar "p" 0 (initialPos "test"))
       ]
@@ -894,7 +906,7 @@ declarationParserSpec = describe "Declaration parser" $ do
             [ "Sym R ≔ R ˘;",
               "⊢ test (t : Term) (u : Term) (A : Rel) (p : t [Sym A] u) : t [Sym A] u ≔ p;"
             ]
-    testParseFile [] [] [] noMacros macroFileInput1
+    testParseFile [] [] [] emptyContext macroFileInput1
       [ MacroDef "Sym" ["R"] (RelMacro (Conv (RVar "R" 0 (initialPos "test")) (initialPos "test"))),
         TheoremDef "test" [TermBinding "t", TermBinding "u", RelBinding "A", ProofBinding "p" (RelJudgment (Var "t" 1 (initialPos "test")) (RMacro "Sym" [MRel (RVar "A" 0 (initialPos "test"))] (initialPos "test")) (Var "u" 0 (initialPos "test")))] (RelJudgment (Var "t" 1 (initialPos "test")) (RMacro "Sym" [MRel (RVar "A" 0 (initialPos "test"))] (initialPos "test")) (Var "u" 0 (initialPos "test"))) (PVar "p" 0 (initialPos "test"))
       ]
@@ -906,7 +918,7 @@ declarationParserSpec = describe "Declaration parser" $ do
               "Pair A B ≔ A -> B;",
               "⊢ test (t : Term) (u : Term) (X : Rel) (Y : Rel) (p : t [Comp X Y] u) : t [Comp X Y] u ≔ p;"
             ]
-    testParseFile [] [] [] noMacros input
+    testParseFile [] [] [] emptyContext input
       [ MacroDef "Comp" ["R", "S"] (RelMacro (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"))),
         MacroDef "Pair" ["A", "B"] (RelMacro (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))),
         TheoremDef
@@ -1025,16 +1037,16 @@ parserErrorSpec = describe "Parser error handling" $ do
     testParseRTypeFailure "R ∘˘ S" -- Invalid operator combination
   it "validates successful mixed Unicode/ASCII parsing" $ do
     -- These should succeed
-    testParseRType [] ["A", "B", "C"] [] noMacros "A → B -> C" (Arr (RVar "A" 2 (initialPos "test")) (Arr (RVar "B" 1 (initialPos "test")) (RVar "C" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
-    testParseTerm [] [] [] noMacros "λ x . x" (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))
-    testParseTerm [] [] [] noMacros "\\x . x" (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["A", "B", "C"] [] emptyContext "A → B -> C" (Arr (RVar "A" 2 (initialPos "test")) (Arr (RVar "B" 1 (initialPos "test")) (RVar "C" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
+    testParseTerm [] [] [] emptyContext "λ x . x" (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))
+    testParseTerm [] [] [] emptyContext "\\x . x" (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))
 
 -- Complex declaration parsing tests
 declarationComplexCasesSpec :: Spec
 declarationComplexCasesSpec = describe "Declaration parser complex cases" $ do
   it "parses theorems with many bindings of different types" $ do
     let input = "⊢ complex (t : Term) (u : Term) (v : Term) (A : Rel) (B : Rel) (x : Term) (y : Term) (p : t [A] u) (q : u [B] v) (transProof : t [A ∘ B] v) : t [A ∘ B] v ≔ transProof;"
-    testParseDeclaration [] [] [] noMacros input
+    testParseDeclaration [] [] [] emptyContext input
       ( TheoremDef
           "complex"
           [ TermBinding "t",
@@ -1054,7 +1066,7 @@ declarationComplexCasesSpec = describe "Declaration parser complex cases" $ do
 
   it "parses macro definitions with deeply nested bodies" $ do
     let input = "NestedComp R S T U ≔ ((R ∘ S) ∘ (T˘ ∘ U))˘;"
-    testParseDeclaration [] [] [] noMacros input
+    testParseDeclaration [] [] [] emptyContext input
       ( MacroDef
           "NestedComp"
           ["R", "S", "T", "U"]
@@ -1072,7 +1084,7 @@ declarationComplexCasesSpec = describe "Declaration parser complex cases" $ do
 
   it "parses theorems with complex relational judgments" $ do
     let input = "⊢ complexRel (R : Rel) (S : Rel) (complexProof : (λ x . x) [(∀ X . R ∘ X ∘ S)] (λ y . y)) : (λ x . x) [(∀ X . R ∘ X ∘ S)] (λ y . y) ≔ complexProof;"
-    testParseDeclaration [] [] [] noMacros input
+    testParseDeclaration [] [] [] emptyContext input
       ( TheoremDef
           "complexRel"
           [ RelBinding "R",
@@ -1095,7 +1107,7 @@ declarationComplexCasesSpec = describe "Declaration parser complex cases" $ do
 
   it "parses macro definitions with promoted lambda terms" $ do
     let input = "LambdaMacro A B ≔ (λ x . λ y . x y);"
-    testParseDeclaration [] [] [] noMacros input
+    testParseDeclaration [] [] [] emptyContext input
       ( MacroDef
           "LambdaMacro"
           ["A", "B"]
@@ -1111,7 +1123,7 @@ declarationComplexCasesSpec = describe "Declaration parser complex cases" $ do
               "Identity ≔ (λ x . x);",
               "⊢ identity (t : Term) : t [Identity] t ≔ ι⟨t, t⟩;"
             ]
-    testParseFile [] [] [] noMacros input
+    testParseFile [] [] [] emptyContext input
       [ MacroDef "DoubleComp" ["R", "S"] (RelMacro (Comp (Comp (RVar "R" 1 (initialPos "test")) (RVar "R" 1 (initialPos "test")) (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"))),
         MacroDef "TripleRel" ["A", "B", "C"] (RelMacro (Comp (RVar "A" 2 (initialPos "test")) (Comp (Conv (RVar "B" 1 (initialPos "test")) (initialPos "test")) (RVar "C" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))),
         TheoremDef
@@ -1140,7 +1152,7 @@ declarationComplexCasesSpec = describe "Declaration parser complex cases" $ do
 
   it "parses theorems with nested quantified types in bindings" $ do
     let input = "⊢ quantified (t : Term) (u : Term) (p : t [∀ X . ∀ Y . X ∘ Y] u) (quantProof : u [∀Z. Z˘] t) : u [∀Z. Z˘] t ≔ quantProof;"
-    testParseDeclaration [] [] [] noMacros input
+    testParseDeclaration [] [] [] emptyContext input
       ( TheoremDef
           "quantified"
           [TermBinding "t", TermBinding "u", ProofBinding "p" (RelJudgment (Var "t" 1 (initialPos "test")) (All "X" (All "Y" (Comp (RVar "X" 1 (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "u" 0 (initialPos "test"))), ProofBinding "quantProof" (RelJudgment (Var "u" 0 (initialPos "test")) (All "Z" (Conv (RVar "Z" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "t" 1 (initialPos "test")))]
@@ -1150,7 +1162,7 @@ declarationComplexCasesSpec = describe "Declaration parser complex cases" $ do
 
   it "parses macro definitions with variable shadowing" $ do
     let input = "ShadowMacro R ≔ ∀R . R ∘ R;"
-    testParseDeclaration [] [] [] noMacros input
+    testParseDeclaration [] [] [] emptyContext input
       ( MacroDef
           "ShadowMacro"
           ["R"]
@@ -1159,7 +1171,7 @@ declarationComplexCasesSpec = describe "Declaration parser complex cases" $ do
 
   it "parses theorems with complex proof terms" $ do
     let input = "⊢ complexProof (R : Rel) (t : Term) (u : Term) : t [R] u ≔ ρ{ x . t, u} (Λα. λp: α. p { R }) - ι⟨t, u⟩;"
-    testParseDeclaration [] [] [] noMacros input
+    testParseDeclaration [] [] [] emptyContext input
       ( TheoremDef
           "complexProof"
           [RelBinding "R", TermBinding "t", TermBinding "u"]
@@ -1180,7 +1192,7 @@ declarationComplexCasesSpec = describe "Declaration parser complex cases" $ do
             [ "Base A ≔ A ∘ A;",
               "Extended B C ≔ Base B ∘ C;"
             ]
-    testParseFile [] [] [] noMacros input
+    testParseFile [] [] [] emptyContext input
       [ MacroDef "Base" ["A"] (RelMacro (Comp (RVar "A" 0 (initialPos "test")) (RVar "A" 0 (initialPos "test")) (initialPos "test"))),
         MacroDef "Extended" ["B", "C"] (RelMacro (Comp (RMacro "Base" [MRel (RVar "B" 1 (initialPos "test"))] (initialPos "test")) (RVar "C" 0 (initialPos "test")) (initialPos "test")))
       ]
@@ -1191,12 +1203,12 @@ declarationComplexCasesSpec = describe "Declaration parser complex cases" $ do
         input = "ManyParams " ++ paramStr ++ " ≔ A ∘ B ∘ C ∘ D ∘ E ∘ F ∘ G ∘ H ∘ I ∘ J;"
         compWithPos x y = Comp x y (initialPos "test")
         expectedBody = foldl1 compWithPos (map (\(name, idx) -> RVar name idx (initialPos "test")) (zip params (reverse [0 .. length params - 1])))
-    testParseDeclaration [] [] [] noMacros input
+    testParseDeclaration [] [] [] emptyContext input
       (MacroDef "ManyParams" params (RelMacro expectedBody))
 
   it "parses theorems with deeply nested binding contexts" $ do
     let input = "⊢ deeplyNested (A : Rel) (B : Rel) (C : Rel) (x : Term) (y : Term) (z : Term) (p : x [A] y) (q : y [B] z) (r : x [C] z) (compositionElim : x [A ∘ B] z) : x [A ∘ B] z ≔ compositionElim;"
-    testParseDeclaration [] [] [] noMacros input
+    testParseDeclaration [] [] [] emptyContext input
       ( TheoremDef
           "deeplyNested"
           [ RelBinding "A",
@@ -1216,7 +1228,7 @@ declarationComplexCasesSpec = describe "Declaration parser complex cases" $ do
 
   it "handles mixed Unicode and ASCII in complex declarations" $ do
     let input = "MixedSyntax R S ≔ R ∘ S ˘ -> ∀ X . X;"
-    testParseDeclaration [] [] [] noMacros input
+    testParseDeclaration [] [] [] emptyContext input
       ( MacroDef
           "MixedSyntax"
           ["R", "S"]
@@ -1228,17 +1240,17 @@ deBruijnEdgeCasesSpec :: Spec
 deBruijnEdgeCasesSpec = describe "De Bruijn index edge cases" $ do
   it "handles deep nesting with correct index calculation" $ do
     -- Test λ x . λ y . λ z . λ w . λv. x (deeply nested, x at index 4)
-    testParseTerm [] [] [] noMacros "λ x . λ y . λ z . λ w . λv. x"
+    testParseTerm [] [] [] emptyContext "λ x . λ y . λ z . λ w . λv. x"
       (Lam "x" (Lam "y" (Lam "z" (Lam "w" (Lam "v" (Var "x" 4 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "handles complex variable shadowing patterns" $ do
     -- Test λ x . λ y . λ x . λ y . x y (inner x shadows outer, inner y shadows outer)
-    testParseTerm [] [] [] noMacros "λ x . λ y . λ x . λ y . x y"
+    testParseTerm [] [] [] emptyContext "λ x . λ y . λ x . λ y . x y"
       (Lam "x" (Lam "y" (Lam "x" (Lam "y" (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "handles variable references across multiple shadow levels" $ do
     -- Test λ x . λ y . λ x . λ z . λ x . λ y . x y z (multiple levels of shadowing)
-    testParseTerm [] [] [] noMacros "λ x . λ y . λ x . λ z . λ x . λ y . x y z"
+    testParseTerm [] [] [] emptyContext "λ x . λ y . λ x . λ z . λ x . λ y . x y z"
       ( Lam
           "x"
           ( Lam
@@ -1267,24 +1279,24 @@ deBruijnEdgeCasesSpec = describe "De Bruijn index edge cases" $ do
 
   it "handles boundary conditions with index 0" $ do
     -- Test immediately bound variables
-    testParseTerm [] [] [] noMacros "λ x . x" (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))
-    testParseRType [] [] [] noMacros "∀x . x" (All "x" (RVar "x" 0 (initialPos "test")) (initialPos "test"))
-    testParseProof [] ["A"] [] noMacros "λ x: A. x" (LamP "x" (RVar "A" 0 (initialPos "test")) (PVar "x" 0 (initialPos "test")) (initialPos "test"))
+    testParseTerm [] [] [] emptyContext "λ x . x" (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))
+    testParseRType [] [] [] emptyContext "∀x . x" (All "x" (RVar "x" 0 (initialPos "test")) (initialPos "test"))
+    testParseProof [] ["A"] [] emptyContext "λ x: A. x" (LamP "x" (RVar "A" 0 (initialPos "test")) (PVar "x" 0 (initialPos "test")) (initialPos "test"))
 
   it "handles free variables with index -1" $ do
     -- Test free variables in various contexts
-    testParseTerm ["x"] [] [] noMacros "x" (Var "x" 0 (initialPos "test"))
-    testParseRType [] ["R"] [] noMacros "R" (RVar "R" 0 (initialPos "test")) -- Free relation variables
-    testParseProof [] [] ["p"] noMacros "p" (PVar "p" 0 (initialPos "test"))
+    testParseTerm ["x"] [] [] emptyContext "x" (Var "x" 0 (initialPos "test"))
+    testParseRType [] ["R"] [] emptyContext "R" (RVar "R" 0 (initialPos "test")) -- Free relation variables
+    testParseProof [] [] ["p"] emptyContext "p" (PVar "p" 0 (initialPos "test"))
 
   it "handles mixed free and bound variables" $ do
     -- Test λ x . x free_var (bound x at 0, free_var at index 1)
-    testParseTerm ["free"] [] [] noMacros "λ x . x free"
+    testParseTerm ["free"] [] [] emptyContext "λ x . x free"
       (Lam "x" (App (Var "x" 0 (initialPos "test")) (Var "free" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "handles quantifier nesting with correct indices" $ do
     -- Test ∀A. ∀B. ∀C. A ∘ B ∘ C (A at 2, B at 1, C at 0)
-    testParseRType [] [] [] noMacros "∀A. ∀B. ∀C. A ∘ B ∘ C"
+    testParseRType [] [] [] emptyContext "∀A. ∀B. ∀C. A ∘ B ∘ C"
       (All "A" (All "B" (All "C" (Comp (Comp (RVar "A" 2 (initialPos "test")) (RVar "B" 1 (initialPos "test")) (initialPos "test")) (RVar "C" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "handles extreme nesting depth" $ do
@@ -1298,12 +1310,12 @@ deBruijnEdgeCasesSpec = describe "De Bruijn index edge cases" $ do
         buildInput n = "λ x" ++ show n ++ ". " ++ buildInput (n - 1)
         input = buildInput depth
 
-    testParseTerm [] [] [] noMacros input expected
+    testParseTerm [] [] [] emptyContext input expected
 
   it "handles complex proof binding contexts" $ do
     -- Test theorem with many bindings that create complex de Bruijn patterns
     let input = "⊢ multiBinding (x : Term) (y : Term) (z : Term) (R : Rel) (S : Rel) (p1 : x [R] y) (p2 : y [S] z) (p3 : x [R ∘ S] z) : x [R] z ≔ p1;"
-    testParseDeclaration [] [] [] noMacros input
+    testParseDeclaration [] [] [] emptyContext input
       ( TheoremDef
           "multiBinding"
           [ TermBinding "x",
@@ -1321,11 +1333,11 @@ deBruijnEdgeCasesSpec = describe "De Bruijn index edge cases" $ do
 
   it "handles variable capture avoidance in complex terms" $ do
     -- Test cases where variable names could conflict but indices prevent capture
-    testParseTerm [] [] [] noMacros "λ x . (λ x . x) x"
+    testParseTerm [] [] [] emptyContext "λ x . (λ x . x) x"
       (Lam "x" (App (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) -- Inner x (index 0), outer x (index 0)
   it "handles index shifting in application contexts" $ do
     -- Test complex applications where index management is critical
-    testParseTerm [] [] [] noMacros "(λ x . λ y . x) (λ z . z)"
+    testParseTerm [] [] [] emptyContext "(λ x . λ y . x) (λ z . z)"
       (App (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Lam "z" (Var "z" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
   it "handles binding in different syntactic contexts" $ do
@@ -1334,21 +1346,21 @@ deBruijnEdgeCasesSpec = describe "De Bruijn index edge cases" $ do
       []
       []
       []
-      noMacros
+      emptyContext
       "λ x . λ y . x y"
       (Lam "x" (Lam "y" (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
     testParseRType
       []
       []
       []
-      noMacros
+      emptyContext
       "∀R . ∀S. R ∘ S"
       (All "R" (All "S" (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
     testParseProof
       []
       ["A", "B"]
       []
-      noMacros
+      emptyContext
       "λp: A. λq: B. p"
       (LamP "p" (RVar "A" 1 (initialPos "test")) (LamP "q" (RVar "B" 0 (initialPos "test")) (PVar "p" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
@@ -1361,12 +1373,12 @@ deBruijnEdgeCasesSpec = describe "De Bruijn index edge cases" $ do
         buildDeepInput n acc = buildDeepInput (n - 1) ("λ x" ++ show n ++ ". " ++ acc)
         deepInput = buildDeepInput 50 "x1"
 
-    testParseTerm [] [] [] noMacros deepInput deepTerm
+    testParseTerm [] [] [] emptyContext deepInput deepTerm
 
   it "handles interleaved binding types in complex declarations" $ do
     -- Test declarations with alternating term, relation, and proof bindings
     let input = "⊢ interleaved (R : Rel) (t : Term) (S : Rel) (u : Term) (p : t [R] u) (T : Rel) : t [R ∘ S ∘ T] u ≔ p;"
-    testParseDeclaration [] [] [] noMacros input
+    testParseDeclaration [] [] [] emptyContext input
       ( TheoremDef
           "interleaved"
           [ RelBinding "R",
@@ -1382,15 +1394,15 @@ deBruijnEdgeCasesSpec = describe "De Bruijn index edge cases" $ do
 
   it "handles edge case of zero bindings" $ do
     -- Test that variables work correctly when there are no lambda bindings
-    testParseTerm ["free1", "free2"] [] [] noMacros "free1 free2" (App (Var "free1" 1 (initialPos "test")) (Var "free2" 0 (initialPos "test")) (initialPos "test"))
-    testParseRType [] ["FreeRel"] [] noMacros "FreeRel" (RVar "FreeRel" 0 (initialPos "test"))
-    testParseProof [] [] ["freeProof"] noMacros "freeProof" (PVar "freeProof" 0 (initialPos "test"))
+    testParseTerm ["free1", "free2"] [] [] emptyContext "free1 free2" (App (Var "free1" 1 (initialPos "test")) (Var "free2" 0 (initialPos "test")) (initialPos "test"))
+    testParseRType [] ["FreeRel"] [] emptyContext "FreeRel" (RVar "FreeRel" 0 (initialPos "test"))
+    testParseProof [] [] ["freeProof"] emptyContext "freeProof" (PVar "freeProof" 0 (initialPos "test"))
 
   it "handles maximum complexity binding scenario" $ do
     -- Test the most complex binding scenario we can create
     let input = "⊢ maxComplexity (A : Rel) (B : Rel) (C : Rel) (x : Term) (y : Term) (z : Term) (w : Term) (p1 : x [A] y) (p2 : y [B] z) (p3 : z [C] w) (p4 : x [A ∘ B] z) (p5 : y [B ∘ C] w) (p6 : x [A ∘ B ∘ C] w) : x [A] w ≔ p1;"
     -- This creates a complex binding context that tests the limits of de Bruijn index management
-    testParseDeclaration [] [] [] noMacros input
+    testParseDeclaration [] [] [] emptyContext input
       ( TheoremDef
           "maxComplexity"
           [ RelBinding "A",
@@ -1420,7 +1432,7 @@ theoremReferencingSpec = describe "Theorem referencing" $ do
             [ "⊢ identity_lemma (t : Term) : t [(λ x . x)] t ≔ ι⟨t, t⟩;",
               "⊢ test_ref (s : Term) : s [(λ x . x)] s ≔ identity_lemma;"
             ]
-    testParseFile [] [] [] noMacros input
+    testParseFile [] [] [] emptyContext input
       [ TheoremDef
           "identity_lemma"
           [TermBinding "t"]
@@ -1436,7 +1448,7 @@ theoremReferencingSpec = describe "Theorem referencing" $ do
   it "distinguishes between theorem names and proof variables" $ do
     -- Test that theorem names are resolved correctly when there's no shadowing
     let input = "⊢ simple (t : Term) : t [(λ x . x)] t ≔ ι⟨t, t⟩; ⊢ test (s : Term) : s [(λ x . x)] s ≔ simple;"
-    testParseFile [] [] [] noMacros input
+    testParseFile [] [] [] emptyContext input
       [ TheoremDef "simple" [TermBinding "t"] (RelJudgment (Var "t" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "t" 0 (initialPos "test"))) (Iota (Var "t" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")) (initialPos "test")),
         TheoremDef "test" [TermBinding "s"] (RelJudgment (Var "s" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "s" 0 (initialPos "test"))) (PTheoremApp "simple" [] (initialPos "test"))
       ]
@@ -1448,7 +1460,7 @@ theoremReferencingSpec = describe "Theorem referencing" $ do
             [ "⊢ myTheorem (t : Term) : t [(λ x . x)] t ≔ ι⟨t, t⟩;",
               "⊢ shadowTest (s : Term) (myTheorem : s [(λ x . x)] s) : s [(λ x . x)] s ≔ myTheorem;"
             ]
-    testParseFile [] [] [] noMacros input
+    testParseFile [] [] [] emptyContext input
       [ TheoremDef "myTheorem" [TermBinding "t"] (RelJudgment (Var "t" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "t" 0 (initialPos "test"))) (Iota (Var "t" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")) (initialPos "test")),
         TheoremDef
           "shadowTest"
@@ -1463,6 +1475,6 @@ theoremReferencingSpec = describe "Theorem referencing" $ do
     case runParser parseFile "test" (input) of
       Left _ -> return () -- Expected failure during raw parsing
       Right rawResults -> 
-        case mapM (\raw -> runExcept (runReaderT (elaborateDeclaration raw) (ElaborateContext noMacros noTheorems 0 0 0 Map.empty Map.empty Map.empty))) rawResults of
+        case mapM (\raw -> runExcept (runReaderT (elaborateDeclaration raw) emptyContext)) rawResults of
           Left _ -> return () -- Expected failure during elaboration
           Right _ -> expectationFailure "Expected elaboration error for undeclared theorem reference"

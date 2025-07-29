@@ -5,8 +5,8 @@ module ElaborateSpec (spec) where
 import qualified Data.Map as Map
 import Text.Megaparsec (initialPos)
 
-import Parser.Elaborate (elaborate, emptyCtxWithBuiltins)
-import Parser.Context (ElaborateContext(..))
+import Parser.Elaborate (elaborate)
+import Core.Context (emptyContext, Context)
 import Core.Syntax
 import Core.Raw
 import Core.Errors (RelTTError(..), ErrorContext(..))
@@ -24,34 +24,28 @@ spec = do
   describe "Variable Binding" variableBindingSpec
 
 -- Helper to create test context with specific environments
-testContext :: MacroEnvironment -> TheoremEnvironment -> ElaborateContext
-testContext testMacroEnv testTheoremEnv = ElaborateContext
-  { macroEnv = testMacroEnv
-  , theoremEnv = testTheoremEnv
-  , termDepth = 0
-  , relDepth = 0
-  , proofDepth = 0
-  , boundVars = Map.empty
-  , boundRelVars = Map.empty
-  , boundProofVars = Map.empty
+testContext :: Map.Map String MacroSig -> Map.Map String ([Binding], RelJudgment, Proof) -> Context
+testContext testMacros testTheorems = emptyContext
+  { macroDefinitions = testMacros
+  , theoremDefinitions = testTheorems
   }
 
 -- Helper to create test context with bound term variables
-testContextWithTerms :: [(String, Int)] -> Int -> ElaborateContext
-testContextWithTerms vars depth = emptyCtxWithBuiltins
-  { boundVars = Map.fromList vars
+testContextWithTerms :: [(String, Int)] -> Int -> Context
+testContextWithTerms vars depth = emptyContext
+  { termBindings = Map.fromList [(name, (idx, Nothing)) | (name, idx) <- vars]
   , termDepth = depth
   }
 
 -- Helper to create test context with bound relational variables  
-testContextWithRels :: [(String, Int)] -> Int -> ElaborateContext
-testContextWithRels vars depth = emptyCtxWithBuiltins
-  { boundRelVars = Map.fromList vars
+testContextWithRels :: [(String, Int)] -> Int -> Context
+testContextWithRels vars depth = emptyContext
+  { relBindings = Map.fromList vars
   , relDepth = depth
   }
 
 -- Helper to test successful elaboration (ignoring positions)
-testElaborate :: ElaborateContext -> RawDeclaration -> Declaration -> Expectation
+testElaborate :: Context -> RawDeclaration -> Declaration -> Expectation
 testElaborate ctx rawDecl expected =
   case elaborate ctx rawDecl of
     Left err -> expectationFailure $ "Elaboration failed: " ++ show err
@@ -103,7 +97,7 @@ stripProofPositions (LamP name rt p _) = LamP name (stripRTypePositions rt) (str
 stripProofPositions other = other -- Add more cases as needed
 
 -- Helper to test elaboration failures
-testElaborateFailure :: ElaborateContext -> RawDeclaration -> RelTTError -> Expectation
+testElaborateFailure :: Context -> RawDeclaration -> RelTTError -> Expectation
 testElaborateFailure ctx rawDecl expectedErr =
   case elaborate ctx rawDecl of
     Left err -> err `shouldBe` expectedErr
@@ -112,21 +106,21 @@ testElaborateFailure ctx rawDecl expectedErr =
 elaborateContextSpec :: Spec
 elaborateContextSpec = describe "Elaboration context management" $ do
   it "creates empty context correctly" $ do
-    let ctx = emptyCtxWithBuiltins
-    boundVars ctx `shouldBe` Map.empty
-    boundRelVars ctx `shouldBe` Map.empty
-    boundProofVars ctx `shouldBe` Map.empty
+    let ctx = emptyContext
+    termBindings ctx `shouldBe` Map.empty
+    relBindings ctx `shouldBe` Map.empty
+    proofBindings ctx `shouldBe` Map.empty
     termDepth ctx `shouldBe` 0
     relDepth ctx `shouldBe` 0
     proofDepth ctx `shouldBe` 0
 
   it "properly manages macro and theorem environments" $ do
-    let testMacroEnv = MacroEnvironment (Map.singleton "test" ([], TermMacro (Var "x" 0 (initialPos "")))) Map.empty
-    let testTheoremEnv = TheoremEnvironment (Map.singleton "thm" ([], RelJudgment (Var "x" 0 (initialPos "")) (RVar "R" 0 (initialPos "")) (Var "y" 0 (initialPos "")), PVar "p" 0 (initialPos "")))
-    let _ctx = testContext testMacroEnv testTheoremEnv
+    let testMacros = Map.singleton "test" ([], TermMacro (Var "x" 0 (initialPos "")))
+    let testTheorems = Map.singleton "thm" ([], RelJudgment (Var "x" 0 (initialPos "")) (RVar "R" 0 (initialPos "")) (Var "y" 0 (initialPos "")), PVar "p" 0 (initialPos ""))
+    let _ctx = testContext testMacros testTheorems
     
-    Map.size (macroDefinitions testMacroEnv) `shouldBe` 1
-    Map.size (theoremDefinitions testTheoremEnv) `shouldBe` 1
+    Map.size testMacros `shouldBe` 1
+    Map.size testTheorems `shouldBe` 1
 
 termElaborationSpec :: Spec  
 termElaborationSpec = describe "Term elaboration" $ do
@@ -134,13 +128,13 @@ termElaborationSpec = describe "Term elaboration" $ do
     let pos = initialPos ""
     let rawDecl = RawMacro (Name "id") [] (RawTermBody (RTLam (Name "x") (RTVar (Name "x") pos) pos))
     let expected = MacroDef "id" [] (TermMacro (Lam "x" (Var "x" 0 pos) pos))
-    testElaborate emptyCtxWithBuiltins rawDecl expected
+    testElaborate emptyContext rawDecl expected
 
   it "elaborates macro with parameters" $ do
     let pos = initialPos ""
     let rawDecl = RawMacro (Name "const") [Name "x", Name "y"] (RawTermBody (RTVar (Name "x") pos))
     let expected = MacroDef "const" ["x", "y"] (TermMacro (Var "x" 1 pos))
-    testElaborate emptyCtxWithBuiltins rawDecl expected
+    testElaborate emptyContext rawDecl expected
 
   it "elaborates function application" $ do
     let pos = initialPos ""
@@ -151,16 +145,15 @@ termElaborationSpec = describe "Term elaboration" $ do
 
   it "fails on unknown macro reference" $ do
     let pos = initialPos ""
-    let testMacroEnv = MacroEnvironment Map.empty Map.empty
-    let ctx = testContext testMacroEnv (TheoremEnvironment Map.empty)
+    let ctx = testContext Map.empty Map.empty
     let rawDecl = RawMacro (Name "test") [] (RawTermBody (RTMacro (Name "unknown") [] pos))
     let expectedErr = UnknownMacro "unknown" (ErrorContext pos "elaboration")
     testElaborateFailure ctx rawDecl expectedErr
 
   it "fails on macro arity mismatch" $ do
     let pos = initialPos ""
-    let testMacroEnv = MacroEnvironment (Map.singleton "two_param" (simpleTermMacro ["x", "y"] (Var "x" 0 pos))) Map.empty
-    let ctx = testContext testMacroEnv (TheoremEnvironment Map.empty)
+    let testMacros = Map.singleton "two_param" (simpleTermMacro ["x", "y"] (Var "x" 0 pos))
+    let ctx = testContext testMacros Map.empty
     let rawDecl = RawMacro (Name "test") [] (RawTermBody (RTMacro (Name "two_param") [RTVar (Name "z") pos] pos))
     let expectedErr = MacroArityMismatch "two_param" 2 1 (ErrorContext pos "elaboration")
     testElaborateFailure ctx rawDecl expectedErr
@@ -178,7 +171,7 @@ rtypeElaborationSpec = describe "Relational type elaboration" $ do
     let pos = initialPos ""
     let rawDecl = RawMacro (Name "forall") [] (RawRelBody (RRAll (Name "X") (RRVar (Name "X") pos) pos))
     let expected = MacroDef "forall" [] (RelMacro (All "X" (RVar "X" 0 pos) pos))
-    testElaborate emptyCtxWithBuiltins rawDecl expected
+    testElaborate emptyContext rawDecl expected
 
   it "elaborates composition" $ do
     let pos = initialPos ""
@@ -215,7 +208,7 @@ proofElaborationSpec = describe "Proof elaboration" $ do
     let expectedProof = Iota (Var "x" 0 pos) (Var "x" 0 pos) pos
     let expected = TheoremDef "identity" expectedBindings expectedJudgment expectedProof
     
-    testElaborate emptyCtxWithBuiltins rawDecl expected
+    testElaborate emptyContext rawDecl expected
 
   it "elaborates proof lambda" $ do
     let pos = initialPos ""
@@ -229,7 +222,7 @@ proofElaborationSpec = describe "Proof elaboration" $ do
     let expectedProof = LamP "p" (RVar "S" 0 pos) (PVar "p" 0 pos) pos
     let expected = TheoremDef "lambda_test" expectedBindings expectedJudgment expectedProof
     
-    testElaborate emptyCtxWithBuiltins rawDecl expected
+    testElaborate emptyContext rawDecl expected
 
 declarationElaborationSpec :: Spec
 declarationElaborationSpec = describe "Declaration elaboration" $ do
@@ -246,7 +239,7 @@ declarationElaborationSpec = describe "Declaration elaboration" $ do
     let expectedProof = PVar "p" 0 pos
     let expected = TheoremDef "with_bindings" expectedBindings expectedJudgment expectedProof
     
-    testElaborate emptyCtxWithBuiltins rawDecl expected
+    testElaborate emptyContext rawDecl expected
 
 elaborateErrorSpec :: Spec
 elaborateErrorSpec = describe "Error handling" $ do
@@ -254,17 +247,17 @@ elaborateErrorSpec = describe "Error handling" $ do
     let pos = initialPos ""
     let rawDecl = RawMacro (Name "test") [] (RawTermBody (RTVar (Name "unknown") pos))
     let expectedErr = UnboundVariable "unknown" (ErrorContext pos "elaboration")
-    testElaborateFailure emptyCtxWithBuiltins rawDecl expectedErr
+    testElaborateFailure emptyContext rawDecl expectedErr
 
   it "reports unknown relational variables correctly" $ do
     let pos = initialPos ""
     let rawDecl = RawMacro (Name "test") [] (RawRelBody (RRVar (Name "UnknownRel") pos))
     let expectedErr = UnboundVariable "UnknownRel" (ErrorContext pos "elaboration")
-    testElaborateFailure emptyCtxWithBuiltins rawDecl expectedErr
+    testElaborateFailure emptyContext rawDecl expectedErr
 
   it "provides proper error context" $ do
     let pos = initialPos ""
-    case elaborate emptyCtxWithBuiltins (RawMacro (Name "test") [] (RawTermBody (RTVar (Name "unknown") pos))) of
+    case elaborate emptyContext (RawMacro (Name "test") [] (RawTermBody (RTVar (Name "unknown") pos))) of
       Left (UnboundVariable name _) -> do
         name `shouldBe` "unknown"
         return () -- Error context comparison would be complex
@@ -279,7 +272,7 @@ variableBindingSpec = describe "Variable binding and de Bruijn indices" $ do
           (RawTermBody (RTLam (Name "x") (RTLam (Name "y") (RTVar (Name "x") pos) pos) pos))
     let expected = MacroDef "nested" [] 
           (TermMacro (Lam "x" (Lam "y" (Var "x" 1 pos) pos) pos))
-    testElaborate emptyCtxWithBuiltins rawDecl expected
+    testElaborate emptyContext rawDecl expected
 
   it "correctly handles nested universal quantification" $ do
     let pos = initialPos ""
@@ -287,7 +280,7 @@ variableBindingSpec = describe "Variable binding and de Bruijn indices" $ do
           (RawRelBody (RRAll (Name "X") (RRAll (Name "Y") (RRVar (Name "X") pos) pos) pos))
     let expected = MacroDef "nested_forall" [] 
           (RelMacro (All "X" (All "Y" (RVar "X" 1 pos) pos) pos))
-    testElaborate emptyCtxWithBuiltins rawDecl expected
+    testElaborate emptyContext rawDecl expected
 
   it "correctly handles proof lambda bindings" $ do
     let pos = initialPos ""
@@ -303,4 +296,4 @@ variableBindingSpec = describe "Variable binding and de Bruijn indices" $ do
                          (LamP "q" (RVar "T" 0 pos) (PVar "p" 1 pos) pos) pos
     let expected = TheoremDef "nested_proof_lambda" expectedBindings expectedJudgment expectedProof
     
-    testElaborate emptyCtxWithBuiltins rawDecl expected
+    testElaborate emptyContext rawDecl expected

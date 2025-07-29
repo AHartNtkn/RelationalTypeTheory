@@ -1,6 +1,6 @@
 module PTheoremAppSpec (spec) where
 
-import qualified Data.Map as Map
+import Core.Context (emptyContext, extendTheoremContext)
 import Core.Errors
 import Core.Syntax
 import TypeCheck.Proof
@@ -11,12 +11,6 @@ import Text.Megaparsec (initialPos)
 dummyPos :: SourcePos
 dummyPos = initialPos "test"
 
--- Helper to create empty contexts
-emptyCtx :: TypingContext
-emptyCtx = TypingContext Map.empty Map.empty Map.empty 0
-
-emptyMacroEnv :: MacroEnvironment
-emptyMacroEnv = MacroEnvironment Map.empty Map.empty
 
 spec :: Spec
 spec = describe "PTheoremApp Proof Checking" $ do
@@ -26,12 +20,12 @@ spec = describe "PTheoremApp Proof Checking" $ do
           -- Theorem: ⊢ identity_thm : x [λ y . y] x
           theoremJudgment = RelJudgment (Var "x" 0 dummyPos) (Prom (Lam "y" (Var "y" 0 dummyPos) dummyPos) dummyPos) (Var "x" 0 dummyPos)
           theoremProof = Iota (Var "x" 0 dummyPos) (Lam "y" (Var "y" 0 dummyPos) dummyPos) dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, ([], theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName [] theoremJudgment theoremProof emptyContext
 
           -- Application: identity_thm (no arguments)
           theoremApp = PTheoremApp theoremName [] dummyPos
 
-      case inferProofType emptyCtx emptyMacroEnv theoremEnv theoremApp of
+      case inferProofType theoremEnv theoremApp of
         Right result -> resultJudgment result `shouldBe` theoremJudgment
         Left err -> expectationFailure $ "Expected success, got error: " ++ show err
 
@@ -42,7 +36,7 @@ spec = describe "PTheoremApp Proof Checking" $ do
           theoremBindings = [TermBinding "x"]
           theoremJudgment = RelJudgment (Var "x" 0 dummyPos) (Prom (Lam "y" (Var "y" 0 dummyPos) dummyPos) dummyPos) (Var "x" 0 dummyPos)
           theoremProof = Iota (Var "x" 0 dummyPos) (Lam "y" (Var "y" 0 dummyPos) dummyPos) dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Application: simple_thm a
           argTerm = Var "a" 0 dummyPos
@@ -51,7 +45,7 @@ spec = describe "PTheoremApp Proof Checking" $ do
           -- Expected result: a [λ y . y] a
           expectedJudgment = RelJudgment argTerm (Prom (Lam "y" (Var "y" 0 dummyPos) dummyPos) dummyPos) argTerm
 
-      case inferProofType emptyCtx emptyMacroEnv theoremEnv theoremApp of
+      case inferProofType theoremEnv theoremApp of
         Right result -> resultJudgment result `shouldBe` expectedJudgment
         Left err -> expectationFailure $ "Expected success, got error: " ++ show err
 
@@ -62,7 +56,7 @@ spec = describe "PTheoremApp Proof Checking" $ do
           theoremBindings = [RelBinding "R"]
           theoremJudgment = RelJudgment (Var "x" 0 dummyPos) (RVar "R" 0 dummyPos) (Var "y" 1 dummyPos)
           theoremProof = PVar "dummy_proof" 0 dummyPos -- Dummy proof for testing
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Application: rel_thm S
           argRel = RVar "S" 0 dummyPos
@@ -71,7 +65,7 @@ spec = describe "PTheoremApp Proof Checking" $ do
           -- Expected result: x [S] y
           expectedJudgment = RelJudgment (Var "x" 0 dummyPos) argRel (Var "y" 1 dummyPos)
 
-      case inferProofType emptyCtx emptyMacroEnv theoremEnv theoremApp of
+      case inferProofType theoremEnv theoremApp of
         Right result -> resultJudgment result `shouldBe` expectedJudgment
         Left err -> expectationFailure $ "Expected success, got error: " ++ show err
 
@@ -82,7 +76,7 @@ spec = describe "PTheoremApp Proof Checking" $ do
           theoremBindings = [TermBinding "x", RelBinding "R", TermBinding "y"]
           theoremJudgment = RelJudgment (Var "x" 0 dummyPos) (RVar "R" 0 dummyPos) (Var "y" 1 dummyPos)
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Application: mixed_thm a S b
           argTerm1 = Var "a" 0 dummyPos
@@ -93,7 +87,7 @@ spec = describe "PTheoremApp Proof Checking" $ do
           -- Expected result: a [S] b
           expectedJudgment = RelJudgment argTerm1 argRel argTerm2
 
-      case inferProofType emptyCtx emptyMacroEnv theoremEnv theoremApp of
+      case inferProofType theoremEnv theoremApp of
         Right result -> resultJudgment result `shouldBe` expectedJudgment
         Left err -> expectationFailure $ "Expected success, got error: " ++ show err
 
@@ -104,23 +98,23 @@ spec = describe "PTheoremApp Proof Checking" $ do
           theoremBindings = [TermBinding "x"]
           theoremJudgment = RelJudgment (Var "x" 0 dummyPos) (RVar "R" 0 dummyPos) (Var "x" 0 dummyPos)
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Application with too many arguments: simple_thm a b
           argTerm1 = Var "a" 0 dummyPos
           argTerm2 = Var "b" 1 dummyPos
           theoremApp = PTheoremApp theoremName [TermArg argTerm1, TermArg argTerm2] dummyPos
 
-      case inferProofType emptyCtx emptyMacroEnv theoremEnv theoremApp of
+      case inferProofType theoremEnv theoremApp of
         Left (InternalError msg _) -> msg `shouldContain` "Too many arguments"
         Left err -> expectationFailure $ "Expected InternalError about too many arguments, got: " ++ show err
         Right _ -> expectationFailure "Expected error, but got success"
 
     it "rejects undefined theorem reference" $ do
       let theoremApp = PTheoremApp "nonexistent_thm" [] dummyPos
-          emptyTheoremEnv = TheoremEnvironment Map.empty
+          emptyTheoremEnv = emptyContext
 
-      case inferProofType emptyCtx emptyMacroEnv emptyTheoremEnv theoremApp of
+      case inferProofType emptyTheoremEnv theoremApp of
         Left (UnboundVariable "nonexistent_thm" _) -> return () -- Expected
         Left err -> expectationFailure $ "Expected UnboundVariable error, got: " ++ show err
         Right _ -> expectationFailure "Expected error, but got success"
@@ -132,7 +126,7 @@ spec = describe "PTheoremApp Proof Checking" $ do
           theoremBindings = [TermBinding "x", TermBinding "y"]
           theoremJudgment = RelJudgment (Var "x" 0 dummyPos) (RVar "R" 0 dummyPos) (Var "y" 1 dummyPos)
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Application with only first argument: multi_param_thm a
           argTerm = Var "a" 0 dummyPos
@@ -141,6 +135,6 @@ spec = describe "PTheoremApp Proof Checking" $ do
           -- Expected result: a [R] y (only x substituted)
           expectedJudgment = RelJudgment argTerm (RVar "R" 0 dummyPos) (Var "y" 1 dummyPos)
 
-      case inferProofType emptyCtx emptyMacroEnv theoremEnv theoremApp of
+      case inferProofType theoremEnv theoremApp of
         Right result -> resultJudgment result `shouldBe` expectedJudgment
         Left err -> expectationFailure $ "Expected success, got error: " ++ show err

@@ -12,7 +12,8 @@ module Parser.Mixfix
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Core.Syntax (MacroEnvironment(..), Fixity(..))
+import Core.Syntax (Fixity(..))
+import Core.Context (Context(..))
 
 -- | Principled representation of mixfix pattern parts
 data MixfixPart = Hole | Literal String
@@ -60,11 +61,11 @@ defaultFixity name = case holes name of
   _ -> Prefix 9
 
 -- | Extract all mixfix keywords (literal segments) from macro definitions
-mixfixKeywords :: MacroEnvironment -> Set.Set String
-mixfixKeywords env =
+mixfixKeywords :: Context -> Set.Set String
+mixfixKeywords ctx =
   Set.fromList
     . filter (not . null)
     . concatMap splitMixfix
     . filter ('_' `elem`) -- Only process mixfix patterns (containing underscores)
     . Map.keys
-    $ macroDefinitions env
+    $ macroDefinitions ctx

@@ -1,7 +1,6 @@
 module ComprehensiveTheoremAppSpec (spec) where
 
 import Core.Context
-import qualified Data.Map as Map
 import Core.Errors
 import Core.Syntax
 import TypeCheck.Proof
@@ -12,12 +11,6 @@ import Text.Megaparsec (initialPos)
 dummyPos :: SourcePos
 dummyPos = initialPos "test"
 
--- Helper to create empty contexts
-emptyCtx :: TypingContext
-emptyCtx = TypingContext Map.empty Map.empty Map.empty 0
-
-emptyMacroEnv :: MacroEnvironment
-emptyMacroEnv = MacroEnvironment Map.empty Map.empty
 
 spec :: Spec
 spec = describe "Comprehensive Theorem Application Tests" $ do
@@ -28,11 +21,11 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremBindings = [TermBinding "x", RelBinding "R", ProofBinding "p" (RelJudgment (Var "x" 0 dummyPos) (RVar "R" 0 dummyPos) (Var "x" 0 dummyPos))]
           theoremJudgment = RelJudgment (Var "x" 0 dummyPos) (Comp (RVar "R" 0 dummyPos) (RVar "R" 0 dummyPos) dummyPos) (Var "x" 0 dummyPos)
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Add an axiom theorem that provides the needed proof: ⊢ axiom_proof (x : Term) (R : Rel) : x [R] x
           axiomTheoremEnv =
-            extendTheoremEnvironment
+            extendTheoremContext
               "axiom_proof"
               [TermBinding "x", RelBinding "R"]
               (RelJudgment (Var "x" 0 dummyPos) (RVar "R" 0 dummyPos) (Var "x" 0 dummyPos))
@@ -49,7 +42,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           -- Expected result: a [S ∘ S] a
           expectedJudgment = RelJudgment argTerm (Comp argRel argRel dummyPos) argTerm
 
-      case inferProofType emptyCtx emptyMacroEnv axiomTheoremEnv theoremApp of
+      case inferProofType axiomTheoremEnv theoremApp of
         Right result -> resultJudgment result `shouldBe` expectedJudgment
         Left err -> expectationFailure $ "Expected success, got error: " ++ show err
 
@@ -59,11 +52,11 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremBindings = [TermBinding "x", RelBinding "R", ProofBinding "p" (RelJudgment (Var "x" 0 dummyPos) (RVar "R" 0 dummyPos) (Var "x" 0 dummyPos))]
           theoremJudgment = RelJudgment (Var "x" 0 dummyPos) (Comp (RVar "R" 0 dummyPos) (RVar "R" 0 dummyPos) dummyPos) (Var "x" 0 dummyPos)
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Add an axiom theorem with WRONG type: ⊢ wrong_axiom (x : Term) (R : Rel) : x [R ∘ R] x
           wrongAxiomEnv =
-            extendTheoremEnvironment
+            extendTheoremContext
               "wrong_axiom"
               [TermBinding "x", RelBinding "R"]
               (RelJudgment (Var "x" 0 dummyPos) (Comp (RVar "R" 0 dummyPos) (RVar "R" 0 dummyPos) dummyPos) (Var "x" 0 dummyPos))
@@ -77,7 +70,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           wrongProofArg = PTheoremApp "wrong_axiom" [TermArg argTerm, RelArg argRel] dummyPos
           theoremApp = PTheoremApp theoremName [TermArg argTerm, RelArg argRel, ProofArg wrongProofArg] dummyPos
 
-      case inferProofType emptyCtx emptyMacroEnv wrongAxiomEnv theoremApp of
+      case inferProofType wrongAxiomEnv theoremApp of
         Left (ProofTypingError _ _ _ _ _) -> return () -- Expected failure due to substitution type mismatch
         Left err -> expectationFailure $ "Expected ProofTypingError, got: " ++ show err
         Right _ -> expectationFailure "Expected type checking failure due to proof argument type mismatch after substitution"
@@ -88,7 +81,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremBindings = [RelBinding "R", TermBinding "x", RelBinding "S", TermBinding "y"]
           theoremJudgment = RelJudgment (Var "x" 0 dummyPos) (Comp (RVar "R" 0 dummyPos) (RVar "S" 0 dummyPos) dummyPos) (Var "y" 1 dummyPos)
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Application: interleaved_thm T a U b
           argRel1 = RVar "T" 0 dummyPos
@@ -100,7 +93,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           -- Expected result: a [T ∘ U] b
           expectedJudgment = RelJudgment argTerm1 (Comp argRel1 argRel2 dummyPos) argTerm2
 
-      case inferProofType emptyCtx emptyMacroEnv theoremEnv theoremApp of
+      case inferProofType theoremEnv theoremApp of
         Right result -> resultJudgment result `shouldBe` expectedJudgment
         Left err -> expectationFailure $ "Expected success, got error: " ++ show err
 
@@ -115,11 +108,11 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
             ]
           theoremJudgment = RelJudgment (Var "x" 0 dummyPos) (Comp idRel idRel dummyPos) (Var "x" 0 dummyPos)
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Add axiom theorem for identity proofs: ⊢ id_proof (x : Term) : x [λ y . y] x
           idTheoremEnv =
-            extendTheoremEnvironment
+            extendTheoremContext
               "id_proof"
               [TermBinding "x"]
               (RelJudgment (Var "x" 0 dummyPos) idRel (Var "x" 0 dummyPos))
@@ -135,7 +128,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           -- Expected result: a [λ y . y ∘ λ y . y] a
           expectedJudgment = RelJudgment argTerm (Comp idRel idRel dummyPos) argTerm
 
-      case inferProofType emptyCtx emptyMacroEnv idTheoremEnv theoremApp of
+      case inferProofType idTheoremEnv theoremApp of
         Right result -> resultJudgment result `shouldBe` expectedJudgment
         Left err -> expectationFailure $ "Expected success, got error: " ++ show err
 
@@ -150,11 +143,11 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
             ]
           theoremJudgment = RelJudgment (Var "x" 0 dummyPos) (Comp idRel idRel dummyPos) (Var "x" 0 dummyPos)
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Add axiom theorem with WRONG type: ⊢ wrong_id_proof (x : Term) : x [λ y . y ∘ λ y . y] x
           wrongIdTheoremEnv =
-            extendTheoremEnvironment
+            extendTheoremContext
               "wrong_id_proof"
               [TermBinding "x"]
               (RelJudgment (Var "x" 0 dummyPos) (Comp idRel idRel dummyPos) (Var "x" 0 dummyPos))
@@ -168,7 +161,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           wrongProofArg2 = PTheoremApp "wrong_id_proof" [TermArg argTerm] dummyPos
           theoremApp = PTheoremApp theoremName [TermArg argTerm, ProofArg wrongProofArg1, ProofArg wrongProofArg2] dummyPos
 
-      case inferProofType emptyCtx emptyMacroEnv wrongIdTheoremEnv theoremApp of
+      case inferProofType wrongIdTheoremEnv theoremApp of
         Left (ProofTypingError _ _ _ _ _) -> return () -- Expected failure - first proof argument type mismatch
         Left err -> expectationFailure $ "Expected ProofTypingError for first proof argument, got: " ++ show err
         Right _ -> expectationFailure "Expected type checking failure due to proof argument type mismatch"
@@ -184,7 +177,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
               (Prom (Lam "y" (Var "y" 0 dummyPos) dummyPos) dummyPos)
               (App (Var "f" 0 dummyPos) (Var "x" 1 dummyPos) dummyPos)
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Application: subst_test_thm g a
           argF = Var "g" 0 dummyPos
@@ -198,7 +191,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
               (Prom (Lam "y" (Var "y" 0 dummyPos) dummyPos) dummyPos)
               (App argF argX dummyPos)
 
-      case inferProofType emptyCtx emptyMacroEnv theoremEnv theoremApp of
+      case inferProofType theoremEnv theoremApp of
         Right result -> resultJudgment result `shouldBe` expectedJudgment
         Left err -> expectationFailure $ "Expected success, got error: " ++ show err
 
@@ -212,7 +205,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
               (Comp (Comp (RVar "R" 0 dummyPos) (RVar "S" 0 dummyPos) dummyPos) (Conv (RVar "R" 0 dummyPos) dummyPos) dummyPos)
               (Var "x" 0 dummyPos)
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Application: rel_subst_thm T U a
           argR = RVar "T" 0 dummyPos
@@ -227,7 +220,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
               (Comp (Comp argR argS dummyPos) (Conv argR dummyPos) dummyPos)
               argX
 
-      case inferProofType emptyCtx emptyMacroEnv theoremEnv theoremApp of
+      case inferProofType theoremEnv theoremApp of
         Right result -> resultJudgment result `shouldBe` expectedJudgment
         Left err -> expectationFailure $ "Expected success, got error: " ++ show err
 
@@ -239,11 +232,11 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremBindings = [TermBinding "f", RelBinding "R", ProofBinding "p" (RelJudgment appFA (RVar "R" 0 dummyPos) appFA)]
           theoremJudgment = RelJudgment appFA (Comp (RVar "R" 0 dummyPos) (RVar "R" 0 dummyPos) dummyPos) appFA
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Add axiom theorem: ⊢ axiom_rel_proof (x : Term) (R : Rel) : x [R] x
           axiomRelTheoremEnv =
-            extendTheoremEnvironment
+            extendTheoremContext
               "axiom_rel_proof"
               [TermBinding "x", RelBinding "R"]
               (RelJudgment (Var "x" 0 dummyPos) (RVar "R" 0 dummyPos) (Var "x" 0 dummyPos))
@@ -260,7 +253,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           -- Expected result: (g a) [S ∘ S] (g a)
           expectedJudgment = RelJudgment (App argF termA dummyPos) (Comp argR argR dummyPos) (App argF termA dummyPos)
 
-      case inferProofType emptyCtx emptyMacroEnv axiomRelTheoremEnv theoremApp of
+      case inferProofType axiomRelTheoremEnv theoremApp of
         Right result -> resultJudgment result `shouldBe` expectedJudgment
         Left err -> expectationFailure $ "Expected success, got error: " ++ show err
 
@@ -272,11 +265,11 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremBindings = [TermBinding "f", RelBinding "R", ProofBinding "p" (RelJudgment appFA (RVar "R" 0 dummyPos) appFA)]
           theoremJudgment = RelJudgment appFA (Comp (RVar "R" 0 dummyPos) (RVar "R" 0 dummyPos) dummyPos) appFA
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Add axiom theorem: ⊢ axiom_rel_proof (x : Term) (R : Rel) : x [R] x
           axiomRelTheoremEnv =
-            extendTheoremEnvironment
+            extendTheoremContext
               "axiom_rel_proof"
               [TermBinding "x", RelBinding "R"]
               (RelJudgment (Var "x" 0 dummyPos) (RVar "R" 0 dummyPos) (Var "x" 0 dummyPos))
@@ -291,7 +284,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           wrongProof = PTheoremApp "axiom_rel_proof" [TermArg (App argF termB dummyPos), RelArg argR] dummyPos
           theoremApp = PTheoremApp theoremName [TermArg argF, RelArg argR, ProofArg wrongProof] dummyPos
 
-      case inferProofType emptyCtx emptyMacroEnv axiomRelTheoremEnv theoremApp of
+      case inferProofType axiomRelTheoremEnv theoremApp of
         Left (ProofTypingError _ _ _ _ _) -> return () -- Expected failure - proof uses wrong term
         Left err -> expectationFailure $ "Expected ProofTypingError for wrong term in proof, got: " ++ show err
         Right _ -> expectationFailure "Expected type checking failure due to proof using wrong term"
@@ -305,7 +298,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremBindings = [TermBinding "f", RelBinding "R", ProofBinding "p" (RelJudgment appFX (RVar "R" 0 dummyPos) appFX)]
           theoremJudgment = RelJudgment appFX (RVar "R" 0 dummyPos) appFX
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Application: strict_validation_thm g S wrong_proof
           argF = Var "g" 0 dummyPos
@@ -315,7 +308,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           wrongProof = Iota (App argF termY dummyPos) (App argF termY dummyPos) dummyPos
           theoremApp = PTheoremApp theoremName [TermArg argF, RelArg argR, ProofArg wrongProof] dummyPos
 
-      case inferProofType emptyCtx emptyMacroEnv theoremEnv theoremApp of
+      case inferProofType theoremEnv theoremApp of
         Left (ProofTypingError _ _ _ _ _) -> return () -- Expected failure
         Left err -> expectationFailure $ "Expected ProofTypingError, got: " ++ show err
         Right _ -> expectationFailure "Expected type checking failure, but got success"
@@ -329,7 +322,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremBindings = [TermBinding "f", RelBinding "R", ProofBinding "p" (RelJudgment appFT compRR appFT)]
           theoremJudgment = RelJudgment appFT (Comp compRR (RVar "R" 0 dummyPos) dummyPos) appFT
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Application: relation_validation_thm h T wrong_proof
           argF = Var "h" 0 dummyPos
@@ -338,7 +331,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           wrongProof = Iota (App argF termT dummyPos) (App argF termT dummyPos) dummyPos
           theoremApp = PTheoremApp theoremName [TermArg argF, RelArg argR, ProofArg wrongProof] dummyPos
 
-      case inferProofType emptyCtx emptyMacroEnv theoremEnv theoremApp of
+      case inferProofType theoremEnv theoremApp of
         Left (ProofTypingError _ _ _ _ _) -> return () -- Expected failure
         Left err -> expectationFailure $ "Expected ProofTypingError, got: " ++ show err
         Right _ -> expectationFailure "Expected type checking failure, but got success"
@@ -349,7 +342,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremBindings = [TermBinding "x", RelBinding "R"]
           theoremJudgment = RelJudgment (Var "x" 0 dummyPos) (RVar "R" 0 dummyPos) (Var "x" 0 dummyPos)
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Application with too many arguments: limited_args_thm a S extra_proof
           argTerm = Var "a" 0 dummyPos
@@ -357,7 +350,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           extraProof = PVar "extra" 0 dummyPos
           theoremApp = PTheoremApp theoremName [TermArg argTerm, RelArg argRel, ProofArg extraProof] dummyPos
 
-      case inferProofType emptyCtx emptyMacroEnv theoremEnv theoremApp of
+      case inferProofType theoremEnv theoremApp of
         Left (InternalError msg _) -> msg `shouldContain` "Too many arguments"
         Left err -> expectationFailure $ "Expected InternalError about too many arguments, got: " ++ show err
         Right _ -> expectationFailure "Expected error for too many arguments, but got success"
@@ -373,7 +366,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
               (Comp (Comp (RVar "R" 0 dummyPos) (RVar "S" 0 dummyPos) dummyPos) (RVar "T" 0 dummyPos) dummyPos)
               (Var "z" 2 dummyPos)
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Application: complex_six_arg_thm a1 R1 a2 R2 a3 R3
           args =
@@ -393,7 +386,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
               (Comp (Comp (RVar "R1" 0 dummyPos) (RVar "R2" 1 dummyPos) dummyPos) (RVar "R3" 2 dummyPos) dummyPos)
               (Var "a3" 2 dummyPos)
 
-      case inferProofType emptyCtx emptyMacroEnv theoremEnv theoremApp of
+      case inferProofType theoremEnv theoremApp of
         Right result -> resultJudgment result `shouldBe` expectedJudgment
         Left err -> expectationFailure $ "Expected success, got error: " ++ show err
 
@@ -403,7 +396,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremBindings = [TermBinding "x", RelBinding "R", TermBinding "y", RelBinding "S"]
           theoremJudgment = RelJudgment (Var "x" 0 dummyPos) (Comp (RVar "R" 0 dummyPos) (RVar "S" 0 dummyPos) dummyPos) (Var "y" 1 dummyPos)
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Partial application with only 2 arguments: partial_app_thm a T
           args = [TermArg (Var "a" 0 dummyPos), RelArg (RVar "T" 0 dummyPos)]
@@ -412,7 +405,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           -- Expected result: a [T ∘ S] y (only x and R substituted)
           expectedJudgment = RelJudgment (Var "a" 0 dummyPos) (Comp (RVar "T" 0 dummyPos) (RVar "S" 0 dummyPos) dummyPos) (Var "y" 1 dummyPos)
 
-      case inferProofType emptyCtx emptyMacroEnv theoremEnv theoremApp of
+      case inferProofType theoremEnv theoremApp of
         Right result -> resultJudgment result `shouldBe` expectedJudgment
         Left err -> expectationFailure $ "Expected success, got error: " ++ show err
 
@@ -426,11 +419,11 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremBindings = [TermBinding "f", TermBinding "g", RelBinding "R", ProofBinding "p" (RelJudgment appFGX relRRConv appFGX)]
           theoremJudgment = RelJudgment appFGX (Comp relRRConv (RVar "R" 0 dummyPos) dummyPos) appFGX
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Add axiom theorem: ⊢ complex_axiom (f : Term) (g : Term) (R : Rel) : (f (g x)) [R ∘ R ˘] (f (g x))
           complexAxiomEnv =
-            extendTheoremEnvironment
+            extendTheoremContext
               "complex_axiom"
               [TermBinding "f", TermBinding "g", RelBinding "R"]
               (RelJudgment appFGX relRRConv appFGX)
@@ -451,7 +444,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           -- Expected result: (h (k x)) [S ∘ S ˘ ∘ S] (h (k x))
           expectedJudgment = RelJudgment substAppFGX (Comp substRelRRConv argR dummyPos) substAppFGX
 
-      case inferProofType emptyCtx emptyMacroEnv complexAxiomEnv theoremApp of
+      case inferProofType complexAxiomEnv theoremApp of
         Right result -> resultJudgment result `shouldBe` expectedJudgment
         Left err -> expectationFailure $ "Expected success, got error: " ++ show err
 
@@ -465,14 +458,14 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremBindings = [TermBinding "f", TermBinding "g", RelBinding "R", ProofBinding "p" (RelJudgment appFGX relRRConv appFGX)]
           theoremJudgment = RelJudgment appFGX (Comp relRRConv (RVar "R" 0 dummyPos) dummyPos) appFGX
           theoremProof = PVar "dummy_proof" 0 dummyPos
-          theoremEnv = TheoremEnvironment $ Map.fromList [(theoremName, (theoremBindings, theoremJudgment, theoremProof))]
+          theoremEnv = extendTheoremContext theoremName theoremBindings theoremJudgment theoremProof emptyContext
 
           -- Add axiom theorem with DIFFERENT nested structure: ⊢ wrong_complex_axiom (f : Term) (g : Term) (R : Rel) : (g (f x)) [R ∘ R ˘] (g (f x))
           termY = Var "y" 0 dummyPos -- Different base variable
           appFY = App (Var "f" 0 dummyPos) termY dummyPos
           appGFY = App (Var "g" 0 dummyPos) appFY dummyPos -- Different nesting: g(f(y)) instead of f(g(x))
           wrongComplexAxiomEnv =
-            extendTheoremEnvironment
+            extendTheoremContext
               "wrong_complex_axiom"
               [TermBinding "f", TermBinding "g", RelBinding "R"]
               (RelJudgment appGFY relRRConv appGFY) -- Wrong nesting structure
@@ -487,7 +480,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           wrongProof = PTheoremApp "wrong_complex_axiom" [TermArg argF, TermArg argG, RelArg argR] dummyPos
           theoremApp = PTheoremApp theoremName [TermArg argF, TermArg argG, RelArg argR, ProofArg wrongProof] dummyPos
 
-      case inferProofType emptyCtx emptyMacroEnv wrongComplexAxiomEnv theoremApp of
+      case inferProofType wrongComplexAxiomEnv theoremApp of
         Left (ProofTypingError _ _ _ _ _) -> return () -- Expected failure - nested structure doesn't match
         Left err -> expectationFailure $ "Expected ProofTypingError for mismatched nested structure, got: " ++ show err
         Right _ -> expectationFailure "Expected type checking failure due to mismatched nested term structure"

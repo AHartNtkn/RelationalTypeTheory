@@ -27,9 +27,7 @@ library
       Core.Syntax
       Core.Raw
       Core.Context
-      Core.Environment
       Core.Errors
-      Operations.Builtins
       Operations.Generic.BetaEta
       Operations.Generic.Equality
       Operations.Generic.Expansion
@@ -41,7 +39,6 @@ library
       Parser.Lexer
       Parser.Raw
       Parser.Elaborate
-      Parser.Context
       Parser.Mixfix
       TypeCheck.Proof
       Interface.REPL

@@ -21,28 +21,27 @@ import Operations.Generic.Shift (shift, shiftWithBoundsCheck, shiftTermsInRType,
 import Operations.Generic.Substitution (SubstAst(..), applyTheoremSubsToJudgment)
 import Operations.Generic.Macro (elabMacroAppG)
 import Operations.Generic.Expansion (expandWHNF)
-import Operations.Resolve (fromTypingContext)
 
 -- | Result of proof checking
 data ProofCheckResult = ProofCheckResult
   { resultJudgment :: RelJudgment,
-    resultContext :: TypingContext
+    resultContext :: Context
   }
   deriving (Show, Eq)
 
 -- | Check if a proof has a given relational judgment in a context
-checkProof :: TypingContext -> MacroEnvironment -> TheoremEnvironment -> Proof -> RelJudgment -> Either RelTTError ProofCheckResult
-checkProof ctx macroEnv theoremEnv proof expectedJudgment = do
-  result <- inferProofType ctx macroEnv theoremEnv proof
+checkProof :: Context -> Proof -> RelJudgment -> Either RelTTError ProofCheckResult
+checkProof ctx proof expectedJudgment = do
+  result <- inferProofType ctx proof
   let actualJudgment = resultJudgment result
 
   -- Check if the inferred judgment matches the expected one
-  judgmentEqual <- relJudgmentEqual macroEnv actualJudgment expectedJudgment
+  judgmentEqual <- relJudgmentEqual ctx actualJudgment expectedJudgment
   if judgmentEqual
     then return result
     else do
       -- Try to normalize both judgments for better error reporting
-      normalizedForms <- case (normalizeJudgment macroEnv expectedJudgment, normalizeJudgment macroEnv actualJudgment) of
+      normalizedForms <- case (normalizeJudgment ctx expectedJudgment, normalizeJudgment ctx actualJudgment) of
         (Right normExpected, Right normActual) ->
           if normExpected == expectedJudgment && normActual == actualJudgment
             then return Nothing -- No difference from original forms
@@ -51,8 +50,8 @@ checkProof ctx macroEnv theoremEnv proof expectedJudgment = do
       Left $ ProofTypingError proof expectedJudgment actualJudgment normalizedForms (ErrorContext (proofPos proof) "proof checking")
 
 -- | Infer the relational judgment that a proof establishes
-inferProofType :: TypingContext -> MacroEnvironment -> TheoremEnvironment -> Proof -> Either RelTTError ProofCheckResult
-inferProofType ctx macroEnv theoremEnv proof = case proof of
+inferProofType :: Context -> Proof -> Either RelTTError ProofCheckResult
+inferProofType ctx proof = case proof of
   -- Variable rule: Γ ⊢ u : t[R]t' if u : t[R]t' ∈ Γ
   PVar name idx pos -> do
     -- Regular proof variable lookup
@@ -61,10 +60,14 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
       then return $ ProofCheckResult judgment ctx
       else Left $ InvalidDeBruijnIndex idx (ErrorContext pos "proof variable lookup")
 
+  -- Free proof variables should not appear in well-formed proofs
+  FPVar name pos -> 
+    Left $ InternalError ("Free proof variable " ++ name ++ " encountered during type checking") (ErrorContext pos "proof variable lookup")
+
   -- Theorem application rule: Γ ⊢ theorem_name args : instantiated_judgment
   PTheoremApp name args pos -> do
     -- Look up theorem in environment
-    (bindings, judgment, _) <- lookupTheorem name theoremEnv
+    (bindings, judgment, _) <- lookupTheorem name ctx
 
     -- Check that argument count doesn't exceed binding count
     let bindingCount = length bindings
@@ -73,7 +76,7 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
       then Left $ InternalError ("Too many arguments for theorem " ++ name ++ ": expected " ++ show bindingCount ++ ", got " ++ show argCount) (ErrorContext pos "theorem application")
       else do
         -- Type check each argument against its expected binding type
-        validatedArgs <- checkTheoremArgs bindings args ctx macroEnv theoremEnv pos
+        validatedArgs <- checkTheoremArgs bindings args ctx pos
 
         -- Apply substitutions to get the instantiated judgment
         instantiatedJudgment <- instantiateTheoremJudgment bindings validatedArgs judgment
@@ -97,7 +100,7 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
     ---------------------------------------------------------
     -- 3. infer body under Γ, q
     ProofCheckResult {resultJudgment = RelJudgment t1 r' t2} <-
-      inferProofType ctx2 macroEnv theoremEnv body
+      inferProofType ctx2 body
 
     -- 4. lift every *other* free variable by 1; the two freshly created
     --    witnesses (x, x') themselves must stay where they are.
@@ -116,8 +119,8 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
 
   -- Application: Γ ⊢ p₁ p₂ : t₁ t₂[R']t₁' t₂'
   AppP proof1 proof2 pos -> do
-    result1 <- inferProofType ctx macroEnv theoremEnv proof1
-    result2 <- inferProofType ctx macroEnv theoremEnv proof2
+    result1 <- inferProofType ctx proof1
+    result2 <- inferProofType ctx proof2
 
     let RelJudgment term1 rtype1 term1' = resultJudgment result1
         RelJudgment term2 rtype2 term2' = resultJudgment result2
@@ -125,7 +128,7 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
     case rtype1 of
       Arr argType resultType _ -> do
         -- Check that argument type matches
-        let typesEqual = alphaEquality macroEnv argType rtype2
+        let typesEqual = alphaEquality ctx argType rtype2
         if typesEqual
           then do
             let resultTerm1 = App term1 term2 pos
@@ -137,11 +140,11 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
 
   -- Type application: Γ ⊢ p { R } : t[[R/X]R']t'
   TyApp proof1 rtype pos -> do
-    result1 <- inferProofType ctx macroEnv theoremEnv proof1
+    result1 <- inferProofType ctx proof1
     let RelJudgment term1 rtype1 term1' = resultJudgment result1
 
     -- Expand macros in the type before checking if it's universally quantified
-    expandResult <- expandWHNF macroEnv rtype1
+    expandResult <- expandWHNF ctx rtype1
     let expandedRType = expandedValue expandResult
 
     case expandedRType of
@@ -158,7 +161,7 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
       then do
         -- Extend context with relation variable
         let extendedCtx = extendRelContext varName ctx
-        result <- inferProofType extendedCtx macroEnv theoremEnv body
+        result <- inferProofType extendedCtx body
         let RelJudgment term1 rtype term2 = resultJudgment result
             -- Shift free relation variables by +1, except the bound variable
             shiftedRType = shiftFreeRelVars varName 1 rtype
@@ -169,12 +172,12 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
 
   -- Conversion: Γ ⊢ t₁' ⇃ p ⇂ t₂' : t₁'[R]t₂'
   ConvProof term1' proof1 term2' pos -> do
-    result <- inferProofType ctx macroEnv theoremEnv proof1
+    result <- inferProofType ctx proof1
     let RelJudgment term1 rtype term2 = resultJudgment result
 
     -- Check β-η equivalence with macro expansion
-    equiv1 <- betaEtaEquality macroEnv term1 term1'
-    equiv2 <- betaEtaEquality macroEnv term2 term2'
+    equiv1 <- betaEtaEquality ctx term1 term1'
+    equiv2 <- betaEtaEquality ctx term2 term2'
 
     case (equiv1, equiv2) of
       (True, True) -> do
@@ -185,7 +188,7 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
 
   -- Converse introduction: Γ ⊢ ∪ᵢ p : t'[R^∪]t
   ConvIntro proof1 pos -> do
-    result <- inferProofType ctx macroEnv theoremEnv proof1
+    result <- inferProofType ctx proof1
     let RelJudgment term1 rtype term2 = resultJudgment result
         converseType = Conv rtype pos
         finalJudgment = RelJudgment term2 converseType term1
@@ -193,7 +196,7 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
 
   -- Converse elimination: Γ ⊢ ∪ₑ p : t'[R]t
   ConvElim proof1 pos -> do
-    result <- inferProofType ctx macroEnv theoremEnv proof1
+    result <- inferProofType ctx proof1
     let RelJudgment term1 rtype term2 = resultJudgment result
 
     case rtype of
@@ -214,7 +217,7 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
   --             ⊢ ρ{ x .t₁,t₂} p - p' : [t'/x]t₁[R][t'/x]t₂
   RhoElim varName term1 term2 proof1 proof2 pos -> do
     -- Check first proof: p : t[t'']t'
-    result1 <- inferProofType ctx macroEnv theoremEnv proof1
+    result1 <- inferProofType ctx proof1
     let RelJudgment proofTerm1 proofType proofTerm2 = resultJudgment result1
 
     case proofType of
@@ -226,12 +229,12 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
             expectedSubstTerm2 = substIndex 0 substitutedApp term2 -- [t'' t/0]t₂
 
         -- Check second proof
-        result2 <- inferProofType ctx macroEnv theoremEnv proof2
+        result2 <- inferProofType ctx proof2
         let RelJudgment actualTerm1 actualRType actualTerm2 = resultJudgment result2
 
         -- Verify the second proof has the expected type (use syntactic equality)
-        let termEq1 = alphaEquality macroEnv actualTerm1 expectedSubstTerm1
-            termEq2 = alphaEquality macroEnv actualTerm2 expectedSubstTerm2
+        let termEq1 = alphaEquality ctx actualTerm1 expectedSubstTerm1
+            termEq2 = alphaEquality ctx actualTerm2 expectedSubstTerm2
         case (termEq1, termEq2) of
           (True, True) -> do
             -- Return the final judgment: [t'/0]t₁[R][t'/0]t₂
@@ -247,14 +250,14 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
 
   -- Composition introduction: Γ ⊢ (p,p') : t[R∘R']t'
   Pair proof1 proof2 pos -> do
-    result1 <- inferProofType ctx macroEnv theoremEnv proof1
-    result2 <- inferProofType ctx macroEnv theoremEnv proof2
+    result1 <- inferProofType ctx proof1
+    result2 <- inferProofType ctx proof2
 
     let RelJudgment term1 rtype1 termMiddle = resultJudgment result1
         RelJudgment termMiddle' rtype2 term2 = resultJudgment result2
 
     -- Check that the middle terms are equal (use syntactic equality)
-    let termsEqual = alphaEquality macroEnv termMiddle termMiddle'
+    let termsEqual = alphaEquality ctx termMiddle termMiddle'
     if termsEqual
       then do
         let compositionType = Comp rtype1 rtype2 pos
@@ -266,17 +269,17 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
   -- Paper rule: Γ ⊢ p : t[R∘R']t', Γ, u : t[R]x, v : x[R']t' ⊢ p' : t₁[R'']t₂
   --             ⊢ π p - x . u . v .p' : t₁[R'']t₂
   Pi proof1 varX varU varV proof2 pos -> do
-    result1 <- inferProofType ctx macroEnv theoremEnv proof1
+    result1 <- inferProofType ctx proof1
     let RelJudgment term1 rtype term2 = resultJudgment result1
 
     case rtype of
       Comp rtype1 rtype2 _ -> do
         -- Side condition (**): x ∉ FV(Γ, t₁, t₂, t, t', R, R', R'')
         let contextFreeVars = boundVarsInContext ctx
-            term1FreeVars = freeVars macroEnv term1
-            term2FreeVars = freeVars macroEnv term2
-            rtype1FreeVars = freeVars macroEnv rtype1
-            rtype2FreeVars = freeVars macroEnv rtype2
+            term1FreeVars = freeVars ctx term1
+            term2FreeVars = freeVars ctx term2
+            rtype1FreeVars = freeVars ctx rtype1
+            rtype2FreeVars = freeVars ctx rtype2
             allFreeVars = Set.unions [contextFreeVars, term1FreeVars, term2FreeVars, rtype1FreeVars, rtype2FreeVars]
 
         if Set.member varX allFreeVars
@@ -304,7 +307,7 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
                 ctx2 = extendProofContext varV witnessJudgment2 ctx1
 
             -- Check proof2 in extended context
-            result2 <- inferProofType ctx2 macroEnv theoremEnv proof2
+            result2 <- inferProofType ctx2 proof2
             -- The lookup already handles shifting, so bounds check the result as-is
             let RelJudgment resultTerm1 resultRType resultTerm2 = resultJudgment result2
             case ( shiftWithBoundsCheck (-1) resultTerm1,
@@ -323,12 +326,11 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
 
   -- PMacro case - expand and recurse
   PMacro name args pos -> do
-    case Map.lookup name (macroDefinitions macroEnv) of
+    case Map.lookup name (macroDefinitions ctx) of
       Nothing -> Left $ UnknownMacro name (ErrorContext pos "proof macro lookup")
       Just (sig, ProofMacro body) -> 
-        let resolveEnv = fromTypingContext ctx
-        in case elabMacroAppG macroEnv resolveEnv name sig body [p | MProof p <- args] of
-          Right expandedProof -> inferProofType ctx macroEnv theoremEnv expandedProof
+        case elabMacroAppG ctx name sig body [p | MProof p <- args] of
+          Right expandedProof -> inferProofType ctx expandedProof
           Left err -> Left $ InternalError ("Proof macro expansion failed: " ++ show err) (ErrorContext pos "proof macro expansion")
       Just (_, TermMacro _) -> Left $ InvalidMixfixPattern ("Term macro " ++ name ++ " used in proof context") (ErrorContext pos "proof macro application")
       Just (_, RelMacro _) -> Left $ InvalidMixfixPattern ("Relational macro " ++ name ++ " used in proof context") (ErrorContext pos "proof macro application")
@@ -336,29 +338,29 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
 -- Helper functions
 
 -- | Normalize a judgment by expanding macros in terms and types (NO BETA-ETA)
-normalizeJudgment :: MacroEnvironment -> RelJudgment -> Either RelTTError RelJudgment
-normalizeJudgment macroEnv (RelJudgment t1 rtype t2) = do
+normalizeJudgment :: Context -> RelJudgment -> Either RelTTError RelJudgment
+normalizeJudgment ctx (RelJudgment t1 rtype t2) = do
   -- Only expand macros, do NOT do beta-eta normalization
-  termResult1 <- expandFully macroEnv t1
-  termResult2 <- expandFully macroEnv t2
-  expandResult <- expandWHNF macroEnv rtype
+  termResult1 <- expandFully ctx t1
+  termResult2 <- expandFully ctx t2
+  expandResult <- expandWHNF ctx rtype
   return $ RelJudgment (expandedValue termResult1) (expandedValue expandResult) (expandedValue termResult2)
 
 -- | Check equality of relational judgments
 -- NOTE: Relational judgments must be syntactically equal, not β-η equivalent
 -- This is crucial for type safety - x [R] y and (λ z . z) x [R] y are different judgments
-relJudgmentEqual :: MacroEnvironment -> RelJudgment -> RelJudgment -> Either RelTTError Bool
-relJudgmentEqual macroEnv (RelJudgment t1 r1 t1') (RelJudgment t2 r2 t2') = do
+relJudgmentEqual :: Context -> RelJudgment -> RelJudgment -> Either RelTTError Bool
+relJudgmentEqual ctx (RelJudgment t1 r1 t1') (RelJudgment t2 r2 t2') = do
   -- Use syntactic equality (alpha equivalence) for terms, not β-η equivalence
-  let termEq1 = alphaEquality macroEnv t1 t2
-      termEq2 = alphaEquality macroEnv t1' t2'
-  let typeEq = alphaEquality macroEnv r1 r2
+  let termEq1 = alphaEquality ctx t1 t2
+      termEq2 = alphaEquality ctx t1' t2'
+  let typeEq = alphaEquality ctx r1 r2
   return $ termEq1 && termEq2 && typeEq
 
 -- | Sequentially check theorem arguments, carrying the substitution that has
 --   already been established by earlier (term/rel/proof) arguments.
-checkTheoremArgs :: [Binding] -> [TheoremArg] -> TypingContext -> MacroEnvironment -> TheoremEnvironment -> SourcePos -> Either RelTTError [TheoremArg]
-checkTheoremArgs bindings args ctx macroEnv theoremEnv pos =
+checkTheoremArgs :: [Binding] -> [TheoremArg] -> Context -> SourcePos -> Either RelTTError [TheoremArg]
+checkTheoremArgs bindings args ctx pos =
   go [] [] (zip bindings args)
   where
     -- accSubs : substitutions established so far (left‑to‑right)
@@ -375,8 +377,8 @@ checkTheoremArgs bindings args ctx macroEnv theoremEnv pos =
 
         -- infer and compare
         ProofCheckResult {resultJudgment = actualJudg} <-
-          inferProofType ctx macroEnv theoremEnv p
-        equal <- relJudgmentEqual macroEnv instTempl actualJudg
+          inferProofType ctx p
+        equal <- relJudgmentEqual ctx instTempl actualJudg
         if equal
           then go (accSubs ++ [(bind, arg)]) (arg : accArgs) rest
           else

@@ -19,7 +19,8 @@ module Operations.Generic.BetaEta
   , BetaEtaMode(..)
   ) where
 
-import Core.Syntax (Term(..), MacroEnvironment, MacroArg(..))
+import Core.Syntax (Term(..), MacroArg(..))
+import Core.Context (Context)
 import Operations.Generic.Equality (alphaEquality) 
 import Operations.Generic.Expansion (expandFully, ExpansionResult(..))
 import Operations.Generic.Substitution (SubstAst(..))
@@ -38,7 +39,7 @@ data BetaEtaMode = BetaOnly | BetaEtaFull
 --------------------------------------------------------------------------------
 
 -- | Check β-η equivalence of two terms (for conversion proofs only!)
-betaEtaEquality :: MacroEnvironment -> Term -> Term -> Either RelTTError Bool
+betaEtaEquality :: Context -> Term -> Term -> Either RelTTError Bool
 betaEtaEquality env t1 t2 = do
   -- First expand macros, then normalize, then compare
   norm1 <- normalizeForBetaEta env t1
@@ -47,7 +48,7 @@ betaEtaEquality env t1 t2 = do
   return $ alphaEquality env norm1 norm2
 
 -- | Normalize a term for β-η equivalence checking
-normalizeForBetaEta :: MacroEnvironment -> Term -> Either RelTTError Term
+normalizeForBetaEta :: Context -> Term -> Either RelTTError Term
 normalizeForBetaEta env term = do
   -- First expand all macros fully
   expanded <- expandFully env term
@@ -68,6 +69,7 @@ betaEtaNormalizeStep :: Term -> Term
 betaEtaNormalizeStep term = case term of
   -- Variables are already normal
   Var name idx pos -> Var name idx pos
+  FVar name pos -> FVar name pos         -- Free variables are already normal
   
   -- Normalize lambda bodies and apply η-reduction
   Lam name body pos -> 
@@ -112,6 +114,7 @@ etaReduce term = case term of
 occursFree :: Int -> Term -> Bool
 occursFree targetIdx term = case term of
   Var _ idx _ -> idx == targetIdx
+  FVar _ _ -> False                      -- Free variables don't have de Bruijn indices
   Lam _ body _ -> occursFree (targetIdx + 1) body  -- Adjust for binder
   App t1 t2 _ -> occursFree targetIdx t1 || occursFree targetIdx t2
   TMacro _ args _ -> any checkMacroArg args

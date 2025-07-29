@@ -109,12 +109,10 @@ prettyImportDeclaration importDecl = case importDecl of
 prettyExportDeclaration :: ExportDeclaration -> String
 prettyExportDeclaration (ExportSymbols names) = "export " ++ intercalate ", " names ++ ";"
 
-
 -- Pretty print theorem arguments
 prettyTheoremArgWithConfig :: PrettyConfig -> TheoremArg -> String
 prettyTheoremArgWithConfig config arg = case arg of
   TermArg term -> "(" ++ prettyWithConfig config term ++ ")"
   RelArg rtype -> "(" ++ prettyWithConfig config rtype ++ ")"
   ProofArg proof -> "(" ++ prettyWithConfig config proof ++ ")"
-
 

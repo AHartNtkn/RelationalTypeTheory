@@ -2,15 +2,15 @@
 
 module NormalizeSpec (spec) where
 
-import qualified Data.Map as Map
 import Core.Errors
 import Core.Syntax
-import Core.Environment (noMacros)
+import Core.Context (emptyContext, extendMacroContext)
 import Operations.Generic.BetaEta (betaEtaEquality, normalizeForBetaEta)
 import Operations.Generic.Equality (alphaEquality)
 import Operations.Generic.Substitution (substIndex)
 import Test.Hspec
-import TestHelpers (simpleTermMacro)
+import TestHelpers (simpleParamInfo)
+import Parser.Mixfix (defaultFixity)
 import Text.Megaparsec (initialPos)
 
 -- | Normalization result to match old API
@@ -23,7 +23,7 @@ data NormalizationResult = NormalizationResult
 -- Test helpers - use empty macro environment for tests that don't need macros
 normalizeTermBetaEta :: Term -> Either RelTTError NormalizationResult
 normalizeTermBetaEta term = do
-  normalized <- normalizeForBetaEta noMacros term
+  normalized <- normalizeForBetaEta emptyContext term
   return $ NormalizationResult
     { normalizedTerm = normalized
     , wasNormalized = normalized /= term
@@ -31,10 +31,10 @@ normalizeTermBetaEta term = do
     }
 
 termEqualityBetaEta :: Term -> Term -> Either RelTTError Bool
-termEqualityBetaEta t1 t2 = betaEtaEquality noMacros t1 t2
+termEqualityBetaEta t1 t2 = betaEtaEquality emptyContext t1 t2
 
 -- Weak head normal form (simplified implementation)
-normalizeTermWHNF :: MacroEnvironment -> Term -> Either RelTTError NormalizationResult
+normalizeTermWHNF :: Context -> Term -> Either RelTTError NormalizationResult
 normalizeTermWHNF env term = do
   -- For WHNF, we only reduce the outermost redex
   normalized <- normalizeForBetaEta env term
@@ -49,7 +49,7 @@ substituteTerm :: Term -> Term -> Either RelTTError Term
 substituteTerm replacement target = Right $ substIndex 0 replacement target
 
 -- Alpha equality with macro environment
-termEqualityAlpha :: MacroEnvironment -> Term -> Term -> Either RelTTError Bool
+termEqualityAlpha :: Context -> Term -> Term -> Either RelTTError Bool
 termEqualityAlpha env t1 t2 = Right $ alphaEquality env t1 t2
 
 spec :: Spec
@@ -182,40 +182,28 @@ equalitySpec = describe "equality checking" $ do
 macroExpansionAlphaEqualitySpec :: Spec
 macroExpansionAlphaEqualitySpec = describe "macro expansion in alpha equality" $ do
   it "expands term macros before alpha comparison" $ do
-    let macroEnv =
-          MacroEnvironment
-            ( Map.fromList
-                [ ("Identity", ([], TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")))),
-                  ("True", ([], TermMacro (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))))
-                ]
-            )
-            Map.empty
+    let macroEnv = 
+          extendMacroContext "True" [] (TermMacro (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))) (defaultFixity "True") $
+          extendMacroContext "Identity" [] (TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))) (defaultFixity "Identity") $
+          emptyContext
     case termEqualityAlpha macroEnv (TMacro "Identity" [] (initialPos "test")) (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) of
       Right result -> result `shouldBe` True
       Left err -> expectationFailure $ "Alpha equality with macro expansion failed: " ++ show err
 
   it "expands both terms before comparing" $ do
     let macroEnv =
-          MacroEnvironment
-            ( Map.fromList
-                [ ("Identity", ([], TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")))),
-                  ("Id", ([], TermMacro (Lam "y" (Var "y" 0 (initialPos "test")) (initialPos "test"))))
-                ]
-            )
-            Map.empty
+          extendMacroContext "Id" [] (TermMacro (Lam "y" (Var "y" 0 (initialPos "test")) (initialPos "test"))) (defaultFixity "Id") $
+          extendMacroContext "Identity" [] (TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))) (defaultFixity "Identity") $
+          emptyContext
     case termEqualityAlpha macroEnv (TMacro "Identity" [] (initialPos "test")) (TMacro "Id" [] (initialPos "test")) of
       Right result -> result `shouldBe` True -- Alpha equivalent after expansion
       Left err -> expectationFailure $ "Alpha equality with both macros failed: " ++ show err
 
   it "recognizes parameterized macro and its expanded form as alpha-equivalent" $ do
     let macroEnv =
-          MacroEnvironment
-            ( Map.fromList
-                [ ("Const", simpleTermMacro ["x"] (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test"))),
-                  ("a", simpleTermMacro [] (Var "a_const" (-1) (initialPos "test")))
-                ]
-            )
-            Map.empty
+          extendMacroContext "a" [] (TermMacro (Var "a_const" (-1) (initialPos "test"))) (defaultFixity "a") $
+          extendMacroContext "Const" [simpleParamInfo "x" TermK] (TermMacro (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test"))) (defaultFixity "Const") $
+          emptyContext
         macroCall = TMacro "Const" [MTerm (TMacro "a" [] (initialPos "test"))] (initialPos "test")
         expectedExpansion = Lam "y" (TMacro "a" [] (initialPos "test")) (initialPos "test")
     case termEqualityAlpha macroEnv macroCall expectedExpansion of
@@ -230,7 +218,7 @@ normalizationStrategySpec :: Spec
 normalizationStrategySpec = describe "normalization strategies" $ do
   it "weak head normal form reduces outer redexes only" $ do
     let term = App (Lam "x" (App (Lam "y" (Var "y" 0 (initialPos "test")) (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "a" (-1) (initialPos "test")) (initialPos "test")
-    case normalizeTermWHNF noMacros term of
+    case normalizeTermWHNF emptyContext term of
       Right result -> do
         -- WHNF reduces: (λ x . (λ y . y) x) a → (λ y . y) a → a
         -- Both reductions happen because both are at the top level
@@ -241,7 +229,7 @@ normalizationStrategySpec = describe "normalization strategies" $ do
   it "weak head normal form stops at lambda (does not reduce under lambda)" $ do
     -- This term has a redex under a lambda: λ z . (λ x . x) a
     let term = Lam "z" (App (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (Var "a" (-1) (initialPos "test")) (initialPos "test")) (initialPos "test")
-    case normalizeTermWHNF noMacros term of
+    case normalizeTermWHNF emptyContext term of
       Right result -> do
         -- WHNF should NOT reduce under the lambda
         -- The term is already in WHNF because it's a lambda
@@ -252,7 +240,7 @@ normalizationStrategySpec = describe "normalization strategies" $ do
   it "weak head normal form stops at constructor-like forms" $ do
     -- A lambda is already in WHNF
     let term1 = Lam "x" (App (App (Var "f" (-1) (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (Var "y" (-1) (initialPos "test")) (initialPos "test")) (initialPos "test")
-    case normalizeTermWHNF noMacros term1 of
+    case normalizeTermWHNF emptyContext term1 of
       Right result -> do
         normalizedTerm result `shouldBe` term1
         reductionSteps result `shouldBe` 0
@@ -260,7 +248,7 @@ normalizationStrategySpec = describe "normalization strategies" $ do
 
     -- A variable is already in WHNF
     let term2 = Var "x" (-1) (initialPos "test")
-    case normalizeTermWHNF noMacros term2 of
+    case normalizeTermWHNF emptyContext term2 of
       Right result -> do
         normalizedTerm result `shouldBe` term2
         reductionSteps result `shouldBe` 0
@@ -268,7 +256,7 @@ normalizationStrategySpec = describe "normalization strategies" $ do
 
     -- An application with a variable head is in WHNF
     let term3 = App (App (Var "f" (-1) (initialPos "test")) (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (App (Lam "y" (Var "y" 0 (initialPos "test")) (initialPos "test")) (Var "z" (-1) (initialPos "test")) (initialPos "test")) (initialPos "test")
-    case normalizeTermWHNF noMacros term3 of
+    case normalizeTermWHNF emptyContext term3 of
       Right result -> do
         -- WHNF doesn't reduce this because the head is a variable, not a lambda
         normalizedTerm result `shouldBe` term3

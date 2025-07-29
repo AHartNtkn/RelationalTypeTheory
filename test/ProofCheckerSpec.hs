@@ -7,15 +7,21 @@ import qualified Data.Map as Map
 import Core.Errors
 import Core.Raw (RawDeclaration(..))
 import Core.Syntax
-import Core.Environment (noMacros, noTheorems, extendMacroEnvironment)
 import Parser.Mixfix (defaultFixity)
 import Parser.Raw (rawDeclaration)
-import Parser.Elaborate (elaborate, emptyCtxWithBuiltins)
+import Parser.Elaborate (elaborate)
 import TypeCheck.Proof
 import Text.Megaparsec (runParser)
 import Test.Hspec
 import TestHelpers (buildContextFromBindings, simpleRelMacro)
 import Text.Megaparsec (initialPos)
+
+-- Helper to create ParamInfo for tests
+testParamInfo :: String -> ParamInfo
+testParamInfo name = ParamInfo name TermK False []
+
+testRelParamInfo :: String -> ParamInfo
+testRelParamInfo name = ParamInfo name RelK False []
 
 spec :: Spec
 spec = do
@@ -44,22 +50,20 @@ basicProofCheckingSpec = describe "basic proof checking" $ do
     -- Create a context with term variables for x, y
     let termCtx =
           extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
         judgment = RelJudgment (Var "x" 1 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "y" 0 (initialPos "test"))
         ctx = extendProofContext "p" judgment termCtx
         proof = PVar "p" 0 (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx macroEnv noTheorems proof of
+    case inferProofType ctx proof of
       Right result -> resultJudgment result `shouldBe` judgment
       Left err -> expectationFailure $ "Expected successful proof check: " ++ show err
 
   it "rejects invalid proof variables" $ do
-    let ctx = emptyTypingContext
+    let ctx = emptyContext
         proof = PVar "unknown" 0 (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx macroEnv noTheorems proof of
+    case inferProofType ctx proof of
       Left _ -> return () -- Expected failure
       Right _ -> expectationFailure "Expected proof checking to fail for unknown variable"
 
@@ -70,7 +74,7 @@ proofLambdaSpec = describe "proof lambda abstractions (LamP)" $ do
     -- Test: λu:(A→B).p where p uses u to prove x[A→B]y
     let termCtx =
           extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Create the arrow type A → B
         arrType = Arr (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")
@@ -81,9 +85,8 @@ proofLambdaSpec = describe "proof lambda abstractions (LamP)" $ do
 
         -- Lambda proof: λu:(A→B).u
         lambdaProof = LamP "u" arrType bodyProof (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType termCtx macroEnv noTheorems lambdaProof of
+    case inferProofType termCtx  lambdaProof of
       Right result -> do
         let RelJudgment term1 resultType term2 = resultJudgment result
         case resultType of
@@ -111,7 +114,7 @@ proofLambdaSpec = describe "proof lambda abstractions (LamP)" $ do
     let termCtx =
           extendTermContext "z" (RMacro "C" [] (initialPos "test")) $
             extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-              extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+              extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
         rType = RMacro "R" [] (initialPos "test")
         sType = RMacro "S" [] (initialPos "test")
@@ -121,9 +124,8 @@ proofLambdaSpec = describe "proof lambda abstractions (LamP)" $ do
 
         -- Outer lambda: λ u : R . λv:S.v
         outerLambda = LamP "u" rType innerLambda (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType termCtx macroEnv noTheorems outerLambda of
+    case inferProofType termCtx  outerLambda of
       Right result -> do
         let RelJudgment term1 resultType term2 = resultJudgment result
         case resultType of
@@ -152,7 +154,7 @@ proofApplicationSpec = describe "proof applications (AppP)" $ do
     let termCtx =
           extendTermContext "z" (RMacro "C" [] (initialPos "test")) $
             extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-              extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+              extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
         rType = RMacro "R" [] (initialPos "test")
         sType = RMacro "S" [] (initialPos "test")
@@ -170,12 +172,11 @@ proofApplicationSpec = describe "proof applications (AppP)" $ do
 
         -- Application: p q
         appProof = AppP (PVar "p" 1 (initialPos "test")) (PVar "q" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
         -- Expected result: (x y)[S](y z) - proof application applies the function
         expectedJudgment = RelJudgment (App (Var "x" 2 (initialPos "test")) (Var "y" 1 (initialPos "test")) (initialPos "test")) sType (App (Var "y" 1 (initialPos "test")) (Var "z" 0 (initialPos "test")) (initialPos "test"))
 
-    case inferProofType ctx macroEnv noTheorems appProof of
+    case inferProofType ctx appProof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful proof application: " ++ show err
 
@@ -183,7 +184,7 @@ proofApplicationSpec = describe "proof applications (AppP)" $ do
     -- Create mismatched function and argument types
     let termCtx =
           extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
         rType = RMacro "R" [] (initialPos "test")
         sType = RMacro "S" [] (initialPos "test")
@@ -197,9 +198,8 @@ proofApplicationSpec = describe "proof applications (AppP)" $ do
             extendProofContext "p" funcJudgment termCtx
 
         appProof = AppP (PVar "p" 1 (initialPos "test")) (PVar "q" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx macroEnv noTheorems appProof of
+    case inferProofType ctx appProof of
       Left (TypeMismatch _ _ _) -> return () -- Expected type mismatch error
       Left err -> expectationFailure $ "Expected TypeMismatch, got: " ++ show err
       Right _ -> expectationFailure "Expected proof application to fail with type mismatch"
@@ -211,7 +211,7 @@ typeApplicationSpec = describe "type applications (TyApp)" $ do
     -- Test: p { R } where p : ∀ X .P[X]
     let termCtx =
           extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Universal type: ∀ X . x[X]y
         universalType = All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test")
@@ -222,33 +222,32 @@ typeApplicationSpec = describe "type applications (TyApp)" $ do
         -- Type application: p { R }
         substitutionType = RMacro "R" [] (initialPos "test")
         typeAppProof = TyApp (PVar "p" 0 (initialPos "test")) substitutionType (initialPos "test")
-        macroEnv = noMacros
 
         -- Expected: x[R]y (X substituted with R)
         expectedJudgment = RelJudgment (Var "x" 1 (initialPos "test")) substitutionType (Var "y" 0 (initialPos "test"))
 
-    case inferProofType ctx macroEnv noTheorems typeAppProof of
+    case inferProofType ctx typeAppProof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful type application: " ++ show err
 
   it "tests universal instantiation over macro expanding to quantified type" $ do
     -- Test: if we have C ≔ ∀ X . X → X → X, can we do p{A} where p : b [C] b?
-    let termCtx = extendTermContext "b" (RMacro "Term" [] (initialPos "test")) emptyTypingContext
+    let termCtx = extendTermContext "b" (RMacro "Term" [] (initialPos "test")) emptyContext
 
         -- Define macro C ≔ ∀ X . X → X → X (like Bool)
         pos = initialPos "test"
         quantifiedMacro = RelMacro $ All "X" (Arr (RVar "X" 0 pos) (Arr (RVar "X" 0 pos) (RVar "X" 0 pos) pos) pos) pos
-        macroEnv = extendMacroEnvironment "C" [] quantifiedMacro (defaultFixity "TEST") noMacros
+        macroCtx = extendMacroContext "C" [] quantifiedMacro (defaultFixity "TEST") termCtx
 
         -- Proof variable p : b [C] b
         macroJudgment = RelJudgment (Var "b" 0 (initialPos "test")) (RMacro "C" [] (initialPos "test")) (Var "b" 0 (initialPos "test"))
-        ctx = extendProofContext "p" macroJudgment termCtx
+        ctx = extendProofContext "p" macroJudgment macroCtx
 
         -- Type application: p{A}
         instantiationType = RMacro "A" [] (initialPos "test")
         typeAppProof = TyApp (PVar "p" 0 (initialPos "test")) instantiationType (initialPos "test")
 
-    case inferProofType ctx macroEnv noTheorems typeAppProof of
+    case inferProofType ctx typeAppProof of
       Right result -> do
         -- Expected: b [A → A → A] b
         let RelJudgment _ relType _ = resultJudgment result
@@ -262,16 +261,15 @@ typeApplicationSpec = describe "type applications (TyApp)" $ do
     -- Try to apply type to non-universal proof
     let termCtx =
           extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
         nonUniversalType = RMacro "R" [] (initialPos "test") -- Not universal
         judgment = RelJudgment (Var "x" 1 (initialPos "test")) nonUniversalType (Var "y" 0 (initialPos "test"))
 
         ctx = extendProofContext "p" judgment termCtx
         typeAppProof = TyApp (PVar "p" 0 (initialPos "test")) (RMacro "S" [] (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx macroEnv noTheorems typeAppProof of
+    case inferProofType ctx typeAppProof of
       Left (InvalidTypeApplication _ _) -> return () -- Expected error
       Left err -> expectationFailure $ "Expected InvalidTypeApplication, got: " ++ show err
       Right _ -> expectationFailure "Expected type application to fail on non-universal proof"
@@ -283,7 +281,7 @@ typeLambdaSpec = describe "type lambda abstractions (TyLam)" $ do
     -- Test: Λx .p where p proves something with free type variable x
     let termCtx =
           extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-            extendTermContext "t" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "t" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Body proof that uses free type variable X
         bodyJudgment = RelJudgment (Var "t" 1 (initialPos "test")) (RVar "X" (-1) (initialPos "test")) (Var "y" 0 (initialPos "test"))
@@ -291,9 +289,8 @@ typeLambdaSpec = describe "type lambda abstractions (TyLam)" $ do
 
         -- Type lambda: Λx .body
         typeLambdaProof = TyLam "X" (PVar "body" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType bodyCtx macroEnv noTheorems typeLambdaProof of
+    case inferProofType bodyCtx  typeLambdaProof of
       Right result -> do
         let RelJudgment term1 resultType term2 = resultJudgment result
         case resultType of
@@ -315,7 +312,7 @@ conversionProofSpec :: Spec
 conversionProofSpec = describe "conversion proofs (ConvProof)" $ do
   it "correctly types t₁' ⇃ p ⇂ t₂' with β-η equivalent terms" $ do
     -- Test conversion with beta-equivalent terms
-    let termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+    let termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Original terms in proof: ((λ x . x) a) [R] a
         originalTerm1 = App (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (Var "a" 0 (initialPos "test")) (initialPos "test")
@@ -328,11 +325,10 @@ conversionProofSpec = describe "conversion proofs (ConvProof)" $ do
         convertedTerm1 = Var "a" 0 (initialPos "test") -- β-equivalent to (λ x . x) a
         convertedTerm2 = Var "a" 0 (initialPos "test") -- Same
         conversionProof = ConvProof convertedTerm1 (PVar "p" 0 (initialPos "test")) convertedTerm2 (initialPos "test")
-        macroEnv = noMacros
 
         expectedJudgment = RelJudgment convertedTerm1 (RMacro "R" [] (initialPos "test")) convertedTerm2
 
-    case inferProofType ctx macroEnv noTheorems conversionProof of
+    case inferProofType ctx conversionProof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful conversion proof: " ++ show err
 
@@ -340,7 +336,7 @@ conversionProofSpec = describe "conversion proofs (ConvProof)" $ do
     -- Test conversion with non-equivalent terms
     let termCtx =
           extendTermContext "b" (RMacro "B" [] (initialPos "test")) $
-            extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyContext
 
         originalJudgment = RelJudgment (Var "a" 1 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "a" 1 (initialPos "test"))
         ctx = extendProofContext "p" originalJudgment termCtx
@@ -348,9 +344,8 @@ conversionProofSpec = describe "conversion proofs (ConvProof)" $ do
         -- Try to convert to different terms
         nonEquivTerm1 = Var "b" 0 (initialPos "test") -- Not equivalent to a
         conversionProof = ConvProof nonEquivTerm1 (PVar "p" 0 (initialPos "test")) (Var "a" 1 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx macroEnv noTheorems conversionProof of
+    case inferProofType ctx conversionProof of
       Left (LeftConversionError _ _ _) -> return () -- Expected left conversion error
       Left (RightConversionError _ _ _) -> return () -- Expected right conversion error
       Left err -> expectationFailure $ "Expected conversion error, got: " ++ show err
@@ -360,7 +355,7 @@ conversionProofSpec = describe "conversion proofs (ConvProof)" $ do
     -- Critical test: ((λ z . z) x) ⇃ rel ⇂ b should NOT have type x [S] b
     let termCtx =
           extendTermContext "b" (RMacro "Term" [] (initialPos "test")) $
-            extendTermContext "x" (RMacro "Term" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "x" (RMacro "Term" [] (initialPos "test")) emptyContext
 
         -- rel : x [S] b
         relType = RMacro "S" [] (initialPos "test")
@@ -374,9 +369,8 @@ conversionProofSpec = describe "conversion proofs (ConvProof)" $ do
         -- Expected judgment: x [S] b (which should NOT match the inferred type)
         expectedJudgment = RelJudgment (Var "x" 1 (initialPos "test")) relType (Var "b" 0 (initialPos "test"))
 
-        macroEnv = noMacros
 
-    case checkProof ctx macroEnv noTheorems conversionProof expectedJudgment of
+    case checkProof ctx conversionProof expectedJudgment of
       Left (ProofTypingError _ expected actual _ _) -> do
         -- Verify the expected and actual judgments are different
         expected `shouldBe` RelJudgment (Var "x" 1 (initialPos "test")) relType (Var "b" 0 (initialPos "test"))
@@ -394,7 +388,7 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
     let termCtx =
           extendTermContext "g" (Arr (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")) $
             extendTermContext "f" (Arr (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")) $
-              extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+              extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- First proof p : a[f](f a) - promotion identity
         promotedTerm = Var "f" 1 (initialPos "test") -- t'' from rule
@@ -417,7 +411,6 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
 
         -- Rho elimination: ρ{ x . x a, g a} p1 - p2
         rhoProof = RhoElim "x" template1 template2 (PVar "p1" 1 (initialPos "test")) (PVar "p2" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
         -- Expected result: [t'/x]t₁[R][t'/x]t₂ where t' = f a
         -- So: [(f a)/x](x a)[R][(f a)/x](g a) = (f a) a [R] g a
@@ -426,13 +419,13 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
             (App (App (Var "f" 1 (initialPos "test")) (Var "a" 2 (initialPos "test")) (initialPos "test")) (Var "a" 2 (initialPos "test")) (initialPos "test")) -- (f a) a
             (RMacro "R" [] (initialPos "test")) -- R
             (App (Var "g" 0 (initialPos "test")) (Var "a" 2 (initialPos "test")) (initialPos "test")) -- g a
-    case inferProofType ctx macroEnv noTheorems rhoProof of
+    case inferProofType ctx rhoProof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful rho elimination: " ++ show err
 
   it "rejects rho elimination when first proof is not promotion" $ do
     -- Test that rho elimination fails when first proof doesn't have promoted type
-    let termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+    let termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Non-promotion proof: a[R]a
         nonPromotionJudgment = RelJudgment (Var "a" 0 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "a" 0 (initialPos "test"))
@@ -449,9 +442,8 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
             extendProofContext "p1" nonPromotionJudgment termCtx
 
         rhoProof = RhoElim "x" template1 template2 (PVar "p1" 1 (initialPos "test")) (PVar "p2" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx macroEnv noTheorems rhoProof of
+    case inferProofType ctx rhoProof of
       Left (RhoEliminationNonPromotedError _ _ _) -> return () -- Expected error
       Left err -> expectationFailure $ "Expected RhoEliminationError, got: " ++ show err
       Right _ -> expectationFailure "Expected rho elimination to fail with non-promotion proof"
@@ -461,7 +453,7 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
     let termCtx =
           extendTermContext "h" (Arr (RMacro "A" [] (initialPos "test")) (Arr (RMacro "B" [] (initialPos "test")) (RMacro "C" [] (initialPos "test")) (initialPos "test")) (initialPos "test")) $
             extendTermContext "b" (RMacro "B" [] (initialPos "test")) $
-              extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+              extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- First proof: a[h](h a)
         promotedTerm = Var "h" 0 (initialPos "test")
@@ -482,12 +474,11 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
             extendProofContext "p1" firstJudgment termCtx
 
         rhoProof = RhoElim "x" template1 template2 (PVar "p1" 1 (initialPos "test")) (PVar "p2" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
         -- Expected: substituting (h a) for x gives: (h a) b [R] h a b
         expectedJudgment = secondJudgment
 
-    case inferProofType ctx macroEnv noTheorems rhoProof of
+    case inferProofType ctx rhoProof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful complex rho elimination: " ++ show err
 
@@ -495,7 +486,7 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
     -- Test edge case where substitution might capture bound variables
     let termCtx =
           extendTermContext "y" (RMacro "A" [] (initialPos "test")) $
-            extendTermContext "f" (Arr (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")) emptyTypingContext
+            extendTermContext "f" (Arr (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")) emptyContext
 
         -- First proof: y[f](f y) - promotion with f containing free variable y
         promotedTerm = Var "f" 0 (initialPos "test") -- f as promoted term
@@ -519,7 +510,6 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
             extendProofContext "p1" firstJudgment termCtx
 
         rhoProof = RhoElim "x" template1 template2 (PVar "p1" 1 (initialPos "test")) (PVar "p2" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
         -- Expected result: [f y/x](λ y . x y)[R][f y/x]y = (λ y . (f y) y)[R]y
         expectedJudgment =
@@ -527,7 +517,7 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
             substitutedTemplate1 -- λ y . (f y) y
             (RMacro "R" [] (initialPos "test")) -- R
             (Var "y" 1 (initialPos "test")) -- y
-    case inferProofType ctx macroEnv noTheorems rhoProof of
+    case inferProofType ctx rhoProof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful variable capture handling: " ++ show err
 
@@ -535,7 +525,7 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
     -- Test substitution into nested lambda expressions
     let termCtx =
           extendTermContext "a" (RMacro "A" [] (initialPos "test")) $
-            extendTermContext "g" (Arr (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")) emptyTypingContext
+            extendTermContext "g" (Arr (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")) emptyContext
 
         -- First proof: a[g](g a)
         promotedTerm = Var "g" 0 (initialPos "test")
@@ -558,12 +548,11 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
             extendProofContext "p1" firstJudgment termCtx
 
         rhoProof = RhoElim "x" template1 template2 (PVar "p1" 1 (initialPos "test")) (PVar "p2" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
         -- Expected: properly substituted nested lambda
         expectedJudgment = secondJudgment
 
-    case inferProofType ctx macroEnv noTheorems rhoProof of
+    case inferProofType ctx rhoProof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful nested lambda substitution: " ++ show err
 
@@ -572,7 +561,7 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
     let termCtx =
           extendTermContext "b" (RMacro "B" [] (initialPos "test")) $
             extendTermContext "a" (RMacro "A" [] (initialPos "test")) $
-              extendTermContext "f" (Arr (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")) emptyTypingContext
+              extendTermContext "f" (Arr (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")) emptyContext
 
         -- First proof: a[f](f a)
         promotedTerm = Var "f" 0 (initialPos "test")
@@ -590,9 +579,8 @@ rhoEliminationSpec = describe "rho elimination (RhoElim)" $ do
             extendProofContext "p1" firstJudgment termCtx
 
         rhoProof = RhoElim "x" template1 template2 (PVar "p1" 1 (initialPos "test")) (PVar "p2" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx macroEnv noTheorems rhoProof of
+    case inferProofType ctx rhoProof of
       Left (RhoEliminationTypeMismatchError _ _ _ _) -> return () -- Expected error
       Left err -> expectationFailure $ "Expected RhoEliminationTypeMismatchError, got: " ++ show err
       Right _ -> expectationFailure "Expected rho elimination to reject mismatched second proof"
@@ -607,7 +595,7 @@ piEliminationSpec = describe "pi elimination (Pi)" $ do
     let termCtx =
           extendTermContext "d" (RMacro "D" [] (initialPos "test")) $
             extendTermContext "c" (RMacro "C" [] (initialPos "test")) $
-              extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+              extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Composition proof: a[R∘S]c
         compType = Comp (RMacro "R" [] (initialPos "test")) (RMacro "S" [] (initialPos "test")) (initialPos "test")
@@ -619,9 +607,8 @@ piEliminationSpec = describe "pi elimination (Pi)" $ do
         -- The inner proof will be a direct reference to one of the witnesses
         -- We'll use witness u which references bound variable u - this should fail
         piProof = Pi (PVar "comp" 0 (initialPos "test")) "x" "u" "v" (PVar "u" 1 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx macroEnv noTheorems piProof of
+    case inferProofType ctx piProof of
       Right result -> expectationFailure $ "Expected pi elimination to fail because it references bound variable u, but got: " ++ show (resultJudgment result)
       Left (InvalidContext msg _) -> msg `shouldContain` "bound variables"
       Left err -> expectationFailure $ "Expected bound variable error, but got: " ++ show err
@@ -633,7 +620,7 @@ piEliminationSpec = describe "pi elimination (Pi)" $ do
     let termCtx =
           extendTermContext "d" (RMacro "D" [] (initialPos "test")) $
             extendTermContext "c" (RMacro "C" [] (initialPos "test")) $
-              extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+              extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Composition proof: a[R∘S]c
         compType = Comp (RMacro "R" [] (initialPos "test")) (RMacro "S" [] (initialPos "test")) (initialPos "test")
@@ -645,9 +632,8 @@ piEliminationSpec = describe "pi elimination (Pi)" $ do
         -- The inner proof will be a direct reference to one of the witnesses
         -- We'll use witness v which references bound variable v - this should fail
         piProof = Pi (PVar "comp" 0 (initialPos "test")) "x" "u" "v" (PVar "v" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx macroEnv noTheorems piProof of
+    case inferProofType ctx piProof of
       Right result -> expectationFailure $ "Expected pi elimination to fail because it references bound variable v, but got: " ++ show (resultJudgment result)
       Left (InvalidContext msg _) -> msg `shouldContain` "bound variables"
       Left err -> expectationFailure $ "Expected bound variable error, but got: " ++ show err
@@ -659,7 +645,7 @@ piEliminationSpec = describe "pi elimination (Pi)" $ do
     let termCtx =
           extendTermContext "d" (RMacro "D" [] (initialPos "test")) $
             extendTermContext "c" (RMacro "C" [] (initialPos "test")) $
-              extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+              extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Composition proof: a[R∘S]c
         compType = Comp (RMacro "R" [] (initialPos "test")) (RMacro "S" [] (initialPos "test")) (initialPos "test")
@@ -671,18 +657,17 @@ piEliminationSpec = describe "pi elimination (Pi)" $ do
         -- The inner proof will be a direct reference to one of the witnesses
         -- We'll use witness u which should be at index 1 in the extended context (after x, u are added)
         piProof = Pi (PVar "comp" 0 (initialPos "test")) "x" "u" "v" (PVar "comp" 2 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
         -- Expected result: what witness comp establishes: a[R∘S]c
         expectedJudgment = RelJudgment (Var "a" 2 (initialPos "test")) compType (Var "c" 1 (initialPos "test"))
 
-    case inferProofType ctx macroEnv noTheorems piProof of
+    case inferProofType ctx piProof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful pi elimination: " ++ show err
 
   it "rejects pi elimination when first proof is not composition" $ do
     -- Test that pi elimination fails when first proof doesn't have composition type
-    let termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+    let termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Non-composition proof: a[R]a
         nonCompJudgment = RelJudgment (Var "a" 0 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "a" 0 (initialPos "test"))
@@ -695,9 +680,8 @@ piEliminationSpec = describe "pi elimination (Pi)" $ do
             extendProofContext "p" nonCompJudgment termCtx
 
         piProof = Pi (PVar "p" 1 (initialPos "test")) "x" "u" "v" (PVar "inner" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx macroEnv noTheorems piProof of
+    case inferProofType ctx piProof of
       Left (CompositionError _ _ _ _ _) -> return () -- Expected error
       Left err -> expectationFailure $ "Expected CompositionError, got: " ++ show err
       Right _ -> expectationFailure "Expected pi elimination to fail with non-composition proof"
@@ -706,7 +690,7 @@ piEliminationSpec = describe "pi elimination (Pi)" $ do
     -- Test that the extracted witnesses u and v are properly available
     let termCtx =
           extendTermContext "c" (RMacro "C" [] (initialPos "test")) $
-            extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Composition proof: a[R∘S]c
         compType = Comp (RMacro "R" [] (initialPos "test")) (RMacro "S" [] (initialPos "test")) (initialPos "test")
@@ -717,9 +701,8 @@ piEliminationSpec = describe "pi elimination (Pi)" $ do
         -- Inner proof that uses the witness u - this should fail because u is bound
         innerProof = PVar "u" 1 (initialPos "test") -- Reference the u witness
         piProof = Pi (PVar "comp" 0 (initialPos "test")) "x" "u" "v" innerProof (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx macroEnv noTheorems piProof of
+    case inferProofType ctx piProof of
       Right result -> expectationFailure $ "Expected pi elimination to fail because it references bound variable u, but got: " ++ show (resultJudgment result)
       Left (InvalidContext msg _) -> msg `shouldContain` "bound variables"
       Left err -> expectationFailure $ "Expected bound variable error, but got: " ++ show err
@@ -731,31 +714,29 @@ iotaProofSpec = describe "iota (term promotion introduction)" $ do
     -- Create a context with term variables for x, f
     let termCtx =
           extendTermContext "f" (Arr (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")) $
-            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
         term1 = Var "x" 1 (initialPos "test")
         term2 = Var "f" 0 (initialPos "test")
         proof = Iota term1 term2 (initialPos "test")
-        macroEnv = noMacros
 
         -- Expected: x[f](f x)
         expectedJudgment = RelJudgment term1 (Prom term2 (initialPos "test")) (App term2 term1 (initialPos "test"))
 
-    case inferProofType termCtx macroEnv noTheorems proof of
+    case inferProofType termCtx  proof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful iota proof: " ++ show err
 
   it "handles iota with lambda terms" $ do
     -- Create a context with term variable for a
-    let termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+    let termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyContext
         term1 = Var "a" 0 (initialPos "test")
         term2 = Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test") -- identity function
         proof = Iota term1 term2 (initialPos "test")
-        macroEnv = noMacros
 
         -- Expected: a[λ x . x]((λ x . x) a)
         expectedJudgment = RelJudgment term1 (Prom term2 (initialPos "test")) (App term2 term1 (initialPos "test"))
 
-    case inferProofType termCtx macroEnv noTheorems proof of
+    case inferProofType termCtx  proof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful iota proof with lambda: " ++ show err
 
@@ -764,16 +745,15 @@ iotaProofSpec = describe "iota (term promotion introduction)" $ do
     -- This is a literal check of the verbatim typing rule
     let termCtx =
           extendTermContext "f" (Arr (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")) $
-            extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyContext
         a = Var "a" 1 (initialPos "test")
         f = Var "f" 0 (initialPos "test")
         proof = Iota a f (initialPos "test")
-        macroEnv = noMacros
 
         -- Expected type: a [f] (f a) - exactly the typing rule
         expectedJudgment = RelJudgment a (Prom f (initialPos "test")) (App f a (initialPos "test"))
 
-    case inferProofType termCtx macroEnv noTheorems proof of
+    case inferProofType termCtx  proof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful verification of ι⟨a, f⟩ : a [f] (f a): " ++ show err
 
@@ -784,16 +764,15 @@ converseProofSpec = describe "converse operations" $ do
     -- Create a context with term variables for x, y
     let termCtx =
           extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
         originalJudgment = RelJudgment (Var "x" 1 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "y" 0 (initialPos "test"))
         ctx = extendProofContext "p" originalJudgment termCtx
         proof = ConvIntro (PVar "p" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
         -- Expected: y[R^∪]x (swapped terms, converse type)
         expectedJudgment = RelJudgment (Var "y" 0 (initialPos "test")) (Conv (RMacro "R" [] (initialPos "test")) (initialPos "test")) (Var "x" 1 (initialPos "test"))
 
-    case inferProofType ctx macroEnv noTheorems proof of
+    case inferProofType ctx proof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful converse introduction: " ++ show err
 
@@ -801,16 +780,15 @@ converseProofSpec = describe "converse operations" $ do
     -- Create a context with term variables for x, y
     let termCtx =
           extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
         originalJudgment = RelJudgment (Var "x" 1 (initialPos "test")) (Conv (RMacro "R" [] (initialPos "test")) (initialPos "test")) (Var "y" 0 (initialPos "test"))
         ctx = extendProofContext "p" originalJudgment termCtx
         proof = ConvElim (PVar "p" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
         -- Expected: y[R]x (swapped terms, non-converse type)
         expectedJudgment = RelJudgment (Var "y" 0 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "x" 1 (initialPos "test"))
 
-    case inferProofType ctx macroEnv noTheorems proof of
+    case inferProofType ctx proof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful converse elimination: " ++ show err
 
@@ -818,13 +796,12 @@ converseProofSpec = describe "converse operations" $ do
     -- Create a context with term variables for x, y
     let termCtx =
           extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
         originalJudgment = RelJudgment (Var "x" 1 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "y" 0 (initialPos "test")) -- Not R^∪
         ctx = extendProofContext "p" originalJudgment termCtx
         proof = ConvElim (PVar "p" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx macroEnv noTheorems proof of
+    case inferProofType ctx proof of
       Left (ConverseError _ _ _) -> return () -- Expected this specific error
       Left err -> expectationFailure $ "Expected ConverseError, got: " ++ show err
       Right _ -> expectationFailure "Expected converse elimination to fail on non-converse type"
@@ -837,7 +814,7 @@ compositionProofSpec = describe "composition operations" $ do
     let termCtx =
           extendTermContext "z" (RMacro "C" [] (initialPos "test")) $
             extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-              extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+              extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Use proper bound variables: x[R]y and y[S]z where middle terms match
         judgment1 = RelJudgment (Var "x" 2 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "y" 1 (initialPos "test"))
@@ -847,12 +824,11 @@ compositionProofSpec = describe "composition operations" $ do
           extendProofContext "p2" judgment2 $
             extendProofContext "p1" judgment1 termCtx
         proof = Pair (PVar "p1" 1 (initialPos "test")) (PVar "p2" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
         -- Expected: x[R∘S]z
         expectedJudgment = RelJudgment (Var "x" 2 (initialPos "test")) (Comp (RMacro "R" [] (initialPos "test")) (RMacro "S" [] (initialPos "test")) (initialPos "test")) (Var "z" 0 (initialPos "test"))
 
-    case inferProofType ctx macroEnv noTheorems proof of
+    case inferProofType ctx proof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful composition introduction: " ++ show err
 
@@ -862,7 +838,7 @@ compositionProofSpec = describe "composition operations" $ do
           extendTermContext "z" (RMacro "B" [] (initialPos "test")) $
             extendTermContext "w" (RMacro "B" [] (initialPos "test")) $
               extendTermContext "y" (RMacro "A" [] (initialPos "test")) $
-                extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+                extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Use proper bound variables: x[R]y and w[S]z where y ≠ w
         judgment1 = RelJudgment (Var "x" 3 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "y" 2 (initialPos "test"))
@@ -872,9 +848,8 @@ compositionProofSpec = describe "composition operations" $ do
           extendProofContext "p2" judgment2 $
             extendProofContext "p1" judgment1 termCtx
         proof = Pair (PVar "p1" 1 (initialPos "test")) (PVar "p2" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx macroEnv noTheorems proof of
+    case inferProofType ctx proof of
       Left (CompositionError _ _ _ _ _) -> return () -- Expected this specific error
       Left err -> expectationFailure $ "Expected CompositionError, got: " ++ show err
       Right _ -> expectationFailure "Expected composition to fail with mismatched middle terms"
@@ -887,7 +862,7 @@ compositionProofSpec = describe "composition operations" $ do
           extendTermContext "w" (RMacro "D" [] (initialPos "test")) $
             extendTermContext "z" (RMacro "C" [] (initialPos "test")) $
               extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-                extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+                extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Three basic relations
         judgment1 = RelJudgment (Var "x" 3 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "y" 2 (initialPos "test")) -- x[R]y
@@ -903,13 +878,12 @@ compositionProofSpec = describe "composition operations" $ do
 
         -- Then compose (R ∘ S) ∘ T: ((p1, p2), p3) : x[(R∘S)∘T]w
         outerComp = Pair innerComp (PVar "p3" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
         -- Expected: x[(R∘S)∘T]w
         expectedType = Comp (Comp (RMacro "R" [] (initialPos "test")) (RMacro "S" [] (initialPos "test")) (initialPos "test")) (RMacro "T" [] (initialPos "test")) (initialPos "test")
         expectedJudgment = RelJudgment (Var "x" 3 (initialPos "test")) expectedType (Var "w" 0 (initialPos "test"))
 
-    case inferProofType ctx macroEnv noTheorems outerComp of
+    case inferProofType ctx outerComp of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful composition chain: " ++ show err
 
@@ -920,7 +894,7 @@ compositionProofSpec = describe "composition operations" $ do
           extendTermContext "w" (RMacro "D" [] (initialPos "test")) $
             extendTermContext "z" (RMacro "C" [] (initialPos "test")) $
               extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-                extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+                extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Three basic relations
         judgment1 = RelJudgment (Var "x" 3 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "y" 2 (initialPos "test")) -- x[R]y
@@ -936,13 +910,12 @@ compositionProofSpec = describe "composition operations" $ do
 
         -- Then compose R ∘ (S ∘ T): (p1, (p2, p3)) : x[R∘(S∘T)]w
         outerComp = Pair (PVar "p1" 2 (initialPos "test")) innerComp (initialPos "test")
-        macroEnv = noMacros
 
         -- Expected: x[R∘(S∘T)]w
         expectedType = Comp (RMacro "R" [] (initialPos "test")) (Comp (RMacro "S" [] (initialPos "test")) (RMacro "T" [] (initialPos "test")) (initialPos "test")) (initialPos "test")
         expectedJudgment = RelJudgment (Var "x" 3 (initialPos "test")) expectedType (Var "w" 0 (initialPos "test"))
 
-    case inferProofType ctx macroEnv noTheorems outerComp of
+    case inferProofType ctx outerComp of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful composition chain: " ++ show err
 
@@ -954,7 +927,7 @@ compositionProofSpec = describe "composition operations" $ do
               extendTermContext "t" (RMacro "D" [] (initialPos "test")) $
                 extendTermContext "s" (RMacro "C" [] (initialPos "test")) $
                   extendTermContext "r" (RMacro "B" [] (initialPos "test")) $
-                    extendTermContext "q" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+                    extendTermContext "q" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Five relations: q[R]r, r[S]s, s[T]t, t[U]u, u[V]v
         judgment1 = RelJudgment (Var "q" 5 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "r" 4 (initialPos "test"))
@@ -975,13 +948,12 @@ compositionProofSpec = describe "composition operations" $ do
         comp2 = Pair comp1 (PVar "p3" 2 (initialPos "test")) (initialPos "test") -- (R ∘ S) ∘ T
         comp3 = Pair comp2 (PVar "p4" 1 (initialPos "test")) (initialPos "test") -- ((R ∘ S) ∘ T) ∘ U
         comp4 = Pair comp3 (PVar "p5" 0 (initialPos "test")) (initialPos "test") -- (((R ∘ S) ∘ T) ∘ U) ∘ V
-        macroEnv = noMacros
 
         -- Expected deeply nested composition type
         expectedType = Comp (Comp (Comp (Comp (RMacro "R" [] (initialPos "test")) (RMacro "S" [] (initialPos "test")) (initialPos "test")) (RMacro "T" [] (initialPos "test")) (initialPos "test")) (RMacro "U" [] (initialPos "test")) (initialPos "test")) (RMacro "V" [] (initialPos "test")) (initialPos "test")
         expectedJudgment = RelJudgment (Var "q" 5 (initialPos "test")) expectedType (Var "v" 0 (initialPos "test"))
 
-    case inferProofType ctx macroEnv noTheorems comp4 of
+    case inferProofType ctx comp4 of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful long composition chain: " ++ show err
 
@@ -990,7 +962,7 @@ compositionProofSpec = describe "composition operations" $ do
     let termCtx =
           extendTermContext "z" (RMacro "C" [] (initialPos "test")) $
             extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-              extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+              extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Setup: y[R]x (note the direction), y[S]z
         forwardJudgment = RelJudgment (Var "y" 1 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "x" 2 (initialPos "test")) -- y[R]x
@@ -1004,13 +976,12 @@ compositionProofSpec = describe "composition operations" $ do
 
         -- Then compose: (converse, p2) should give x[R ˘∘S]z
         compositionProof = Pair converseProof (PVar "p2" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
         -- Expected: x[R ˘∘S]z
         expectedType = Comp (Conv (RMacro "R" [] (initialPos "test")) (initialPos "test")) (RMacro "S" [] (initialPos "test")) (initialPos "test")
         expectedJudgment = RelJudgment (Var "x" 2 (initialPos "test")) expectedType (Var "z" 0 (initialPos "test"))
 
-    case inferProofType ctx macroEnv noTheorems compositionProof of
+    case inferProofType ctx compositionProof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful composition with converse: " ++ show err
 
@@ -1020,7 +991,7 @@ compositionProofSpec = describe "composition operations" $ do
           extendTermContext "w" (RMacro "D" [] (initialPos "test")) $
             extendTermContext "z" (RMacro "C" [] (initialPos "test")) $
               extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-                extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+                extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Setup with intentional mismatch: x[R]y, z[S]w (missing y[?]z)
         judgment1 = RelJudgment (Var "x" 3 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "y" 2 (initialPos "test")) -- x[R]y
@@ -1031,9 +1002,8 @@ compositionProofSpec = describe "composition operations" $ do
 
         -- Try to compose - this should fail
         invalidComposition = Pair (PVar "p1" 1 (initialPos "test")) (PVar "p2" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx macroEnv noTheorems invalidComposition of
+    case inferProofType ctx invalidComposition of
       Left (CompositionError _ _ _ _ _) -> return () -- Expected error
       Left err -> expectationFailure $ "Expected CompositionError, got: " ++ show err
       Right _ -> expectationFailure "Expected composition to fail with broken chain"
@@ -1046,7 +1016,7 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
     let termCtx =
           extendTermContext "z" (RMacro "C" [] (initialPos "test")) $
             extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-              extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+              extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Create composition R ∘ S where R and S both use type variable X
         innerComp = Comp (RVar "X" (-1) (initialPos "test")) (RVar "X" (-1) (initialPos "test")) (initialPos "test") -- X ∘ X
@@ -1065,11 +1035,10 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
 
         -- Type lambda wrapping the composition: Λx .(p1, p2) : ∀ X .(X ∘ X)
         quantifierProof = TyLam "X" compProof (initialPos "test")
-        macroEnv = noMacros
 
         expectedJudgment = RelJudgment (Var "x" 2 (initialPos "test")) quantifiedType (Var "z" 0 (initialPos "test"))
 
-    case inferProofType ctx macroEnv noTheorems quantifierProof of
+    case inferProofType ctx quantifierProof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful quantified composition: " ++ show err
 
@@ -1078,7 +1047,7 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
     let termCtx =
           extendTermContext "z" (RMacro "C" [] (initialPos "test")) $
             extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-              extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+              extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Inner composition: X ∘ Y
         innerComp = Comp (RVar "X" (-1) (initialPos "test")) (RVar "Y" (-1) (initialPos "test")) (initialPos "test")
@@ -1098,11 +1067,10 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
         compProof = Pair (PVar "p1" 1 (initialPos "test")) (PVar "p2" 0 (initialPos "test")) (initialPos "test")
         innerTypeProof = TyLam "Y" compProof (initialPos "test")
         outerTypeProof = TyLam "X" innerTypeProof (initialPos "test")
-        macroEnv = noMacros
 
         expectedJudgment = RelJudgment (Var "x" 2 (initialPos "test")) outerQuantified (Var "z" 0 (initialPos "test"))
 
-    case inferProofType ctx macroEnv noTheorems outerTypeProof of
+    case inferProofType ctx outerTypeProof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful nested quantifiers: " ++ show err
 
@@ -1110,7 +1078,7 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
     -- Test quantifier scoping over converse
     let termCtx =
           extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Type: ∀ X .(X˘)
         converseType = Conv (RVar "X" (-1) (initialPos "test")) (initialPos "test") -- X˘
@@ -1125,11 +1093,10 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
 
         -- Type lambda: Λx .(∪ᵢ p) : ∀ X .(X˘)
         quantifierProof = TyLam "X" converseProof (initialPos "test")
-        macroEnv = noMacros
 
         expectedJudgment = RelJudgment (Var "y" 0 (initialPos "test")) quantifiedType (Var "x" 1 (initialPos "test"))
 
-    case inferProofType ctx macroEnv noTheorems quantifierProof of
+    case inferProofType ctx quantifierProof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful quantified converse: " ++ show err
 
@@ -1137,7 +1104,7 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
     -- Test quantifier scoping over promotion
     let termCtx =
           extendTermContext "f" (Arr (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")) $
-            extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Promotion term that doesn't involve X
         promotedTerm = Var "f" 0 (initialPos "test") -- f
@@ -1152,11 +1119,10 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
 
         -- Type lambda: Λx .p : ∀ X .(f^)
         quantifierProof = TyLam "X" (PVar "p" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
         expectedJudgment = RelJudgment (Var "a" 1 (initialPos "test")) quantifiedType (App (Var "f" 0 (initialPos "test")) (Var "a" 1 (initialPos "test")) (initialPos "test"))
 
-    case inferProofType ctx macroEnv noTheorems quantifierProof of
+    case inferProofType ctx quantifierProof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful quantified promotion: " ++ show err
 
@@ -1164,7 +1130,7 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
     -- Test type application on quantified types
     let termCtx =
           extendTermContext "y" (RMacro "B" [] (initialPos "test")) $
-            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Original quantified type: ∀ X .(X → A)
         innerType = Arr (RVar "X" 0 (initialPos "test")) (RMacro "A" [] (initialPos "test")) (initialPos "test") -- X → A
@@ -1177,19 +1143,18 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
         -- Type application: p{B} should instantiate X with B
         instantiationType = RMacro "B" [] (initialPos "test")
         typeAppProof = TyApp (PVar "p" 0 (initialPos "test")) instantiationType (initialPos "test")
-        macroEnv = noMacros
 
         -- Expected result: x[B → A]y
         expectedType = Arr (RMacro "B" [] (initialPos "test")) (RMacro "A" [] (initialPos "test")) (initialPos "test")
         expectedJudgment = RelJudgment (Var "x" 1 (initialPos "test")) expectedType (Var "y" 0 (initialPos "test"))
 
-    case inferProofType ctx macroEnv noTheorems typeAppProof of
+    case inferProofType ctx typeAppProof of
       Right result -> resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected successful type application: " ++ show err
 
   it "rejects quantifier variable capture violations" $ do
     -- Test that quantifier variables don't capture existing bindings
-    let baseCtx = extendRelContext "X" emptyTypingContext -- X already bound
+    let baseCtx = extendRelContext "X" emptyContext -- X already bound
         termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) baseCtx
 
         -- Try to create ∀ X . R where X is already bound - this should fail
@@ -1198,9 +1163,8 @@ quantifierScopeInteractionSpec = describe "quantifier scope interactions" $ do
 
         -- This should violate freshness constraint
         invalidQuantifierProof = TyLam "X" (PVar "p" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx macroEnv noTheorems invalidQuantifierProof of
+    case inferProofType ctx invalidQuantifierProof of
       Left (DuplicateBinding "X" _) -> return () -- Expected error
       Left err -> expectationFailure $ "Expected DuplicateBinding error, got: " ++ show err
       Right _ -> expectationFailure "Expected quantifier to fail with duplicate binding"
@@ -1211,7 +1175,7 @@ wellFormednessViolationSpec = describe "well-formedness violations" $ do
   it "detects violation of type lambda freshness constraint (direct name binding)" $ do
     -- Paper requires X ∉ FV(Γ) for Λx .p : t[∀x . R]t'
     -- Test case where X is already directly bound as a relation variable
-    let baseCtx = extendRelContext "X" emptyTypingContext -- X directly bound as relation
+    let baseCtx = extendRelContext "X" emptyContext -- X directly bound as relation
 
         -- Try to create type lambda that binds X again - this should violate freshness
         bodyJudgment = RelJudgment (Var "a" (-1) (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "a" (-1) (initialPos "test"))
@@ -1219,22 +1183,20 @@ wellFormednessViolationSpec = describe "well-formedness violations" $ do
 
         -- This violates the constraint since X is already bound in context
         violatingProof = TyLam "X" (PVar "body" 0 (initialPos "test")) (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType bodyCtx macroEnv noTheorems violatingProof of
+    case inferProofType bodyCtx  violatingProof of
       Left (DuplicateBinding "X" _) -> return () -- Expected error
       Left err -> expectationFailure $ "Expected DuplicateBinding error, got: " ++ show err
       Right _ -> expectationFailure "Expected type lambda to fail when X is already bound"
 
   it "detects unbound variables in proof context" $ do
     -- Test that unbound proof variables are caught by the type checker
-    let termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+    let termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Try to reference a proof variable that doesn't exist
         invalidProof = PVar "nonexistent" 5 (initialPos "test") -- Non-existent variable
-        macroEnv = noMacros
 
-    case inferProofType termCtx macroEnv noTheorems invalidProof of
+    case inferProofType termCtx  invalidProof of
       Left (UnboundVariable "nonexistent" _) -> return () -- Expected error
       Left err -> expectationFailure $ "Expected UnboundVariable error, got: " ++ show err
       Right _ -> expectationFailure "Expected proof checking to fail with unbound variable"
@@ -1243,7 +1205,7 @@ wellFormednessViolationSpec = describe "well-formedness violations" $ do
     -- Test that proof bindings can reference terms correctly according to de Bruijn indices
     let termCtx =
           extendTermContext "b" (RMacro "B" [] (initialPos "test")) $
-            extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+            extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Create valid proof binding that properly references existing terms
         validJudgment = RelJudgment (Var "a" 1 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "b" 0 (initialPos "test")) -- Correct indices
@@ -1251,9 +1213,8 @@ wellFormednessViolationSpec = describe "well-formedness violations" $ do
         -- Test that we can successfully retrieve and use the proof
         ctx = extendProofContext "p" validJudgment termCtx
         proof = PVar "p" 0 (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx macroEnv noTheorems proof of
+    case inferProofType ctx proof of
       Right result -> do
         -- The proof should succeed and preserve the correct judgment
         let RelJudgment term1 rtype term2 = resultJudgment result
@@ -1264,7 +1225,7 @@ wellFormednessViolationSpec = describe "well-formedness violations" $ do
 
   it "validates proper context extension ordering" $ do
     -- Test that context extensions maintain proper de Bruijn ordering
-    let baseCtx = emptyTypingContext
+    let baseCtx = emptyContext
 
         -- Extend context in steps and verify indices
         ctx1 = extendTermContext "a" (RMacro "A" [] (initialPos "test")) baseCtx
@@ -1276,9 +1237,8 @@ wellFormednessViolationSpec = describe "well-formedness violations" $ do
         ctx4 = extendProofContext "p" judgment ctx3
 
         proof = PVar "p" 0 (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx4 macroEnv noTheorems proof of
+    case inferProofType ctx4  proof of
       Right result -> do
         let RelJudgment term1 _ term2 = resultJudgment result
         term1 `shouldBe` Var "a" 2 (initialPos "test") -- Should preserve correct index
@@ -1287,7 +1247,7 @@ wellFormednessViolationSpec = describe "well-formedness violations" $ do
 
   it "detects malformed contexts with inconsistent type bindings" $ do
     -- Test edge case where relation types reference unbound type variables
-    let termCtx = extendTermContext "a" (RVar "UnboundType" (-1) (initialPos "test")) emptyTypingContext
+    let termCtx = extendTermContext "a" (RVar "UnboundType" (-1) (initialPos "test")) emptyContext
 
         -- This creates a context with reference to unbound type variable
         -- The system should handle this gracefully
@@ -1295,16 +1255,17 @@ wellFormednessViolationSpec = describe "well-formedness violations" $ do
         ctx = extendProofContext "p" judgment termCtx
 
         proof = PVar "p" 0 (initialPos "test")
-        macroEnv = noMacros
 
-    case inferProofType ctx macroEnv noTheorems proof of
+    case inferProofType ctx proof of
       Right _ -> return () -- This should work - free type variables are allowed
       Left err -> expectationFailure $ "Unexpected error with free type variable: " ++ show err
 
   it "validates macro environment parameter arity checking" $ do
     -- Test that macro environment validates parameter arity during expansion
-    let macroEnv = MacroEnvironment (Map.fromList [("TestMacro", simpleRelMacro ["X", "Y"] (Arr (RVar "X" 0 (initialPos "test")) (RVar "Y" 1 (initialPos "test")) (initialPos "test")))]) Map.empty
-        termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
+    let testParams = [testRelParamInfo "X", testRelParamInfo "Y"]
+        testMacro = RelMacro (Arr (RVar "X" 0 (initialPos "test")) (RVar "Y" 1 (initialPos "test")) (initialPos "test"))
+        macroCtx = extendMacroContext "TestMacro" testParams testMacro (defaultFixity "TEST") emptyContext
+        termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) macroCtx
 
         -- Create proof that would trigger macro expansion with wrong arity
         wrongArityJudgment = RelJudgment (Var "a" 0 (initialPos "test")) (RMacro "TestMacro" [MRel (RMacro "R" [] (initialPos "test"))] (initialPos "test")) (Var "a" 0 (initialPos "test")) -- Only 1 arg, needs 2
@@ -1313,7 +1274,7 @@ wellFormednessViolationSpec = describe "well-formedness violations" $ do
         -- Try to check a proof that uses the macro - this should detect arity mismatch during type operations
         proof = PVar "p" 0 (initialPos "test")
 
-    case inferProofType ctx macroEnv noTheorems proof of
+    case inferProofType ctx proof of
       Right result -> do
         -- If successful, the macro wasn't expanded (which is also valid behavior)
         -- Verify we get the unexpanded macro application
@@ -1336,16 +1297,12 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
             [TermBinding "t"]
             (RelJudgment (Var "t" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "t" 0 (initialPos "test")))
             (Iota (Var "t" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")) (initialPos "test"))
-        theoremEnv = case simpleTheorem of
+        ctx = case simpleTheorem of
           TheoremDef name bindings judgment proof ->
-            extendTheoremEnvironment name bindings judgment proof noTheorems
+            extendTheoremContext name bindings judgment proof emptyContext
           _ -> error "Expected TheoremDef in test"
-
-        -- Create context and test theorem reference
-        ctx = emptyTypingContext
-        macroEnv = noMacros
         theoremRef = PTheoremApp "identity" [] (initialPos "test") -- theorem reference
-    case inferProofType ctx macroEnv theoremEnv theoremRef of
+    case inferProofType ctx theoremRef of
       Right result -> do
         let expectedJudgment = RelJudgment (Var "t" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "t" 0 (initialPos "test"))
         resultJudgment result `shouldBe` expectedJudgment
@@ -1353,12 +1310,10 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
 
   it "fails gracefully for undefined theorem references" $ do
     -- Test undefined theorem reference
-    let ctx = emptyTypingContext
-        macroEnv = noMacros
-        theoremEnv = noTheorems
+    let ctx = emptyContext
         undefinedRef = PTheoremApp "nonexistent" [] (initialPos "test")
 
-    case inferProofType ctx macroEnv theoremEnv undefinedRef of
+    case inferProofType ctx undefinedRef of
       Left _ -> return () -- Expected failure
       Right _ -> expectationFailure "Expected failure for undefined theorem reference"
 
@@ -1373,16 +1328,13 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
             ]
             (RelJudgment (Var "t" 0 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")))
             (PVar "p" 0 (initialPos "test"))
-        theoremEnv = case complexTheorem of
+        ctx = case complexTheorem of
           TheoremDef name bindings judgment proof ->
-            extendTheoremEnvironment name bindings judgment proof noTheorems
+            extendTheoremContext name bindings judgment proof emptyContext
           _ -> error "Expected TheoremDef in test"
-
-        ctx = emptyTypingContext
-        macroEnv = noMacros
         theoremRef = PTheoremApp "complex" [] (initialPos "test")
 
-    case inferProofType ctx macroEnv theoremEnv theoremRef of
+    case inferProofType ctx theoremRef of
       Right result -> do
         let expectedJudgment = RelJudgment (Var "t" 0 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (Var "t" 0 (initialPos "test"))
         resultJudgment result `shouldBe` expectedJudgment
@@ -1390,25 +1342,24 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
 
   it "distinguishes theorem references from proof variables in type checking" $ do
     -- Test that theorem references (index -1) and proof variables (index >= 0) behave differently
-    let theoremEnv =
-          extendTheoremEnvironment
+    let theoremCtx =
+          extendTheoremContext
             "testTheorem"
             [TermBinding "x"]
             (RelJudgment (Var "x" 0 (initialPos "test")) (RMacro "TestRel" [] (initialPos "test")) (Var "x" 0 (initialPos "test")))
             (Iota (Var "x" 0 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"))
-            noTheorems
+            emptyContext
 
         -- Create context with a proof variable of the same name
         proofJudgment = RelJudgment (Var "y" 0 (initialPos "test")) (RMacro "DifferentRel" [] (initialPos "test")) (Var "y" 0 (initialPos "test"))
-        ctx = extendProofContext "testTheorem" proofJudgment emptyTypingContext
-        macroEnv = noMacros
+        ctx = extendProofContext "testTheorem" proofJudgment theoremCtx
 
         -- Test proof variable (index 0)
         proofVarRef = PVar "testTheorem" 0 (initialPos "test")
         theoremRef = PTheoremApp "testTheorem" [] (initialPos "test")
 
     -- Test proof variable gives different result than theorem reference
-    case (inferProofType ctx macroEnv theoremEnv proofVarRef, inferProofType ctx macroEnv theoremEnv theoremRef) of
+    case (inferProofType ctx proofVarRef, inferProofType ctx theoremRef) of
       (Right proofResult, Right theoremResult) -> do
         -- Results should be different
         resultJudgment proofResult `shouldNotBe` resultJudgment theoremResult
@@ -1423,22 +1374,21 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
   it "works with theorem references in complex proof expressions" $ do
     -- Test theorem references within more complex proof structures
     let identityTheorem =
-          extendTheoremEnvironment
+          extendTheoremContext
             "id"
             [TermBinding "t"]
             (RelJudgment (Var "t" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "t" 0 (initialPos "test")))
             (Iota (Var "t" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")) (initialPos "test"))
-            noTheorems
+            emptyContext
 
         -- Create a context where we can apply the theorem reference
-        termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
-        macroEnv = noMacros
+        termCtx = extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Create an application using the theorem reference
         -- This is a simplified test - in practice would need proper type matching
         theoremRef = PTheoremApp "id" [] (initialPos "test")
 
-    case inferProofType termCtx macroEnv identityTheorem theoremRef of
+    case inferProofType termCtx theoremRef of
       Right result -> do
         -- Verify we get the expected judgment structure
         let RelJudgment _ rtype _ = resultJudgment result
@@ -1449,39 +1399,34 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
 
   it "handles empty theorem environments correctly" $ do
     -- Test behavior with empty theorem environment
-    let ctx = emptyTypingContext
-        macroEnv = noMacros
-        theoremEnv = noTheorems
+    let ctx = emptyContext
         anyTheoremRef = PTheoremApp "anything" [] (initialPos "test")
 
-    case inferProofType ctx macroEnv theoremEnv anyTheoremRef of
+    case inferProofType ctx anyTheoremRef of
       Left _ -> return () -- Expected failure
       Right _ -> expectationFailure "Expected failure with empty theorem environment"
 
   it "rejects PVar with negative indices (prevents magic number hacks)" $ do
     -- Test that PVar with index -1 always fails (no more magic numbers!)
-    let ctx = emptyTypingContext
-        macroEnv = noMacros
-        theoremEnv = noTheorems
+    let ctx = emptyContext
         invalidProofVar = PVar "someVariable" (-1) (initialPos "test") -- This should NEVER work
-    case inferProofType ctx macroEnv theoremEnv invalidProofVar of
+    case inferProofType ctx invalidProofVar of
       Left _ -> return () -- Expected failure - no magic numbers allowed!
       Right _ -> expectationFailure "PVar with index -1 should always fail - no magic number hacks allowed!"
 
   it "rejects PVar with negative indices even with theorem in environment" $ do
     -- Test that PVar(-1) fails even when a theorem with the same name exists
     let theoremEnv =
-          extendTheoremEnvironment
+          extendTheoremContext
             "testName"
             [TermBinding "t"]
             (RelJudgment (Var "t" 0 (initialPos "test")) (RMacro "TestRel" [] (initialPos "test")) (Var "t" 0 (initialPos "test")))
             (Iota (Var "t" 0 (initialPos "test")) (Var "t" 0 (initialPos "test")) (initialPos "test"))
-            noTheorems
-        ctx = emptyTypingContext
-        macroEnv = noMacros
+            emptyContext
+        ctx = emptyContext
         invalidProofVar = PVar "testName" (-1) (initialPos "test") -- Wrong way to reference theorem
         correctTheoremRef = PTheoremApp "testName" [] (initialPos "test") -- Right way to reference theorem
-    case (inferProofType ctx macroEnv theoremEnv invalidProofVar, inferProofType ctx macroEnv theoremEnv correctTheoremRef) of
+    case (inferProofType ctx invalidProofVar, inferProofType ctx correctTheoremRef) of
       (Left _, Right _) -> return () -- PVar(-1) fails, PTheoremApp succeeds - this is correct!
       (Right _, _) -> expectationFailure "PVar with index -1 should always fail, even when theorem exists!"
       (Left _, Left _) -> expectationFailure "PTheoremApp should succeed when theorem exists"
@@ -1489,11 +1434,10 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
   it "enforces that free variables never exist" $ do
     -- This test ensures that PVar with index -1 (which should never be created by parser) always fails
     let invalidProofVar = PVar "freeVariable" (-1) (initialPos "test")
-        ctx = emptyTypingContext
-        macroEnv = noMacros
+        ctx = emptyContext
 
     -- Any PVar with index -1 should always fail type checking
-    case inferProofType ctx macroEnv noTheorems invalidProofVar of
+    case inferProofType ctx invalidProofVar of
       Left (UnboundVariable "freeVariable" _) -> return () -- Expected error for unbound variable
       Left (InvalidDeBruijnIndex (-1) _) -> return () -- Also acceptable
       Left err -> expectationFailure $ "Wrong error type: " ++ show err
@@ -1502,16 +1446,15 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
   it "validates theorem instantiation properly" $ do
     -- Theorems with bindings need proper instantiation (future work)
     let theoremWithBindings =
-          extendTheoremEnvironment
+          extendTheoremContext
             "paramTheorem"
             [TermBinding "t", RelBinding "R"]
             (RelJudgment (Var "t" 1 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (Var "t" 1 (initialPos "test")))
             (Iota (Var "t" 1 (initialPos "test")) (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
-            noTheorems
-        ctx = emptyTypingContext
-        macroEnv = noMacros
+            emptyContext
+        ctx = emptyContext
     -- For now, theorem references ignore bindings
-    case inferProofType ctx macroEnv theoremWithBindings (PTheoremApp "paramTheorem" [] (initialPos "test")) of
+    case inferProofType theoremWithBindings (PTheoremApp "paramTheorem" [] (initialPos "test")) of
       Right result -> do
         let RelJudgment t1 r t2 = resultJudgment result
         -- The theorem's judgment is returned directly (bindings not yet instantiated)
@@ -1523,15 +1466,15 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
   it "basic theorem reference application - universal proof applied to function" $ do
     -- Test 1: Proof of ∀ X . X, then function (∀ X . X) → B, apply proof to function to get B
     let universalProof =
-          extendTheoremEnvironment
+          extendTheoremContext
             "universalThm"
             []
             (RelJudgment (Var "x" 0 (initialPos "test")) (All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test")) (Var "x" 0 (initialPos "test")))
             (TyLam "X" (Iota (Var "x" 0 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
-            noTheorems
+            emptyContext
 
         functionTheorem =
-          extendTheoremEnvironment
+          extendTheoremContext
             "functionThm"
             [ProofBinding "f" (RelJudgment (Var "dummy" 0 (initialPos "test")) (Arr (All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")) (Var "dummy" 0 (initialPos "test")))]
             (RelJudgment (Var "dummy" 0 (initialPos "test")) (RMacro "B" [] (initialPos "test")) (Var "dummy" 0 (initialPos "test")))
@@ -1540,10 +1483,9 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
 
         ctx =
           extendTermContext "dummy" (RMacro "DummyType" [] (initialPos "test")) $
-            extendTermContext "x" (RMacro "SomeType" [] (initialPos "test")) emptyTypingContext
-        macroEnv = noMacros
+            extendTermContext "x" (RMacro "SomeType" [] (initialPos "test")) emptyContext
 
-    case inferProofType ctx macroEnv functionTheorem (PTheoremApp "functionThm" [] (initialPos "test")) of
+    case inferProofType functionTheorem (PTheoremApp "functionThm" [] (initialPos "test")) of
       Right result -> do
         let RelJudgment _ r _ = resultJudgment result
         r `shouldBe` RMacro "B" [] (initialPos "test") -- Should produce type B
@@ -1553,25 +1495,24 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
   it "basic theorem reference application - identity function applied to value" $ do
     -- Test 2: Proof of ∀ X . X → X, then assume A and apply identity to get A
     let identityProof =
-          extendTheoremEnvironment
+          extendTheoremContext
             "identityThm"
             []
             (RelJudgment (Var "f" 0 (initialPos "test")) (All "X" (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "f" 0 (initialPos "test")))
             (TyLam "X" (LamP "x" (RVar "X" 0 (initialPos "test")) (PVar "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
-            noTheorems
+            emptyContext
 
         applicationTheorem =
-          extendTheoremEnvironment
+          extendTheoremContext
             "appThm"
             [TermBinding "a"]
             (RelJudgment (Var "a" 0 (initialPos "test")) (RMacro "A" [] (initialPos "test")) (Var "a" 0 (initialPos "test")))
             (AppP (TyApp (PTheoremApp "identityThm" [] (initialPos "test")) (RMacro "A" [] (initialPos "test")) (initialPos "test")) (Iota (Var "a" 0 (initialPos "test")) (Var "a" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) -- Apply identity to a
             identityProof
 
-        ctx = extendTermContext "f" (RMacro "FuncType" [] (initialPos "test")) emptyTypingContext
-        macroEnv = noMacros
+        ctx = extendTermContext "f" (RMacro "FuncType" [] (initialPos "test")) emptyContext
 
-    case inferProofType ctx macroEnv applicationTheorem (PTheoremApp "appThm" [] (initialPos "test")) of
+    case inferProofType applicationTheorem (PTheoremApp "appThm" [] (initialPos "test")) of
       Right result -> do
         let RelJudgment _ r _ = resultJudgment result
         r `shouldBe` RMacro "A" [] (initialPos "test") -- Should produce type A
@@ -1581,20 +1522,19 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
   it "handles theorem references in lambda abstractions" $ do
     -- Test theorem reference inside proof lambda body
     let identityTheorem =
-          extendTheoremEnvironment
+          extendTheoremContext
             "identity"
             [TermBinding "t"]
             (RelJudgment (Var "t" 0 (initialPos "test")) (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "t" 0 (initialPos "test")))
             (Iota (Var "t" 0 (initialPos "test")) (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
-            noTheorems
+            emptyContext
 
-        ctx = emptyTypingContext
-        macroEnv = noMacros
+        ctx = emptyContext
 
         -- Test: λp: SomeRel. identity
         lambdaProof = LamP "p" (RMacro "SomeRel" [] (initialPos "test")) (PTheoremApp "identity" [] (initialPos "test")) (initialPos "test")
 
-    case inferProofType ctx macroEnv identityTheorem lambdaProof of
+    case inferProofType identityTheorem lambdaProof of
       Right result -> do
         case resultJudgment result of
           RelJudgment _ (Arr argType _ _) _ -> do
@@ -1606,15 +1546,15 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
   it "handles theorem references in composition proofs" $ do
     -- Test theorem references in composition (Pair)
     let theorem1 =
-          extendTheoremEnvironment
+          extendTheoremContext
             "thm1"
             []
             (RelJudgment (Var "a" 0 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "b" 0 (initialPos "test")))
             (Iota (Var "a" 0 (initialPos "test")) (Var "b" 0 (initialPos "test")) (initialPos "test"))
-            noTheorems
+            emptyContext
 
         theorem2 =
-          extendTheoremEnvironment
+          extendTheoremContext
             "thm2"
             []
             (RelJudgment (Var "b" 0 (initialPos "test")) (RMacro "S" [] (initialPos "test")) (Var "c" 0 (initialPos "test")))
@@ -1624,13 +1564,12 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
         ctx =
           extendTermContext "c" (RMacro "C" [] (initialPos "test")) $
             extendTermContext "b" (RMacro "B" [] (initialPos "test")) $
-              extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyTypingContext
-        macroEnv = noMacros
+              extendTermContext "a" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Test: (thm1, thm2) should give composition
         compositionProof = Pair (PTheoremApp "thm1" [] (initialPos "test")) (PTheoremApp "thm2" [] (initialPos "test")) (initialPos "test")
 
-    case inferProofType ctx macroEnv theorem2 compositionProof of
+    case inferProofType theorem2 compositionProof of
       Right result -> do
         case resultJudgment result of
           RelJudgment _ (Comp r1 r2 _) _ -> do
@@ -1643,20 +1582,19 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
   it "handles theorem references in conversion proofs" $ do
     -- Test theorem reference in conversion proof
     let identityTheorem =
-          extendTheoremEnvironment
+          extendTheoremContext
             "identity"
             []
             (RelJudgment (Var "x" 0 (initialPos "test")) (Prom (Lam "y" (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "x" 0 (initialPos "test")))
             (Iota (Var "x" 0 (initialPos "test")) (Lam "y" (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))
-            noTheorems
+            emptyContext
 
-        ctx = extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
-        macroEnv = noMacros
+        ctx = extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
         -- Test: x ⇃ identity ⇂ x (convert using theorem)
         conversionProof = ConvProof (Var "x" 0 (initialPos "test")) (PTheoremApp "identity" [] (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test")
 
-    case inferProofType ctx macroEnv identityTheorem conversionProof of
+    case inferProofType identityTheorem conversionProof of
       Right result -> do
         let RelJudgment t1 _ t2 = resultJudgment result
         t1 `shouldBe` Var "x" 0 (initialPos "test")
@@ -1667,15 +1605,15 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
   it "handles nested theorem references" $ do
     -- Test theorem that references another theorem
     let baseTheorem =
-          extendTheoremEnvironment
+          extendTheoremContext
             "base"
             []
             (RelJudgment (Var "x" 0 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "x" 0 (initialPos "test")))
             (Iota (Var "x" 0 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"))
-            noTheorems
+            emptyContext
 
         derivedTheorem =
-          extendTheoremEnvironment
+          extendTheoremContext
             "derived"
             []
             (RelJudgment (Var "y" 0 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "y" 0 (initialPos "test")))
@@ -1684,10 +1622,9 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
 
         ctx =
           extendTermContext "y" (RMacro "A" [] (initialPos "test")) $
-            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyTypingContext
-        macroEnv = noMacros
+            extendTermContext "x" (RMacro "A" [] (initialPos "test")) emptyContext
 
-    case inferProofType ctx macroEnv derivedTheorem (PTheoremApp "derived" [] (initialPos "test")) of
+    case inferProofType derivedTheorem (PTheoremApp "derived" [] (initialPos "test")) of
       Right result -> do
         let RelJudgment _ r _ = resultJudgment result
         r `shouldBe` RMacro "R" [] (initialPos "test")
@@ -1697,24 +1634,23 @@ theoremReferencingProofCheckSpec = describe "theorem referencing proof checking"
   it "handles theorem reference error cases" $ do
     -- Test various error conditions with theorem references
     let theorem1 =
-          extendTheoremEnvironment
+          extendTheoremContext
             "thm1"
             []
             (RelJudgment (Var "a" 0 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "b" 0 (initialPos "test")))
             (Iota (Var "a" 0 (initialPos "test")) (Var "b" 0 (initialPos "test")) (initialPos "test"))
-            noTheorems
+            emptyContext
 
-        ctx = emptyTypingContext
-        macroEnv = noMacros
+        ctx = emptyContext
 
     -- Test 1: Reference to non-existent theorem should fail
-    case inferProofType ctx macroEnv theorem1 (PTheoremApp "nonexistent" [] (initialPos "test")) of
+    case inferProofType theorem1 (PTheoremApp "nonexistent" [] (initialPos "test")) of
       Left _ -> return () -- Expected failure
       Right _ -> expectationFailure "Reference to non-existent theorem should fail"
 
     -- Test 2: Application with wrong arity should fail
     let wrongApp = AppP (PTheoremApp "thm1" [] (initialPos "test")) (PTheoremApp "thm1" [] (initialPos "test")) (initialPos "test")
-    case inferProofType ctx macroEnv theorem1 wrongApp of
+    case inferProofType theorem1 wrongApp of
       Left _ -> return () -- Expected failure - thm1 is not a function
       Right _ -> expectationFailure "Wrong theorem application should fail"
 
@@ -1733,7 +1669,7 @@ rhoEliminationAlphaOnlySpec = describe "rho elimination uses α-equivalence only
         -- Context: x : Term, S : Rel
         termCtx =
           extendTermContext "x" (RMacro "Term" [] pos) $
-            extendTermContext "S" (RMacro "Rel" [] pos) emptyTypingContext
+            extendTermContext "S" (RMacro "Rel" [] pos) emptyContext
 
         -- First proof: x [(λ z . z)^] x (promoted identity)
         promType = Prom (Lam "z" (Var "z" 0 pos) pos) pos
@@ -1762,9 +1698,8 @@ rhoEliminationAlphaOnlySpec = describe "rho elimination uses α-equivalence only
             (RMacro "S" [] pos)
             (Var "x" 1 pos)
 
-        macroEnv = noMacros
 
-    case checkProof finalCtx macroEnv noTheorems rhoProof expectedJudgment of
+    case checkProof finalCtx  rhoProof expectedJudgment of
       Left (RhoEliminationTypeMismatchError _ expected actual _) -> do
         -- Should reject because terms are not α-equivalent
         expected
@@ -1787,7 +1722,7 @@ compositionAlphaOnlySpec = describe "composition uses α-equivalence only" $ do
             extendTermContext "b" (RMacro "Term" [] pos) $
               extendTermContext "a" (RMacro "Term" [] pos) $
                 extendTermContext "S" (RMacro "Rel" [] pos) $
-                  extendTermContext "R" (RMacro "Rel" [] pos) emptyTypingContext
+                  extendTermContext "R" (RMacro "Rel" [] pos) emptyContext
 
         -- First proof: a [R] b
         firstJudgment = RelJudgment (Var "a" 2 pos) (RMacro "R" [] pos) (Var "b" 1 pos)
@@ -1805,9 +1740,8 @@ compositionAlphaOnlySpec = describe "composition uses α-equivalence only" $ do
         compType = Comp (RMacro "R" [] pos) (RMacro "S" [] pos) pos
         expectedJudgment = RelJudgment (Var "a" 2 pos) compType (Var "c" 0 pos)
 
-        macroEnv = noMacros
 
-    case checkProof ctx2 macroEnv noTheorems compProof expectedJudgment of
+    case checkProof ctx2  compProof expectedJudgment of
       Left (CompositionError _ _ middle1 middle2 _) -> do
         -- Should reject because middle terms are not α-equivalent
         middle1 `shouldBe` Var "b" 1 pos
@@ -1823,7 +1757,7 @@ conversionBetaEtaSpec = describe "conversion proofs use β-η equivalence" $ do
         -- Context: x : Term, R : Rel
         termCtx =
           extendTermContext "x" (RMacro "Term" [] pos) $
-            extendTermContext "R" (RMacro "Rel" [] pos) emptyTypingContext
+            extendTermContext "R" (RMacro "Rel" [] pos) emptyContext
 
         -- Original proof: (λ z . z) x [R] (λ z . z) x
         origTerm = App (Lam "z" (Var "z" 0 pos) pos) (Var "x" 1 pos) pos
@@ -1836,9 +1770,8 @@ conversionBetaEtaSpec = describe "conversion proofs use β-η equivalence" $ do
         -- Expected: x [R] x
         expectedJudgment = RelJudgment (Var "x" 1 pos) (RMacro "R" [] pos) (Var "x" 1 pos)
 
-        macroEnv = noMacros
 
-    case checkProof ctx macroEnv noTheorems convProof expectedJudgment of
+    case checkProof ctx convProof expectedJudgment of
       Right result ->
         resultJudgment result `shouldBe` expectedJudgment
       Left err -> expectationFailure $ "Expected conversion to succeed with β-η equivalent terms, got: " ++ show err
@@ -1847,14 +1780,10 @@ conversionBetaEtaSpec = describe "conversion proofs use β-η equivalence" $ do
 judgmentEqualityMacroExpansionSpec :: Spec
 judgmentEqualityMacroExpansionSpec = describe "judgment equality with macro expansion" $ do
   it "expands term macros in both judgments before comparing" $ do
-    let macroEnv =
-          MacroEnvironment
-            ( Map.fromList
-                [ ("True", ([], TermMacro (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")))),
-                  ("Identity", ([], RelMacro (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test"))))
-                ]
-            )
-            Map.empty
+    let trueMacro = TermMacro (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))
+        identityMacro = RelMacro (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test"))
+        macroCtx1 = extendMacroContext "True" [] trueMacro (defaultFixity "TEST") emptyContext
+        macroEnv = extendMacroContext "Identity" [] identityMacro (defaultFixity "TEST") macroCtx1
         judgment1 = RelJudgment (TMacro "True" [] (initialPos "test")) (RMacro "Identity" [] (initialPos "test")) (TMacro "True" [] (initialPos "test"))
         judgment2 = RelJudgment (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (RMacro "Identity" [] (initialPos "test")) (Lam "a" (Lam "b" (Var "a" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
@@ -1863,13 +1792,8 @@ judgmentEqualityMacroExpansionSpec = describe "judgment equality with macro expa
       Left err -> expectationFailure $ "Judgment equality with macro expansion failed: " ++ show err
 
   it "expands relation macros before comparing" $ do
-    let macroEnv =
-          MacroEnvironment
-            ( Map.fromList
-                [ ("Bool", ([], RelMacro (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))))
-                ]
-            )
-            Map.empty
+    let boolMacro = RelMacro (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
+        macroEnv = extendMacroContext "Bool" [] boolMacro (defaultFixity "TEST") emptyContext
         judgment1 = RelJudgment (Var "x" 0 (initialPos "test")) (RMacro "Bool" [] (initialPos "test")) (Var "x" 0 (initialPos "test"))
         judgment2 = RelJudgment (Var "x" 0 (initialPos "test")) (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "x" 0 (initialPos "test"))
 
@@ -1896,7 +1820,7 @@ quantifierDeBruijnBugProofSpec = describe "quantifier de Bruijn bug in proof che
                   (All "X" (RVar "S" 1 pos) pos)
                   (Var "b" 0 pos)
               )
-            $ emptyTypingContext
+            $ emptyContext
 
         -- Create the proof: p { S }
         proof = TyApp (PVar "p" 0 pos) (RVar "S" 0 pos) pos
@@ -1905,7 +1829,7 @@ quantifierDeBruijnBugProofSpec = describe "quantifier de Bruijn bug in proof che
         expectedJudgment = RelJudgment (Var "a" 1 pos) (RVar "S" 0 pos) (Var "b" 0 pos)
 
     -- Check the proof
-    case checkProof ctx noMacros noTheorems proof expectedJudgment of
+    case checkProof ctx proof expectedJudgment of
       Right _ -> return () -- Should succeed
       Left err ->
         expectationFailure $
@@ -1919,11 +1843,11 @@ quantifierDeBruijnBugProofSpec = describe "quantifier de Bruijn bug in proof che
     case runParser rawDeclaration "test" nestedTheorem of
       Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr
       Right rawDecl -> 
-        case elaborate emptyCtxWithBuiltins rawDecl of
+        case elaborate emptyContext rawDecl of
           Left elabErr -> expectationFailure $ "Elaboration should succeed: " ++ show elabErr
           Right (TheoremDef _ bindings judgment proof) -> do
             let ctx = buildContextFromBindings bindings
-            case checkProof ctx noMacros noTheorems proof judgment of
+            case checkProof ctx proof judgment of
               Right _ -> return () -- Should succeed
               Left err -> expectationFailure $ "Nested quantifier theorem should work: " ++ show err
           _ -> expectationFailure "Expected theorem declaration"
@@ -1931,24 +1855,20 @@ quantifierDeBruijnBugProofSpec = describe "quantifier de Bruijn bug in proof che
     case runParser rawDeclaration "test" simpleTheorem of
       Left parseErr -> expectationFailure $ "Parse should succeed: " ++ show parseErr
       Right rawDecl ->
-        case elaborate emptyCtxWithBuiltins rawDecl of
+        case elaborate emptyContext rawDecl of
           Left elabErr -> expectationFailure $ "Elaboration should succeed: " ++ show elabErr
           Right (TheoremDef _ bindings judgment proof) -> do
             let ctx = buildContextFromBindings bindings
-            case checkProof ctx noMacros noTheorems proof judgment of
+            case checkProof ctx proof judgment of
               Right _ -> return () -- Should succeed
               Left err -> expectationFailure $ "Simple quantifier theorem should work: " ++ show err
           _ -> expectationFailure "Expected theorem declaration"
 
   it "expands both term and relation macros together" $ do
-    let macroEnv =
-          MacroEnvironment
-            ( Map.fromList
-                [ ("True", ([], TermMacro (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")))),
-                  ("Bool", ([], RelMacro (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))))
-                ]
-            )
-            Map.empty
+    let trueMacro = TermMacro (Lam "x" (Lam "y" (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))
+        boolMacro = RelMacro (All "X" (Arr (RVar "X" 0 (initialPos "test")) (Arr (RVar "X" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))
+        macroCtx1 = extendMacroContext "True" [] trueMacro (defaultFixity "TEST") emptyContext
+        macroEnv = extendMacroContext "Bool" [] boolMacro (defaultFixity "TEST") macroCtx1
         judgment1 = RelJudgment (TMacro "True" [] (initialPos "test")) (RMacro "Bool" [] (initialPos "test")) (TMacro "True" [] (initialPos "test"))
         judgment2 = RelJudgment (Lam "a" (Lam "b" (Var "a" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (All "Y" (Arr (RVar "Y" 0 (initialPos "test")) (Arr (RVar "Y" 0 (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Lam "c" (Lam "d" (Var "c" 1 (initialPos "test")) (initialPos "test")) (initialPos "test"))
 
@@ -1959,10 +1879,9 @@ quantifierDeBruijnBugProofSpec = describe "quantifier de Bruijn bug in proof che
   it "debug: check de Bruijn indices in proof inference" $ do
     -- Simple proof: λ p : R . p should give λ x . x [R → R] λ x' . x'
     let proof = LamP "p" (RVar "R" 0 (initialPos "test")) (PVar "p" 0 (initialPos "test")) (initialPos "test")
-        ctx = emptyTypingContext
-        macroEnv = MacroEnvironment Map.empty Map.empty
+        ctx = emptyContext
 
-    case inferProofType ctx macroEnv noTheorems proof of
+    case inferProofType ctx proof of
       Right result -> do
         let actualJudgment = resultJudgment result
         putStrLn $ "Simple proof result: " ++ show actualJudgment

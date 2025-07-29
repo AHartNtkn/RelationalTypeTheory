@@ -18,39 +18,128 @@ module Module.System
   )
 where
 
-import Core.Context (extendTheoremEnvironment)
 import Control.Exception (IOException, catch)
+import Control.Monad.State
 import Data.Either (partitionEithers)
-import Data.List (intercalate)
+import Data.List (intercalate, find)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Core.Syntax
+import Core.Raw
 import Parser.Raw (parseFile)
 import Text.Megaparsec (runParser)
-import Parser.Elaborate (elaborateDeclarations, emptyCtxWithBuiltins)
+import Parser.Elaborate (elaborate)
 import System.Directory (doesFileExist)
-import System.FilePath (normalise, takeDirectory, (</>))
+import System.FilePath (normalise, (</>))
 import Text.Megaparsec (errorBundlePretty, initialPos)
-import Core.Environment (noMacros, noTheorems, extendMacroEnvironment)
+import Core.Context (extendMacroContext, extendTheoremContext, emptyContext)
 import Parser.Mixfix (defaultFixity)
 import Core.Errors (RelTTError(..), ErrorContext(..))
 
 -- | Module system error types (now using unified RelTTError)
 type ModuleLoadError = RelTTError
 
--- | Registry of loaded modules
+-- | Cached processing results for a module
+data ProcessedModule = ProcessedModule
+  { procModulePath :: FilePath,
+    procRawContent :: String,
+    procRawDeclarations :: [RawDeclaration],
+    procElaboratedDeclarations :: [Declaration],
+    procImports :: [ImportDeclaration],
+    procExports :: [ExportDeclaration],
+    procMacros :: [Declaration],
+    procTheorems :: [Declaration],
+    procContext :: Context,
+    procExportList :: [String]
+  }
+  deriving (Show, Eq)
+
+-- | Enhanced registry with processing cache
 data ModuleRegistry = ModuleRegistry
   { loadedModules :: Map.Map ModulePath ModuleInfo,
+    processedModules :: Map.Map FilePath ProcessedModule,
     searchPaths :: [FilePath]
   }
   deriving (Show, Eq)
+
+-- | State monad for module processing operations
+type ProcessingState = StateT ModuleRegistry (IO)
 
 -- | Dependency graph representation
 type DependencyGraph = Map.Map ModulePath [ModulePath]
 
 -- | Create empty module registry with default search paths
 emptyModuleRegistry :: ModuleRegistry
-emptyModuleRegistry = ModuleRegistry Map.empty [".", "stdlib"]
+emptyModuleRegistry = ModuleRegistry Map.empty Map.empty [".", "stdlib"]
+
+--------------------------------------------------------------------------------
+-- | Unified Module Processing Pipeline
+--------------------------------------------------------------------------------
+
+-- | Process a single module with caching
+processModule :: FilePath -> Context -> ProcessingState (Either ModuleLoadError ProcessedModule)
+processModule filePath baseContext = do
+  registry <- get
+  case Map.lookup filePath (processedModules registry) of
+    Just cached -> return $ Right cached
+    Nothing -> do
+      result <- liftIO $ processModuleIO filePath baseContext
+      case result of
+        Left err -> return $ Left err
+        Right processed -> do
+          modify $ \reg -> reg { processedModules = Map.insert filePath processed (processedModules reg) }
+          return $ Right processed
+
+-- | Process a module without caching (IO operation)
+processModuleIO :: FilePath -> Context -> IO (Either ModuleLoadError ProcessedModule)
+processModuleIO filePath baseContext = do
+  -- Read file
+  contentResult <- catch (Right <$> readFile filePath) (\e -> return $ Left $ show (e :: IOException))
+  case contentResult of
+    Left _ -> return $ Left (FileNotFound filePath (ErrorContext (initialPos filePath) "module loading"))
+    Right content -> do
+      -- Parse
+      case runParser parseFile filePath content of
+        Left parseErr -> return $ Left (ModuleParseError filePath (errorBundlePretty parseErr) (ErrorContext (initialPos filePath) "module parsing"))
+        Right rawDeclarations -> do
+          -- Elaborate with context accumulation
+          case elaborateDeclarationsWithContext baseContext rawDeclarations of
+            Left elaborateErr -> return $ Left (ModuleElaborationError filePath (show elaborateErr) (ErrorContext (initialPos filePath) "module elaboration"))
+            Right (elaboratedDeclarations, finalContext) -> do
+              -- Partition declarations
+              let (imports, exports, macros, theorems) = partitionDeclarations elaboratedDeclarations
+                  exportList = extractExportList exports elaboratedDeclarations
+              
+              -- Create processed module
+              let processed = ProcessedModule
+                    { procModulePath = filePath,
+                      procRawContent = content,
+                      procRawDeclarations = rawDeclarations,
+                      procElaboratedDeclarations = elaboratedDeclarations,
+                      procImports = imports,
+                      procExports = exports,
+                      procMacros = macros,
+                      procTheorems = theorems,
+                      procContext = finalContext,
+                      procExportList = exportList
+                    }
+              
+              return $ Right processed
+
+-- | Process multiple modules with dependency resolution
+
+-- | Build dependency graph from processed modules
+buildDependencyGraphFromProcessed :: Map.Map FilePath ProcessedModule -> DependencyGraph
+buildDependencyGraphFromProcessed processedMap = 
+  Map.fromList [(procModulePath proc, extractDependencyPaths (procImports proc)) | proc <- Map.elems processedMap]
+  where
+    extractDependencyPaths :: [ImportDeclaration] -> [FilePath]
+    extractDependencyPaths imports = map extractPath imports
+    
+    extractPath :: ImportDeclaration -> FilePath
+    extractPath (ImportModule path) = path
+    extractPath (ImportModuleAs path _) = path
+    extractPath (ImportOnly path _) = path
 
 -- | Load a module and all its dependencies
 loadModule :: ModuleRegistry -> ModulePath -> IO (Either ModuleLoadError (ModuleRegistry, ModuleInfo))
@@ -63,41 +152,25 @@ loadModule registry modulePathArg = do
       -- Check if already loaded
       case Map.lookup filePath (loadedModules registry) of
         Just moduleInfo -> return $ Right (registry, moduleInfo)
-        Nothing -> loadModuleFromFile registry filePath
-
--- | Load a module from a specific file path
-loadModuleFromFile :: ModuleRegistry -> FilePath -> IO (Either ModuleLoadError (ModuleRegistry, ModuleInfo))
-loadModuleFromFile registry filePath = do
-  result <- catch (Right <$> readFile filePath) (\e -> return $ Left $ show (e :: IOException))
-  case result of
-    Left _ -> return $ Left (FileNotFound filePath (ErrorContext (initialPos filePath) "module loading"))
-    Right content -> do
-      case runParser parseFile filePath content of
-        Left parseErr -> return $ Left (ModuleParseError filePath (errorBundlePretty parseErr) (ErrorContext (initialPos filePath) "module parsing"))
-        Right rawDeclarations -> do
-          case elaborateDeclarations emptyCtxWithBuiltins rawDeclarations of
-            Left elaborateErr -> return $ Left (ModuleElaborationError filePath (show elaborateErr) (ErrorContext (initialPos filePath) "module elaboration"))
-            Right declarations -> do
-              -- Extract imports, exports, macros, and theorems
-              let (imports, exports, macros, theorems) = partitionDeclarations declarations
-
-              -- Build environments
-              let macroEnv = buildMacroEnvironment macros
-                  theoremEnv = buildTheoremEnvironment theorems
-                  exportList = extractExportList exports declarations
-
-              let moduleInfo =
-                    ModuleInfo
-                      { modulePath = filePath,
-                        moduleAlias = Nothing,
-                        loadedMacros = macroEnv,
-                        loadedTheorems = theoremEnv,
-                        exportedSymbols = exportList,
-                        importDeclarations = imports
-                      }
-
-              let newRegistry = registry {loadedModules = Map.insert filePath moduleInfo (loadedModules registry)}
-              return $ Right (newRegistry, moduleInfo)
+        Nothing -> do
+          -- Use unified processing pipeline
+          (result, newRegistry) <- runStateT (processModule filePath emptyContext) registry
+          case result of
+            Left err -> return $ Left err  
+            Right processed -> do
+              -- Create ModuleInfo from ProcessedModule
+              let moduleInfo = ModuleInfo
+                    { modulePath = filePath,
+                      moduleAlias = Nothing,
+                      loadedMacros = macroDefinitions (procContext processed),
+                      loadedTheorems = theoremDefinitions (procContext processed),
+                      exportedSymbols = procExportList processed,
+                      importDeclarations = procImports processed
+                    }
+              
+              -- Update registry with ModuleInfo
+              let finalRegistry = newRegistry { loadedModules = Map.insert filePath moduleInfo (loadedModules newRegistry) }
+              return $ Right (finalRegistry, moduleInfo)
 
 -- | Resolve module path using search paths
 resolveModulePath :: [FilePath] -> ModulePath -> IO (Maybe FilePath)
@@ -122,19 +195,34 @@ partitionDeclarations = foldr classify ([], [], [], [])
     classify decl@(TheoremDef _ _ _ _) (imps, exps, macros, theorems) = (imps, exps, macros, decl : theorems)
     classify (FixityDecl _ _) (imps, exps, macros, theorems) = (imps, exps, macros, theorems) -- Fixity declarations don't go into any specific category
 
--- | Build macro environment from macro declarations
-buildMacroEnvironment :: [Declaration] -> MacroEnvironment
-buildMacroEnvironment decls = foldr addMacro noMacros decls
+-- | Elaborate declarations sequentially, accumulating context changes
+elaborateDeclarationsWithContext :: Context -> [RawDeclaration] -> Either RelTTError ([Declaration], Context)
+elaborateDeclarationsWithContext ctx rawDecls = 
+  elaborateSequentially ctx rawDecls []
   where
-    addMacro (MacroDef name params body) env = extendMacroEnvironment name params body (defaultFixity name) env
-    addMacro _ env = env
+    elaborateSequentially :: Context -> [RawDeclaration] -> [Declaration] -> Either RelTTError ([Declaration], Context)
+    elaborateSequentially finalCtx [] acc = Right (reverse acc, finalCtx)
+    elaborateSequentially currentCtx (rawDecl:remaining) acc = do
+      elaboratedDecl <- elaborate currentCtx rawDecl
+      case elaboratedDecl of
+        MacroDef name params body -> do
+          -- For macros, we need to convert string params to ParamInfo and extend context
+          let paramInfos = map (\paramName -> ParamInfo paramName (inferParamKind body) False []) params
+              newCtx = extendMacroContext name paramInfos body (defaultFixity name) currentCtx
+          elaborateSequentially newCtx remaining (elaboratedDecl:acc)
+        TheoremDef name bindings judgment proof -> do
+          -- For theorems, extend the context with the theorem
+          let newCtx = extendTheoremContext name bindings judgment proof currentCtx
+          elaborateSequentially newCtx remaining (elaboratedDecl:acc)
+        _ -> 
+          -- Other declarations don't change the context
+          elaborateSequentially currentCtx remaining (elaboratedDecl:acc)
 
--- | Build theorem environment from theorem declarations
-buildTheoremEnvironment :: [Declaration] -> TheoremEnvironment
-buildTheoremEnvironment decls = foldr addTheorem noTheorems decls
-  where
-    addTheorem (TheoremDef name bindings judgment proof) env = extendTheoremEnvironment name bindings judgment proof env
-    addTheorem _ env = env
+-- | Infer parameter kind from macro body (simplified)
+inferParamKind :: MacroBody -> VarKind
+inferParamKind (TermMacro _) = TermK
+inferParamKind (RelMacro _) = RelK  
+inferParamKind (ProofMacro _) = ProofK
 
 -- | Extract list of exported symbols
 extractExportList :: [ExportDeclaration] -> [Declaration] -> [String]
@@ -181,9 +269,14 @@ resolveImport registry (ImportOnly path _) = do
 
 -- | Build dependency graph from imports
 buildDependencyGraph :: ModuleRegistry -> DependencyGraph
-buildDependencyGraph registry = Map.fromList $ map extractDeps (Map.toList (loadedModules registry))
-  where
-    extractDeps (path, _) = (path, extractDependencies path registry)
+buildDependencyGraph registry = 
+  case Map.null (processedModules registry) of
+    True -> -- Fall back to old method if no processed modules
+      Map.fromList $ map extractDeps (Map.toList (loadedModules registry))
+      where
+        extractDeps (path, _) = (path, extractDependencies path registry)
+    False -> -- Use processed modules cache
+      buildDependencyGraphFromProcessed (processedModules registry)
 
 -- | Topological sort of dependency graph using Kahn's algorithm
 topologicalSort :: DependencyGraph -> Either [ModulePath] [ModulePath]
@@ -252,72 +345,59 @@ detectCircularDependencies deps = findCycle (Map.keys deps) deps
                     Nothing
                     neighbors
 
--- | Build complete import dependency graph starting from entry file
+-- | Build complete import dependency graph starting from entry file (simplified)
 buildCompleteImportGraph :: [FilePath] -> ModulePath -> IO (Either ModuleLoadError DependencyGraph)
-buildCompleteImportGraph searchPathsArg entryFile = do
-  resolvedEntry <- resolveModulePath searchPathsArg entryFile
+buildCompleteImportGraph searchPathList entryFile = do
+  resolvedEntry <- resolveModulePath searchPathList entryFile
   case resolvedEntry of
     Nothing -> return $ Left (FileNotFound entryFile (ErrorContext (initialPos entryFile) "dependency graph building"))
-    Just entryPath -> buildGraphRecursive searchPathsArg Set.empty Map.empty [entryPath]
+    Just entryPath -> do
+      -- Use unified processing to get all dependencies
+      let registry = emptyModuleRegistry { searchPaths = searchPathList }
+      (depResult, finalRegistry) <- runStateT (buildDependencyGraphFromEntry entryPath) registry
+      case depResult of
+        Left err -> return $ Left err
+        Right graph -> return $ Right graph
   where
-    buildGraphRecursive :: [FilePath] -> Set.Set FilePath -> DependencyGraph -> [FilePath] -> IO (Either ModuleLoadError DependencyGraph)
-    buildGraphRecursive _ _ graph [] = return $ Right graph
-    buildGraphRecursive searchPathsLocal visited graph (currentFile : remaining) = do
-      if Set.member currentFile visited
-        then buildGraphRecursive searchPathsLocal visited graph remaining
-        else do
-          -- Parse imports from current file
-          result <- parseFileImports currentFile
+    buildDependencyGraphFromEntry :: FilePath -> ProcessingState (Either ModuleLoadError DependencyGraph)
+    buildDependencyGraphFromEntry entryPath = do
+      -- Recursively process all dependencies
+      allPaths <- gatherAllDependencies [entryPath] Set.empty
+      case allPaths of
+        Left err -> return $ Left err
+        Right paths -> do
+          -- Process all modules
+          results <- mapM (\path -> processModule path emptyContext) paths
+          case partitionEithers results of
+            (err:_, _) -> return $ Left err
+            ([], _) -> do
+              registry <- get
+              return $ Right $ buildDependencyGraphFromProcessed (processedModules registry)
+    
+    gatherAllDependencies :: [FilePath] -> Set.Set FilePath -> ProcessingState (Either ModuleLoadError [FilePath])
+    gatherAllDependencies [] visited = return $ Right $ Set.toList visited
+    gatherAllDependencies (path:rest) visited
+      | Set.member path visited = gatherAllDependencies rest visited
+      | otherwise = do
+          result <- processModule path emptyContext
           case result of
             Left err -> return $ Left err
-            Right imports -> do
-              -- Resolve import paths (relative to current file's directory)
-              resolvedImports <- resolveImportPaths searchPathsLocal currentFile imports
-              case resolvedImports of
-                Left err -> return $ Left err
-                Right importPaths -> do
-                  let newGraph = Map.insert currentFile importPaths graph
-                      newVisited = Set.insert currentFile visited
-                      newRemaining = remaining ++ (filter (`Set.notMember` newVisited) importPaths)
-                  buildGraphRecursive searchPathsLocal newVisited newGraph newRemaining
-
-    parseFileImports :: FilePath -> IO (Either ModuleLoadError [ImportDeclaration])
-    parseFileImports filePath = do
-      result <- catch (Right <$> readFile filePath) (\e -> return $ Left $ show (e :: IOException))
-      case result of
-        Left _ -> return $ Left (FileNotFound filePath (ErrorContext (initialPos filePath) "module loading"))
-        Right content -> do
-          case runParser parseFile filePath content of
-            Left parseErr -> return $ Left (ModuleParseError filePath (errorBundlePretty parseErr) (ErrorContext (initialPos filePath) "module parsing"))
-            Right rawDeclarations -> do
-              case elaborateDeclarations emptyCtxWithBuiltins rawDeclarations of
-                Left elaborateErr -> return $ Left (ModuleElaborationError filePath (show elaborateErr) (ErrorContext (initialPos filePath) "module elaboration"))
-                Right declarations -> do
-                  let (imports, _, _, _) = partitionDeclarations declarations
-                  return $ Right imports
-
-    resolveImportPaths :: [FilePath] -> FilePath -> [ImportDeclaration] -> IO (Either ModuleLoadError [FilePath])
-    resolveImportPaths searchPathsLocal currentFile imports = do
-      let currentDir = takeDirectory currentFile
-          -- Add current file's directory as first search path for relative imports
-          searchPathsWithCurrent = currentDir : searchPathsLocal
-      resolvedPaths <- mapM (resolveImportPath searchPathsWithCurrent) imports
-      let (errors, paths) = partitionEithers resolvedPaths
-      case errors of
-        (err : _) -> return $ Left err
-        [] -> return $ Right paths
-
-    resolveImportPath :: [FilePath] -> ImportDeclaration -> IO (Either ModuleLoadError FilePath)
-    resolveImportPath searchPathsNested (ImportModule path) = resolveModulePathWithError searchPathsNested path
-    resolveImportPath searchPathsNested (ImportModuleAs path _) = resolveModulePathWithError searchPathsNested path
-    resolveImportPath searchPathsNested (ImportOnly path _) = resolveModulePathWithError searchPathsNested path
-
-    resolveModulePathWithError :: [FilePath] -> ModulePath -> IO (Either ModuleLoadError FilePath)
-    resolveModulePathWithError searchPathsNested modulePathNested = do
-      resolved <- resolveModulePath searchPathsNested modulePathNested
-      case resolved of
-        Just path -> return $ Right path
-        Nothing -> return $ Left (FileNotFound modulePathNested (ErrorContext (initialPos "<resolve>") "import path resolution"))
+            Right processed -> do
+              let imports = procImports processed
+                  depPaths = map extractPathFromImport imports
+              -- Resolve dependency paths
+              registry <- get
+              let paths = searchPaths registry
+              resolvedDeps <- liftIO $ mapM (\depPath -> resolveModulePath paths depPath) depPaths
+              let validDeps = [depPath | Just depPath <- resolvedDeps]
+                  newVisited = Set.insert path visited
+                  newToProcess = rest ++ filter (`Set.notMember` newVisited) validDeps
+              gatherAllDependencies newToProcess newVisited
+    
+    extractPathFromImport :: ImportDeclaration -> FilePath
+    extractPathFromImport (ImportModule path) = path
+    extractPathFromImport (ImportModuleAs path _) = path
+    extractPathFromImport (ImportOnly path _) = path
 
 -- | Validate a dependency graph for cycles and other issues
 validateDependencyGraph :: DependencyGraph -> Either ModuleLoadError [ModulePath]
@@ -374,45 +454,77 @@ loadModuleWithDependencies searchPathsArg entryFile = do
 
 -- | Parse concatenated content from multiple files as a single unit
 parseModuleWithDependencies :: [FilePath] -> ModulePath -> IO (Either ModuleLoadError [Declaration])
-parseModuleWithDependencies searchPathsArg entryFile = do
-  contentResult <- loadModuleWithDependencies searchPathsArg entryFile
-  case contentResult of
+parseModuleWithDependencies searchPathList entryFile = do
+  -- Use the unified processing system
+  graphResult <- buildCompleteImportGraph searchPathList entryFile
+  case graphResult of
     Left err -> return $ Left err
-    Right concatenatedContent -> do
-      case runParser parseFile entryFile concatenatedContent of
-        Left parseErr -> return $ Left (ModuleParseError entryFile (errorBundlePretty parseErr) (ErrorContext (initialPos entryFile) "module parsing"))
-        Right rawDeclarations -> do
-          case elaborateDeclarations emptyCtxWithBuiltins rawDeclarations of
-            Left elaborateErr -> return $ Left (ModuleElaborationError entryFile (show elaborateErr) (ErrorContext (initialPos entryFile) "module elaboration"))
-            Right declarations -> return $ Right declarations
+    Right graph -> do
+      case validateDependencyGraph graph of
+        Left err -> return $ Left err
+        Right sortedFiles -> do
+          -- Process all files in dependency order
+          let registry = emptyModuleRegistry { searchPaths = searchPathList }
+          (result, _) <- runStateT (processAllInOrder sortedFiles) registry
+          case result of
+            Left err -> return $ Left err
+            Right allDeclarations -> return $ Right allDeclarations
+  where
+    processAllInOrder :: [FilePath] -> ProcessingState (Either ModuleLoadError [Declaration])
+    processAllInOrder paths = do
+      results <- mapM (\path -> processModule path emptyContext) paths
+      case partitionEithers results of
+        (err:_, _) -> return $ Left err
+        ([], processed) -> return $ Right $ concatMap procElaboratedDeclarations processed
 
 -- | Graph-based module loading that integrates with ModuleRegistry
 loadModuleWithDependenciesIntegrated :: ModuleRegistry -> ModulePath -> IO (Either ModuleLoadError (ModuleRegistry, ModuleInfo))
 loadModuleWithDependenciesIntegrated registry entryFile = do
-  -- Use graph-based parsing to get all declarations
-  result <- parseModuleWithDependencies (searchPaths registry) entryFile
+  -- Use the unified processing system with dependency resolution
+  (result, newRegistry) <- runStateT (loadWithDependencies entryFile) registry
   case result of
     Left err -> return $ Left err
-    Right allDeclarations -> do
-      -- Extract imports, exports, macros, and theorems from all declarations
-      let (imports, exports, macros, theorems) = partitionDeclarations allDeclarations
-
-      -- Build environments from all loaded content
-      let macroEnv = buildMacroEnvironment macros
-          theoremEnv = buildTheoremEnvironment theorems
-          exportList = extractExportList exports allDeclarations
-
-      -- Create ModuleInfo for the entry file
-      let moduleInfo =
-            ModuleInfo
-              { modulePath = entryFile,
-                moduleAlias = Nothing,
-                loadedMacros = macroEnv,
-                loadedTheorems = theoremEnv,
-                exportedSymbols = exportList,
-                importDeclarations = imports
-              }
-
-      -- Update registry with the loaded module
-      let newRegistry = registry {loadedModules = Map.insert entryFile moduleInfo (loadedModules registry)}
-      return $ Right (newRegistry, moduleInfo)
+    Right moduleInfo -> return $ Right (newRegistry, moduleInfo)
+  where
+    loadWithDependencies :: ModulePath -> ProcessingState (Either ModuleLoadError ModuleInfo)
+    loadWithDependencies inputPath = do
+      currentRegistry <- get
+      -- Resolve the module path
+      resolvedPath <- liftIO $ resolveModulePath (searchPaths currentRegistry) inputPath
+      case resolvedPath of
+        Nothing -> return $ Left (FileNotFound inputPath (ErrorContext (initialPos "<resolve>") "module path resolution"))
+        Just filePath -> do
+          -- Check if already loaded
+          case Map.lookup filePath (loadedModules currentRegistry) of
+            Just moduleInfo -> return $ Right moduleInfo
+            Nothing -> do
+              -- Get all dependencies and process in order
+              graphResult <- liftIO $ buildCompleteImportGraph (searchPaths currentRegistry) inputPath
+              case graphResult of
+                Left err -> return $ Left err
+                Right graph -> do
+                  case validateDependencyGraph graph of
+                    Left err -> return $ Left err
+                    Right sortedFiles -> do
+                      -- Process all dependencies first
+                      results <- mapM (\path -> processModule path emptyContext) sortedFiles
+                      case partitionEithers results of
+                        (err:_, _) -> return $ Left err
+                        ([], processed) -> do
+                          -- Find the entry file's processed module
+                          case find (\p -> procModulePath p == filePath) processed of
+                            Nothing -> return $ Left (FileNotFound filePath (ErrorContext (initialPos filePath) "processed module lookup"))
+                            Just entryProcessed -> do
+                              -- Create ModuleInfo from the processed entry module
+                              let moduleInfo = ModuleInfo
+                                    { modulePath = filePath,
+                                      moduleAlias = Nothing,
+                                      loadedMacros = macroDefinitions (procContext entryProcessed),
+                                      loadedTheorems = theoremDefinitions (procContext entryProcessed),
+                                      exportedSymbols = procExportList entryProcessed,
+                                      importDeclarations = procImports entryProcessed
+                                    }
+                              
+                              -- Update registry
+                              modify $ \reg -> reg { loadedModules = Map.insert filePath moduleInfo (loadedModules reg) }
+                              return $ Right moduleInfo

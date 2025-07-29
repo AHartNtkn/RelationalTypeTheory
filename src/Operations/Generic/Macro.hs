@@ -24,8 +24,7 @@ import           Core.Errors
 import           Core.Syntax
 import           Operations.Generic.Shift (ShiftAst(..), shift, shiftAbove)
 import           Operations.Generic.Substitution (SubstAst(..))
-import qualified Operations.Resolve as Operations.Resolve
-import           Operations.Resolve (ResolveAst(..), ResolveEnv)
+import           Operations.Resolve (ResolveAst(..))
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import           Control.Monad.State.Strict
@@ -155,6 +154,7 @@ instance ParamInferAst Term where
         Just i -> modify (updateAt i (\paramInfo -> paramInfo{pDeps = Set.toAscList
                                                     (Set.fromList (pDeps paramInfo) `Set.union` Set.fromList stk)}))
         _      -> pure ()
+    FVar _ _ -> pure ()                  -- Free variables don't affect parameters
     App f x _     -> walkForParams idxOf stk f >> walkForParams idxOf stk x
     TMacro _ as _ -> mapM_ (walkForParams idxOf stk) as
 
@@ -171,6 +171,7 @@ instance ParamInferAst RType where
                                                     (Set.fromList (pDeps paramInfo) `Set.union` Set.fromList stk)
                                                    , pKind = RelK}))
         _      -> pure ()
+    FRVar _ _ -> pure ()                 -- Free relation variables don't affect parameters
     Arr a b _   -> walkForParams idxOf stk a >> walkForParams idxOf stk b
     Comp a b _  -> walkForParams idxOf stk a >> walkForParams idxOf stk b
     Conv r _    -> walkForParams idxOf stk r
@@ -232,6 +233,7 @@ instance ParamInferAst Proof where
         Just i -> modify (updateAt i (\paramInfo -> paramInfo{pDeps = Set.toAscList
                                                     (Set.fromList (pDeps paramInfo) `Set.union` Set.fromList stk)}))
         _      -> pure ()
+    FPVar _ _ -> pure ()                 -- Free proof variables don't affect parameters
     
     -- Recursive cases
     AppP p1 p2 _       -> walkForParams idxOf stk p1 >> walkForParams idxOf stk p2
@@ -320,19 +322,18 @@ substituteArgsG sig actuals =
 
 elabMacroAppG
   :: (MacroAst a, ResolveAst a)
-  => MacroEnvironment
-  -> ResolveEnv          -- ^ resolve environment for free variables
+  => Context             -- ^ unified context
   -> String              -- ^ macro name
   -> [ParamInfo]         -- ^ signature from environment
   -> a                   -- ^ stored macro body
   -> [a]                 -- ^ elaborated actual arguments
   -> Either RelTTError a
-elabMacroAppG macroEnv resolveEnv name sig body actuals
+elabMacroAppG ctx name sig body actuals
   | length sig /= length actuals =
       Left $ MacroArityMismatch name (length sig) (length actuals)
              (ErrorContext (initialPos "<elab>") "macro application")
   | otherwise =
       let body1 = renameBinderVarsG sig actuals body
           body2 = substituteArgsG   sig actuals body1
-          body3 = Operations.Resolve.resolveWithEnv resolveEnv body2
+          body3 = Operations.Resolve.resolveWithContext ctx body2
       in  Right body3

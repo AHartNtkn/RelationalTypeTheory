@@ -176,6 +176,7 @@ shiftTermsInRType shiftAmount = shiftTermsInRTypeAbove 0 shiftAmount
 shiftTermsInRTypeAbove :: Int -> Int -> RType -> RType
 shiftTermsInRTypeAbove cutoff shiftAmount ty = case ty of
   RVar name idx pos -> RVar name idx pos  -- Relation variables unaffected
+  FRVar _ _ -> ty                          -- Free relation variables unaffected
   RMacro name args pos -> RMacro name (map shiftMacroArg args) pos
     where shiftMacroArg = \case
             MTerm t -> MTerm t  -- Terms unaffected by relation shifting
@@ -194,6 +195,7 @@ shiftTermsInRTypeWithBoundsCheck shiftAmount = shiftTermsInRTypeAboveWithBoundsC
 shiftTermsInRTypeAboveWithBoundsCheck :: Int -> Int -> RType -> Maybe RType
 shiftTermsInRTypeAboveWithBoundsCheck cutoff shiftAmount ty = case ty of
   RVar name idx pos -> Just $ RVar name idx pos
+  FRVar _ _ -> Just ty                     -- Free relation variables unaffected
   RMacro name args pos -> do
     shiftedArgs <- mapM shiftMacroArg args
     return $ RMacro name shiftedArgs pos
@@ -234,13 +236,14 @@ shiftTermExcept prot d = go 0
         | Set.member v prot -> Var v k p
         | k >= cut -> Var v (k + d) p
         | otherwise -> tm
+      FVar _ _ -> tm                       -- Free variables don't shift
       Lam v b p -> Lam v (go (cut + 1) b) p
       App f a p -> App (go cut f) (go cut a) p
       TMacro n as p -> TMacro n (map shiftMacroArg as) p
         where shiftMacroArg = \case
                 MTerm t -> MTerm (go cut t)
                 MRel r -> MRel r  -- Relations unaffected by term shifting
-                MProof p -> MProof p  -- Proofs unaffected by term shifting
+                MProof pf -> MProof pf  -- Proofs unaffected by term shifting
 
 -- | The same idea for relational types (terms appear under 'Prom').
 shiftRTypeExcept :: Set.Set String -> Int -> RType -> RType
@@ -256,7 +259,7 @@ shiftRTypeExcept prot d = go
         where shiftMacroArg = \case
                 MTerm t -> MTerm t  -- Terms unaffected by relational variable shifting
                 MRel r -> MRel (go r)
-                MProof p -> MProof p  -- Proofs unaffected by relational variable shifting
+                MProof pf -> MProof pf  -- Proofs unaffected by relational variable shifting
       other -> other
 
 -- | shiftFreeRelVars x d τ bumps indices ≥0 by d, but
@@ -269,6 +272,7 @@ shiftFreeRelVars x d = go 0
         | k == lvl && y == x -> ty -- bound occurrence
         | k >= lvl -> RVar y (k + d) p -- free variable
         | otherwise -> ty
+      FRVar _ _ -> ty                      -- Free relation variables unaffected
       All y b p -> All y (go (lvl + 1) b) p
       Arr a b p -> Arr (go lvl a) (go lvl b) p
       Comp a b p -> Comp (go lvl a) (go lvl b) p
@@ -277,5 +281,5 @@ shiftFreeRelVars x d = go 0
         where shiftMacroArg = \case
                 MTerm t -> MTerm t  -- Terms unaffected by relational variable shifting
                 MRel r -> MRel (go lvl r)
-                MProof p -> MProof p  -- Proofs unaffected by relational variable shifting
+                MProof pf -> MProof pf  -- Proofs unaffected by relational variable shifting
       Prom t p -> Prom t p

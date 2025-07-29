@@ -22,7 +22,7 @@ runFullPipeline :: String -> Either String Declaration
 runFullPipeline input = do
   case runParser rawDeclaration "test" input of
     Left parseErr -> Left $ "Parse error: " ++ errorBundlePretty parseErr
-    Right rawDecl -> case elaborate emptyCtxWithBuiltins rawDecl of
+    Right rawDecl -> case elaborate emptyContext rawDecl of
       Left elaborateErr -> Left $ "Elaboration error: " ++ show elaborateErr
       Right decl -> Right decl
 

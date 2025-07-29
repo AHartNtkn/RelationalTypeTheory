@@ -21,10 +21,8 @@ module Core.Syntax
     Binding (..),
     RelJudgment (..),
     -- * Contexts and Environments
-    TypingContext (..),
+    Context (..),
     TypeEnvironment (..),
-    MacroEnvironment (..),
-    TheoremEnvironment (..),
     -- * Module System
     ImportDeclaration (..),
     ExportDeclaration (..),
@@ -123,12 +121,25 @@ data TheoremArg
   | ProofArg Proof
   deriving (Show, Eq)
 
--- | Context for type checking, tracking bound variables and their types
-data TypingContext = TypingContext
-  { termBindings :: Map.Map String (Int, RType), -- ^ var name -> (de Bruijn index, type)
-    relBindings :: Map.Map String Int,            -- ^ rel var name -> de Bruijn index
-    proofBindings :: Map.Map String (Int, Int, RelJudgment), -- ^ proof var -> (index, termDepthWhenStored, judgment)
-    gensymCounter :: Int -- ^ counter for generating fresh variable names
+-- | Unified context for all phases: parsing, elaboration, type checking, and resolution
+data Context = Context
+  { -- Variable bindings with optional type information
+    termBindings :: Map.Map String (Int, Maybe RType), -- ^ var name -> (de Bruijn index, optional type)
+    relBindings :: Map.Map String Int,                 -- ^ rel var name -> de Bruijn index  
+    proofBindings :: Map.Map String (Int, Maybe Int, Maybe RelJudgment), -- ^ proof var -> (index, optional termDepthWhenStored, optional judgment)
+    
+    -- Depth tracking for binder nesting
+    termDepth :: Int,     -- ^ current lambda depth for terms
+    relDepth :: Int,      -- ^ current forall depth for relations  
+    proofDepth :: Int,    -- ^ current lambda depth for proofs
+    
+    -- Macro and theorem definitions (unified into context)
+    macroDefinitions :: Map.Map String MacroSig,     -- ^ macro name -> (param info, body)
+    macroFixities :: Map.Map String Fixity,          -- ^ macro name -> fixity declaration
+    theoremDefinitions :: Map.Map String ([Binding], RelJudgment, Proof), -- ^ theorem name -> (bindings, judgment, proof)
+    
+    -- Fresh variable generation
+    gensymCounter :: Int  -- ^ counter for generating fresh variable names
   }
   deriving (Show, Eq)
 
@@ -162,19 +173,6 @@ data ParamInfo = ParamInfo
 -- | Macro signature with parameter information
 type MacroSig = ([ParamInfo], MacroBody)
 
--- | Environment for macro definitions
-data MacroEnvironment = MacroEnvironment
-  { macroDefinitions :: Map.Map String MacroSig, -- ^ macro name -> (param info, body)
-    macroFixities :: Map.Map String Fixity       -- ^ macro name -> fixity declaration
-  }
-  deriving (Show, Eq)
-
--- | Environment for theorem definitions
-data TheoremEnvironment = TheoremEnvironment
-  { theoremDefinitions :: Map.Map String ([Binding], RelJudgment, Proof) -- ^ theorem name -> (bindings, judgment, proof)
-  }
-  deriving (Show, Eq)
-
 -- | Module system types
 
 -- | Type alias for module file paths
@@ -199,8 +197,8 @@ data ExportDeclaration = ExportSymbols [String] -- ^ export Symbol1, Symbol2
 data ModuleInfo = ModuleInfo
   { modulePath :: ModulePath,
     moduleAlias :: Maybe String,
-    loadedMacros :: MacroEnvironment,
-    loadedTheorems :: TheoremEnvironment,
+    loadedMacros :: Map.Map String MacroSig,
+    loadedTheorems :: Map.Map String ([Binding], RelJudgment, Proof),
     exportedSymbols :: [String], -- ^ empty list means export all
     importDeclarations :: [ImportDeclaration] -- ^ track imports for dependency graph
   }

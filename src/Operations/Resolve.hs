@@ -7,101 +7,55 @@
 module Operations.Resolve
   ( ResolveAst(..)
   , resolve
-  , resolveWithEnv
-  , ResolveEnv(..)
-  , fromElaborateContext
-  , fromTypingContext
   ) where
 
 import qualified Data.Map as Map
 import Core.Syntax
-import Parser.Context (ElaborateContext)
-import qualified Parser.Context as PC
 import Core.Context
-
--- | Type for tracking binder depth and variable mappings
-type ResolveContext = Map.Map String Int  -- variable name -> index (relative to binder)
-
--- | Context for tracking all three kinds of binders
-data ResolveEnv = ResolveEnv
-  { termDepth :: Int
-  , relDepth :: Int
-  , proofDepth :: Int
-  , termCtx :: ResolveContext
-  , relCtx :: ResolveContext
-  , proofCtx :: ResolveContext
-  }
-
--- | Empty resolve environment
-emptyResolveEnv :: ResolveEnv
-emptyResolveEnv = ResolveEnv 0 0 0 Map.empty Map.empty Map.empty
-
--- | Convert ElaborateContext to ResolveEnv
-fromElaborateContext :: ElaborateContext -> ResolveEnv
-fromElaborateContext ctx = ResolveEnv
-  { termDepth = PC.termDepth ctx
-  , relDepth = PC.relDepth ctx  
-  , proofDepth = PC.proofDepth ctx
-  , termCtx = PC.boundVars ctx
-  , relCtx = PC.boundRelVars ctx
-  , proofCtx = Map.map fst (PC.boundProofVars ctx)  -- Extract just the index from (index, judgment)
-  }
-
--- | Convert TypingContext to ResolveEnv  
-fromTypingContext :: TypingContext -> ResolveEnv
-fromTypingContext ctx = ResolveEnv
-  { termDepth = Map.size (termBindings ctx)
-  , relDepth = Map.size (relBindings ctx)
-  , proofDepth = Map.size (proofBindings ctx)
-  , termCtx = Map.map fst (termBindings ctx)     -- Extract just the index from (index, type)
-  , relCtx = relBindings ctx                     -- Already just index
-  , proofCtx = Map.map (\(idx, _, _) -> idx) (proofBindings ctx)  -- Extract just the index from (index, termDepth, judgment)
-  }
+import Core.Raw (dummyPos)
 
 -- | Generic typeclass for resolving free variables to de Bruijn indices
 class ResolveAst a where
-  -- | Resolve free variables in the AST using the current environment
-  resolveWithEnv :: ResolveEnv -> a -> a
+  -- | Resolve free variables in the AST using the current context
+  resolveWithContext :: Context -> a -> a
 
 -- | Main entry point: resolve all free variables in an AST
 resolve :: ResolveAst a => a -> a
-resolve = resolveWithEnv emptyResolveEnv
+resolve = resolveWithContext emptyContext
 
 --------------------------------------------------------------------------------
 -- | Instance for Term
 --------------------------------------------------------------------------------
 
 instance ResolveAst Term where
-  resolveWithEnv env = \case
+  resolveWithContext ctx = \case
     Var n i p   -> Var n i p                      -- Already resolved
-    FVar n p    -> case Map.lookup n (termCtx env) of  -- Free variable to resolve
-      Just k  -> Var n (termDepth env - 1 - k) p
+    FVar n p    -> case Map.lookup n (termBindings ctx) of  -- Free variable to resolve
+      Just (i, _)  -> Var n i p
       Nothing -> error ("unbound term variable \"" ++ n ++ "\" after macro resolution")
     Lam n b p   -> 
-      let env' = env { termDepth = termDepth env + 1
-                     , termCtx = Map.insert n (termDepth env) (termCtx env) }
-      in Lam n (resolveWithEnv env' b) p
-    App f x p   -> App (resolveWithEnv env f) (resolveWithEnv env x) p
-    TMacro n as p -> TMacro n (map (resolveWithEnv env) as) p
+      let ctx' = bindTermVar n ctx
+      in Lam n (resolveWithContext ctx' b) p
+    App f x p   -> App (resolveWithContext ctx f) (resolveWithContext ctx x) p
+    TMacro n as p -> TMacro n (map (resolveWithContext ctx) as) p
 
 --------------------------------------------------------------------------------
 -- | Instance for RType
 --------------------------------------------------------------------------------
 
 instance ResolveAst RType where
-  resolveWithEnv env = \case
+  resolveWithContext ctx = \case
     RVar n i p   -> RVar n i p                     -- Already resolved
-    FRVar n p    -> case Map.lookup n (relCtx env) of   -- Free relational variable to resolve
-      Just k  -> RVar n (relDepth env - 1 - k) p
+    FRVar n p    -> case Map.lookup n (relBindings ctx) of   -- Free relational variable to resolve
+      Just i  -> RVar n i p
       Nothing -> error ("unbound relational variable \"" ++ n ++ "\"")
-    RMacro n as p -> RMacro n (map (resolveWithEnv env) as) p
-    Arr a b p    -> Arr (resolveWithEnv env a) (resolveWithEnv env b) p
+    RMacro n as p -> RMacro n (map (resolveWithContext ctx) as) p
+    Arr a b p    -> Arr (resolveWithContext ctx a) (resolveWithContext ctx b) p
     All n r p    -> 
-      let env' = env { relDepth = relDepth env + 1
-                     , relCtx = Map.insert n (relDepth env) (relCtx env) }
-      in All n (resolveWithEnv env' r) p
-    Conv r p     -> Conv (resolveWithEnv env r) p
-    Comp a b p   -> Comp (resolveWithEnv env a) (resolveWithEnv env b) p
+      let ctx' = bindRelVar n ctx
+      in All n (resolveWithContext ctx' r) p
+    Conv r p     -> Conv (resolveWithContext ctx r) p
+    Comp a b p   -> Comp (resolveWithContext ctx a) (resolveWithContext ctx b) p
     Prom t p     -> Prom (resolve t) p             -- Terms use their own resolution
 
 --------------------------------------------------------------------------------
@@ -109,51 +63,47 @@ instance ResolveAst RType where
 --------------------------------------------------------------------------------
 
 instance ResolveAst Proof where
-  resolveWithEnv env = \case
+  resolveWithContext ctx = \case
     PVar n i p -> PVar n i p                      -- Already resolved
-    FPVar n p  -> case Map.lookup n (proofCtx env) of   -- Free proof variable to resolve
-      Just k  -> PVar n (proofDepth env - 1 - k) p
+    FPVar n p  -> case Map.lookup n (proofBindings ctx) of   -- Free proof variable to resolve
+      Just (i, _, _)  -> PVar n i p
       Nothing -> error ("unbound proof variable \"" ++ n ++ "\"")
     PTheoremApp n args p -> PTheoremApp n (map resolveArg args) p
       where
         resolveArg = \case
           TermArg t  -> TermArg (resolve t)
           RelArg rt  -> RelArg (resolve rt)
-          ProofArg pr -> ProofArg (resolveWithEnv env pr)
+          ProofArg pr -> ProofArg (resolveWithContext ctx pr)
     LamP n rt pr p ->
-      let env' = env { proofDepth = proofDepth env + 1
-                     , proofCtx = Map.insert n (proofDepth env) (proofCtx env) }
-      in LamP n (resolveWithEnv env rt) (resolveWithEnv env' pr) p
-    AppP p1 p2 p   -> AppP (resolveWithEnv env p1) (resolveWithEnv env p2) p
-    TyApp pr rt p  -> TyApp (resolveWithEnv env pr) (resolveWithEnv env rt) p
+      let dummyJudgment = RelJudgment (Var "dummy" 0 (dummyPos)) (RVar "dummy" 0 (dummyPos)) (Var "dummy" 0 (dummyPos))
+          ctx' = bindProofVar n dummyJudgment ctx
+      in LamP n (resolveWithContext ctx rt) (resolveWithContext ctx' pr) p
+    AppP p1 p2 p   -> AppP (resolveWithContext ctx p1) (resolveWithContext ctx p2) p
+    TyApp pr rt p  -> TyApp (resolveWithContext ctx pr) (resolveWithContext ctx rt) p
     TyLam n pr p   -> 
-      let env' = env { relDepth = relDepth env + 1
-                     , relCtx = Map.insert n (relDepth env) (relCtx env) }
-      in TyLam n (resolveWithEnv env' pr) p
-    ConvProof t1 pr t2 p -> ConvProof (resolve t1) (resolveWithEnv env pr) (resolve t2) p
-    ConvIntro pr p -> ConvIntro (resolveWithEnv env pr) p
-    ConvElim pr p  -> ConvElim (resolveWithEnv env pr) p
+      let ctx' = bindRelVar n ctx
+      in TyLam n (resolveWithContext ctx' pr) p
+    ConvProof t1 pr t2 p -> ConvProof (resolve t1) (resolveWithContext ctx pr) (resolve t2) p
+    ConvIntro pr p -> ConvIntro (resolveWithContext ctx pr) p
+    ConvElim pr p  -> ConvElim (resolveWithContext ctx pr) p
     Iota t1 t2 p   -> Iota (resolve t1) (resolve t2) p
     RhoElim n t1 t2 p1 p2 p ->
-      let env' = env { termDepth = termDepth env + 1
-                     , termCtx = Map.insert n (termDepth env) (termCtx env)
-                     , proofCtx = Map.insert n (termDepth env) (proofCtx env) }
+      let dummyJudgment = RelJudgment (Var "dummy" 0 (dummyPos)) (RVar "dummy" 0 (dummyPos)) (Var "dummy" 0 (dummyPos))
+          ctx' = bindTermVar n (bindProofVar n dummyJudgment ctx)
       in RhoElim n (resolve t1) (resolve t2)
-           (resolveWithEnv env p1)
-           (resolveWithEnv env' p2) p
-    Pair p1 p2 p   -> Pair (resolveWithEnv env p1) (resolveWithEnv env p2) p
+           (resolveWithContext ctx p1)
+           (resolveWithContext ctx' p2) p
+    Pair p1 p2 p   -> Pair (resolveWithContext ctx p1) (resolveWithContext ctx p2) p
     Pi p1 x u v p2 p ->
-      let env' = env { proofDepth = proofDepth env + 2
-                     , termCtx = Map.insert x (termDepth env) (termCtx env)
-                     , proofCtx = Map.insert u (proofDepth env) 
-                                    (Map.insert v (proofDepth env + 1) (proofCtx env)) }
-      in Pi (resolveWithEnv env p1) x u v
-            (resolveWithEnv env' p2) p
-    PMacro n as p  -> PMacro n (map (resolveWithEnv env) as) p
+      let dummyJudgment = RelJudgment (Var "dummy" 0 (dummyPos)) (RVar "dummy" 0 (dummyPos)) (Var "dummy" 0 (dummyPos))
+          ctx' = bindTermVar x (bindProofVar u dummyJudgment (bindProofVar v dummyJudgment ctx))
+      in Pi (resolveWithContext ctx p1) x u v
+            (resolveWithContext ctx' p2) p
+    PMacro n as p  -> PMacro n (map (resolveWithContext ctx) as) p
 
 -- | MacroArg resolution instance
 instance ResolveAst MacroArg where
-  resolveWithEnv env = \case
-    MTerm t -> MTerm (resolveWithEnv env t)
-    MRel r -> MRel (resolveWithEnv env r)
-    MProof p -> MProof (resolveWithEnv env p)
+  resolveWithContext ctx = \case
+    MTerm t -> MTerm (resolveWithContext ctx t)
+    MRel r -> MRel (resolveWithContext ctx r)
+    MProof p -> MProof (resolveWithContext ctx p)

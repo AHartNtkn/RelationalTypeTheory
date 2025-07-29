@@ -1,6 +1,7 @@
 module TheoremArgValidationSpec (spec) where
 
 import qualified Data.Map as Map
+import Core.Context (emptyContext, Context)
 import Core.Errors
 import Core.Syntax
 import TypeCheck.Proof
@@ -13,14 +14,8 @@ dummyPos :: SourcePos
 dummyPos = initialPos "test"
 
 -- Helper to create empty contexts
-emptyCtx :: TypingContext
-emptyCtx = TypingContext Map.empty Map.empty Map.empty 0
-
-emptyMacroEnv :: MacroEnvironment
-emptyMacroEnv = MacroEnvironment Map.empty Map.empty
-
-emptyTheoremEnv :: TheoremEnvironment
-emptyTheoremEnv = TheoremEnvironment Map.empty
+emptyCtx :: Context
+emptyCtx = emptyContext
 
 spec :: Spec
 spec = describe "Theorem Argument Validation" $ do
@@ -28,21 +23,21 @@ spec = describe "Theorem Argument Validation" $ do
     it "validates empty argument list correctly" $ do
       let bindings = []
           args = []
-      result <- return $ checkTheoremArgs bindings args emptyCtx emptyMacroEnv emptyTheoremEnv dummyPos
+      result <- return $ checkTheoremArgs bindings args emptyCtx dummyPos
       result `shouldBe` Right []
 
     it "validates single term argument correctly" $ do
       let bindings = [TermBinding "x"]
           term = Var "a" 0 dummyPos
           args = [TermArg term]
-      result <- return $ checkTheoremArgs bindings args emptyCtx emptyMacroEnv emptyTheoremEnv dummyPos
+      result <- return $ checkTheoremArgs bindings args emptyCtx dummyPos
       result `shouldBe` Right [TermArg term]
 
     it "validates single relation argument correctly" $ do
       let bindings = [RelBinding "R"]
           rtype = RVar "S" 0 dummyPos
           args = [RelArg rtype]
-      result <- return $ checkTheoremArgs bindings args emptyCtx emptyMacroEnv emptyTheoremEnv dummyPos
+      result <- return $ checkTheoremArgs bindings args emptyCtx dummyPos
       result `shouldBe` Right [RelArg rtype]
 
     it "validates multiple mixed arguments correctly" $ do
@@ -51,14 +46,14 @@ spec = describe "Theorem Argument Validation" $ do
           rtype = RVar "S" 0 dummyPos
           term2 = Var "b" 1 dummyPos
           args = [TermArg term1, RelArg rtype, TermArg term2]
-      result <- return $ checkTheoremArgs bindings args emptyCtx emptyMacroEnv emptyTheoremEnv dummyPos
+      result <- return $ checkTheoremArgs bindings args emptyCtx dummyPos
       result `shouldBe` Right [TermArg term1, RelArg rtype, TermArg term2]
 
     it "rejects mismatched argument types" $ do
       let bindings = [TermBinding "x"]
           rtype = RVar "R" 0 dummyPos
           args = [RelArg rtype] -- Wrong type: should be TermArg
-      result <- return $ checkTheoremArgs bindings args emptyCtx emptyMacroEnv emptyTheoremEnv dummyPos
+      result <- return $ checkTheoremArgs bindings args emptyCtx dummyPos
       result `shouldSatisfy` isLeft
 
   describe "instantiateTheoremJudgment" $ do

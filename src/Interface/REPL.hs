@@ -8,12 +8,11 @@ module Interface.REPL
   )
 where
 
-import Core.Context (emptyTypingContext, extendProofContext, extendRelContext, extendTermContext, lookupMacro, lookupTerm)
+import Core.Context (extendProofContext, extendRelContext, extendTermContext, lookupMacro, lookupTerm, emptyContext, ElaborateM, extendMacroContext, extendTheoremContext)
 import Control.Monad.State
 import qualified Data.Map as Map
 import Core.Errors
 import Core.Syntax
-import Core.Environment (noMacros, noTheorems, extendMacroEnvironment)
 import Parser.Mixfix (defaultFixity)
 import Module.System (ModuleRegistry, emptyModuleRegistry, loadModuleWithDependenciesIntegrated)
 import Operations.Generic.PrettyPrint (prettyDefault)
@@ -23,11 +22,10 @@ import System.IO (hFlush, hSetEncoding, stdin, stdout, utf8)
 import Text.Megaparsec (initialPos, parse, errorBundlePretty, Parsec)
 import Operations.Generic.Expansion (expandFully, ExpansionResult(..))
 -- Parser implementation using raw parser + elaboration
-import Parser.Elaborate (elaborateDeclaration, elaborateJudgment, emptyCtxWithBuiltins)
+import Parser.Elaborate (elaborateDeclaration, elaborateJudgment)
 import qualified Operations.Generic.Elaborate as Generic
 import Parser.Raw (rawProof, rawRType, rawDeclaration, rawJudgment)
 import Data.Void (Void)
-import Parser.Context (ElaborateM)
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.Except (runExcept)
 
@@ -36,13 +34,13 @@ type Parser = Parsec Void String
 -- Helper to run ElaborateM monad with a context
 runElaborate :: ElaborateM a -> Either String a
 runElaborate action = 
-  case runExcept (runReaderT action emptyCtxWithBuiltins) of
+  case runExcept (runReaderT action emptyContext) of
     Left err -> Left (show err)
     Right result -> Right result
 
--- Parser runner that handles macro environment context
-runParserWithMacroEnv :: MacroEnvironment -> Parser a -> String -> Either String a
-runParserWithMacroEnv _env parser input = 
+-- Parser runner that handles context
+runParserWithContext :: Context -> Parser a -> String -> Either String a
+runParserWithContext _ctx parser input = 
   case parse parser "<repl>" input of
     Left err -> Left (errorBundlePretty err)
     Right result -> Right result
@@ -81,9 +79,7 @@ parseDeclaration = do
 
 -- REPL State holds the current session state
 data REPLState = REPLState
-  { replMacroEnv :: MacroEnvironment,
-    replTheoremEnv :: TheoremEnvironment,
-    replContext :: TypingContext,
+  { replContext :: Context,
     replDeclarations :: [Declaration],
     replHistory :: [String],
     replModuleRegistry :: ModuleRegistry
@@ -109,9 +105,7 @@ data REPLCommand
 initialREPLState :: REPLState
 initialREPLState =
   REPLState
-    { replMacroEnv = noMacros,
-      replTheoremEnv = noTheorems,
-      replContext = emptyTypingContext,
+    { replContext = emptyContext,
       replDeclarations = [],
       replHistory = [],
       replModuleRegistry = emptyModuleRegistry
@@ -183,50 +177,51 @@ executeREPLCommand cmd = case cmd of
       Left otherError -> return $ "Module loading error: " ++ formatError otherError
       Right (newRegistry, moduleInfo) -> do
         -- The new system already loaded all dependencies and built complete environments
+        -- Build unified context from loaded module info
+        let newContext = buildContextFromModuleInfo (replContext currentState) moduleInfo
         put $
           currentState
             { replModuleRegistry = newRegistry,
-              replMacroEnv = loadedMacros moduleInfo,
-              replTheoremEnv = loadedTheorems moduleInfo
+              replContext = newContext
             }
         return $ "Successfully loaded " ++ filename ++ " with all dependencies using graph-based loading"
   CheckProof proofStr judgmentStr -> do
     currentState <- get
-    case runParserWithMacroEnv (replMacroEnv currentState) parseProof proofStr of
+    case runParserWithContext (replContext currentState) parseProof proofStr of
       Left err -> return $ "Parse error in proof: " ++ show err
       Right proof -> do
-        case runParserWithMacroEnv (replMacroEnv currentState) parseRelJudgment judgmentStr of
+        case runParserWithContext (replContext currentState) parseRelJudgment judgmentStr of
           Left err -> return $ "Parse error in judgment: " ++ show err
           Right judgment -> do
-            case checkProof (replContext currentState) (replMacroEnv currentState) (replTheoremEnv currentState) proof judgment of
+            case checkProof (replContext currentState) proof judgment of
               Left err -> return $ "Proof checking failed: " ++ formatError err
               Right _ -> return $ "Proof is valid for judgment: " ++ prettyRelJudgment judgment
   InferProof proofStr -> do
     currentState <- get
-    case runParserWithMacroEnv (replMacroEnv currentState) parseProof proofStr of
+    case runParserWithContext (replContext currentState) parseProof proofStr of
       Left err -> return $ "Parse error: " ++ show err
       Right proof -> do
-        case inferProofType (replContext currentState) (replMacroEnv currentState) (replTheoremEnv currentState) proof of
+        case inferProofType (replContext currentState) proof of
           Left err -> return $ "Type inference failed: " ++ formatError err
           Right result -> return $ "Inferred judgment: " ++ prettyRelJudgment (resultJudgment result)
   ExpandMacro macroStr -> do
     currentState <- get
-    case runParserWithMacroEnv (replMacroEnv currentState) parseRType macroStr of
+    case runParserWithContext (replContext currentState) parseRType macroStr of
       Left err -> return $ "Parse error: " ++ show err
       Right rtype -> do
-        case expandFully (replMacroEnv currentState) rtype of
+        case expandFully (replContext currentState) rtype of
           Left err -> return $ "Expansion error: " ++ formatError err
           Right result -> return $ "Original: " ++ prettyDefault rtype ++ "\nExpanded: " ++ prettyDefault (expandedValue result)
   ShowInfo name -> do
     currentState <- get
-    let macroInfo = case lookupMacro name (replMacroEnv currentState) of
+    let macroInfo = case lookupMacro name (replContext currentState) of
           Right (params, body) ->
-            let paramStr = if null params then "" else " " ++ unwords params
+            let paramStr = if null params then "" else " " ++ unwords (map pName params)
                 bodyStr = case body of
                   TermMacro term -> prettyDefault term
                   RelMacro rtype -> prettyDefault rtype
                   ProofMacro proof -> prettyDefault proof
-                fixityStr = case Map.lookup name (macroFixities (replMacroEnv currentState)) of
+                fixityStr = case Map.lookup name (macroFixities (replContext currentState)) of
                   Nothing -> ""
                   Just fixity -> "\nFixity: " ++ show fixity
              in "Macro " ++ name ++ paramStr ++ " ≔ " ++ bodyStr ++ fixityStr
@@ -252,51 +247,64 @@ executeREPLCommand cmd = case cmd of
       else return $ unlines $ zipWith (\i command -> show (i :: Integer) ++ ": " ++ command) [1 ..] (reverse history)
   ParseDeclaration declStr -> do
     currentState <- get
-    case runParserWithMacroEnv (replMacroEnv currentState) parseDeclaration declStr of
+    case runParserWithContext (replContext currentState) parseDeclaration declStr of
       Left err -> return $ "Parse error: " ++ show err
       Right decl -> do
         let newDecls = replDeclarations currentState ++ [decl]
-        case buildMacroEnvironmentFromDeclarations newDecls of
-          Left err -> return $ "Macro environment error: " ++ show err
-          Right newMacroEnv -> do
-            case decl of
-              TheoremDef name bindings judgment proof -> do
-                let ctx = buildContextFromBindings bindings
-                case checkProof ctx newMacroEnv noTheorems proof judgment of
-                  Left err -> return $ "Proof checking error: " ++ show err
-                  Right _ -> do
-                    put $ currentState {replMacroEnv = newMacroEnv, replDeclarations = newDecls}
-                    return $ "Added theorem: " ++ name
-              MacroDef name _ _ -> do
-                put $ currentState {replMacroEnv = newMacroEnv, replDeclarations = newDecls}
-                return $ "Added macro: " ++ name
-              ImportDecl importDecl -> do
-                put $ currentState {replDeclarations = newDecls}
-                return $ "Import declaration processed: " ++ prettyImportDeclaration importDecl
-              ExportDecl exportDecl -> do
-                put $ currentState {replDeclarations = newDecls}
-                return $ "Export declaration processed: " ++ prettyExportDeclaration exportDecl
-              FixityDecl fixity name -> do
-                put $ currentState {replMacroEnv = newMacroEnv, replDeclarations = newDecls}
-                return $ "Added fixity declaration: " ++ show fixity ++ " " ++ name
+        case decl of
+          TheoremDef name bindings judgment proof -> do
+            let ctx = buildContextFromBindings bindings
+            case checkProof ctx proof judgment of
+              Left err -> return $ "Proof checking error: " ++ show err
+              Right _ -> do
+                let newContext = extendTheoremContext name bindings judgment proof (replContext currentState)
+                put $ currentState {replContext = newContext, replDeclarations = newDecls}
+                return $ "Added theorem: " ++ name
+          MacroDef name params body -> do
+            -- Convert string params to ParamInfo (simplified)
+            let paramInfos = map (\paramName -> ParamInfo paramName (inferParamKind body) False []) params
+                newContext = extendMacroContext name paramInfos body (defaultFixity name) (replContext currentState)
+            put $ currentState {replContext = newContext, replDeclarations = newDecls}
+            return $ "Added macro: " ++ name
+          ImportDecl importDecl -> do
+            put $ currentState {replDeclarations = newDecls}
+            return $ "Import declaration processed: " ++ prettyImportDeclaration importDecl
+          ExportDecl exportDecl -> do
+            put $ currentState {replDeclarations = newDecls}
+            return $ "Export declaration processed: " ++ prettyExportDeclaration exportDecl
+          FixityDecl fixity name -> do
+            -- Update fixity in context
+            let newContext = (replContext currentState) { macroFixities = Map.insert name fixity (macroFixities (replContext currentState)) }
+            put $ currentState {replContext = newContext, replDeclarations = newDecls}
+            return $ "Added fixity declaration: " ++ show fixity ++ " " ++ name
 
--- Build macro environment from declarations (helper function)
-buildMacroEnvironmentFromDeclarations :: [Declaration] -> Either RelTTError MacroEnvironment
-buildMacroEnvironmentFromDeclarations decls = do
-  let env = foldr addMacro noMacros decls
-  return env
+-- Build unified context from ModuleInfo (helper function)
+buildContextFromModuleInfo :: Context -> ModuleInfo -> Context
+buildContextFromModuleInfo baseContext moduleInfo = 
+  let macros = loadedMacros moduleInfo
+      theorems = loadedTheorems moduleInfo
+      -- Extend base context with macros
+      contextWithMacros = Map.foldrWithKey addMacro baseContext macros
+      -- Extend with theorems  
+      contextWithTheorems = Map.foldrWithKey addTheorem contextWithMacros theorems
+  in contextWithTheorems
   where
-    addMacro (MacroDef name params body) env =
-      extendMacroEnvironment name params body (defaultFixity name) env
-    addMacro _ env = env
+    addMacro name (params, body) ctx = extendMacroContext name params body (defaultFixity name) ctx
+    addTheorem name (bindings, judgment, proof) ctx = extendTheoremContext name bindings judgment proof ctx
 
 -- Build context from bindings (helper function)
-buildContextFromBindings :: [Binding] -> TypingContext
-buildContextFromBindings bindings = foldl addBinding emptyTypingContext bindings
+buildContextFromBindings :: [Binding] -> Context
+buildContextFromBindings bindings = foldl addBinding emptyContext bindings
   where
     addBinding ctx (TermBinding name) = extendTermContext name (RMacro "Type" [] (initialPos "<repl>")) ctx
     addBinding ctx (RelBinding name) = extendRelContext name ctx
     addBinding ctx (ProofBinding name judgment) = extendProofContext name judgment ctx
+
+-- Helper function to infer parameter kind from macro body
+inferParamKind :: MacroBody -> VarKind
+inferParamKind (TermMacro _) = TermK
+inferParamKind (RelMacro _) = RelK  
+inferParamKind (ProofMacro _) = ProofK
 
 -- Main REPL loop
 runREPL :: IO ()

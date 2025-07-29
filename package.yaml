@@ -49,10 +49,8 @@ library:
   - Core.Syntax
   - Core.Raw
   - Core.Context
-  - Core.Environment
   - Core.Errors
   # Operations modules
-  - Operations.Builtins
   - Operations.Generic.BetaEta
   - Operations.Generic.Equality
   - Operations.Generic.Expansion
@@ -65,7 +63,6 @@ library:
   - Parser.Lexer
   - Parser.Raw
   - Parser.Elaborate
-  - Parser.Context
   - Parser.Mixfix
   # TypeCheck modules
   - TypeCheck.Proof

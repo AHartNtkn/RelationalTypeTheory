@@ -1,7 +1,7 @@
 module REPLSpec (spec) where
 
 import Core.Context
-import Core.Environment (noMacros)
+import Core.Context (emptyContext)
 import Control.Monad.State
 import Data.List (isInfixOf)
 import Interface.REPL
@@ -12,8 +12,7 @@ spec = do
   describe "REPL State Management" $ do
     it "creates initial empty state" $ do
       let initState = initialREPLState
-      replMacroEnv initState `shouldBe` noMacros
-      replContext initState `shouldBe` emptyTypingContext
+      replContext initState `shouldBe` emptyContext
       replDeclarations initState `shouldBe` []
       replHistory initState `shouldBe` []
 

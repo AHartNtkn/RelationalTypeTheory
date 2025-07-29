@@ -20,7 +20,7 @@ class FreeVarsAst a where
   -- | Extract variable name if this node is a variable, Nothing otherwise
   extractVarName :: a -> Maybe String
   -- | Core free variable analysis (without macro handling)
-  freeVarsCore :: (MacroEnvironment -> a -> S.Set String) -> MacroEnvironment -> a -> S.Set String
+  freeVarsCore :: (Context -> a -> S.Set String) -> Context -> a -> S.Set String
   -- | Extract macro name and arguments if this is a macro application
   extractMacro :: a -> Maybe (String, [a])
 
@@ -28,13 +28,13 @@ class FreeVarsAst a where
 -- | Generic binder-aware free variable analysis
 --------------------------------------------------------------------------------
 
-freeVars :: FreeVarsAst a => MacroEnvironment -> a -> S.Set String
-freeVars env node = 
+freeVars :: FreeVarsAst a => Context -> a -> S.Set String
+freeVars ctx node = 
   case extractMacro node of
-    Nothing -> freeVarsCore freeVars env node
+    Nothing -> freeVarsCore freeVars ctx node
     Just (macroName, args) ->
-      case M.lookup macroName (macroDefinitions env) of
-        Nothing -> S.unions (map (freeVars env) args)  -- conservative fallback
+      case M.lookup macroName (macroDefinitions ctx) of
+        Nothing -> S.unions (map (freeVars ctx) args)  -- conservative fallback
         Just (sig, _) ->
           let -- Extract binder names from arguments
               binders :: M.Map Int String
@@ -53,7 +53,7 @@ freeVars env node =
                           | depIndex <- pDeps paramInfo
                           , Just binderName <- [M.lookup depIndex binders]
                           ]
-                    in S.difference (freeVars env arg) allowed
+                    in S.difference (freeVars ctx arg) allowed
                     
           in S.unions [fvArg i paramInfo arg | (i, paramInfo, arg) <- zip3 ([0..] :: [Int]) sig args]
 
@@ -69,11 +69,11 @@ instance FreeVarsAst Term where
   extractMacro (TMacro name args _) = Just (name, [t | MTerm t <- args])
   extractMacro _ = Nothing
   
-  freeVarsCore recurse env = \case
+  freeVarsCore recurse ctx = \case
     Var x _ _   -> S.singleton x
     FVar x _    -> S.singleton x          -- Free variables contribute to free variable set
-    Lam x b _   -> S.delete x (recurse env b)
-    App f a _   -> recurse env f `S.union` recurse env a
+    Lam x b _   -> S.delete x (recurse ctx b)
+    App f a _   -> recurse ctx f `S.union` recurse ctx a
     TMacro _ _ _ -> error "TMacro should be handled by extractMacro"
 
 instance FreeVarsAst RType where
@@ -84,14 +84,14 @@ instance FreeVarsAst RType where
   extractMacro (RMacro name args _) = Just (name, [r | MRel r <- args])
   extractMacro _ = Nothing
   
-  freeVarsCore recurse env = \case
+  freeVarsCore recurse ctx = \case
     RVar x _ _  -> S.singleton x
     FRVar x _   -> S.singleton x          -- Free variables contribute to free variable set
-    Arr a b _   -> recurse env a `S.union` recurse env b
-    All x t _   -> S.delete x (recurse env t)
-    Comp a b _  -> recurse env a `S.union` recurse env b
-    Conv r _    -> recurse env r
-    Prom t _    -> freeVars env t  -- delegate to term analysis
+    Arr a b _   -> recurse ctx a `S.union` recurse ctx b
+    All x t _   -> S.delete x (recurse ctx t)
+    Comp a b _  -> recurse ctx a `S.union` recurse ctx b
+    Conv r _    -> recurse ctx r
+    Prom t _    -> freeVars ctx t  -- delegate to term analysis
     RMacro _ _ _ -> error "RMacro should be handled by extractMacro"
 
 instance FreeVarsAst Proof where
@@ -102,26 +102,26 @@ instance FreeVarsAst Proof where
   extractMacro (PMacro name args _) = Just (name, [p | MProof p <- args])
   extractMacro _ = Nothing
   
-  freeVarsCore recurse env = \case
+  freeVarsCore recurse ctx = \case
     PVar x _ _          -> S.singleton x
     FPVar x _           -> S.singleton x  -- Free variables contribute to free variable set
     PTheoremApp _ args _ -> S.unions (map goArg args)
       where
         goArg = \case
-          TermArg t  -> freeVars env t
-          RelArg rt  -> freeVars env rt
-          ProofArg p -> recurse env p
-    LamP x _ b _        -> S.delete x (recurse env b)
-    AppP f a _          -> recurse env f `S.union` recurse env a
-    TyApp p _ _          -> recurse env p
-    TyLam x b _         -> S.delete x (recurse env b)
-    ConvProof _ p _ _    -> recurse env p
-    ConvIntro p _       -> recurse env p
-    ConvElim p _        -> recurse env p
+          TermArg t  -> freeVars ctx t
+          RelArg rt  -> freeVars ctx rt
+          ProofArg p -> recurse ctx p
+    LamP x _ b _        -> S.delete x (recurse ctx b)
+    AppP f a _          -> recurse ctx f `S.union` recurse ctx a
+    TyApp p _ _          -> recurse ctx p
+    TyLam x b _         -> S.delete x (recurse ctx b)
+    ConvProof _ p _ _    -> recurse ctx p
+    ConvIntro p _       -> recurse ctx p
+    ConvElim p _        -> recurse ctx p
     Iota _ _ _           -> S.empty  -- No free variables in iota
-    RhoElim x _ _ p1 p2 _ -> S.delete x (recurse env p1) `S.union` recurse env p2
-    Pair p1 p2 _        -> recurse env p1 `S.union` recurse env p2
-    Pi p1 x u v p2 _    -> recurse env p1 `S.union` S.delete x (S.delete u (S.delete v (recurse env p2)))
+    RhoElim x _ _ p1 p2 _ -> S.delete x (recurse ctx p1) `S.union` recurse ctx p2
+    Pair p1 p2 _        -> recurse ctx p1 `S.union` recurse ctx p2
+    Pi p1 x u v p2 _    -> recurse ctx p1 `S.union` S.delete x (S.delete u (S.delete v (recurse ctx p2)))
     PMacro _ _ _         -> error "PMacro should be handled by extractMacro"
 
 -- | MacroArg free variables instance
@@ -133,8 +133,8 @@ instance FreeVarsAst MacroArg where
     
   extractMacro _ = Nothing  -- MacroArgs are not macros themselves
   
-  freeVarsCore _recurse env = \case
-    MTerm t -> freeVars env t
-    MRel r -> freeVars env r  
-    MProof p -> freeVars env p
+  freeVarsCore _recurse ctx = \case
+    MTerm t -> freeVars ctx t
+    MRel r -> freeVars ctx r  
+    MProof p -> freeVars ctx p
 

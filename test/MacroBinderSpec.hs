@@ -2,11 +2,9 @@
 
 module MacroBinderSpec (spec) where
 
-import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Core.Syntax
 import Operations.Generic.Macro (renameBinderVarsG, substituteArgsG, inferParamInfosG)
-import TestHelpers (simpleTermMacro, simpleRelMacro)
 import Test.Hspec
 import Text.Megaparsec (initialPos)
 

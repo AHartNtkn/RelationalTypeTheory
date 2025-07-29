@@ -3,7 +3,7 @@ module Parser.Elaborate
   ( elaborate
   , elaborateDeclaration
   , elaborateJudgment
-  , emptyCtxWithBuiltins
+  , emptyContext
   , elaborateDeclarations
   -- Re-export generic elaborate functions for tests
   , elaborateTerm
@@ -19,24 +19,10 @@ import Core.Syntax
 import Core.Raw
 import qualified Operations.Generic.Elaborate as Generic
 import Core.Errors (RelTTError(..))
-import Parser.Context (ElaborateM, ElaborateContext(..), bindTermVar, bindRelVar, bindProofVar)
-import Operations.Builtins (macroEnvWithBuiltins)
-
-
-emptyCtxWithBuiltins :: ElaborateContext  
-emptyCtxWithBuiltins = ElaborateContext
-  { macroEnv = macroEnvWithBuiltins
-  , theoremEnv = TheoremEnvironment Map.empty
-  , termDepth = 0
-  , relDepth = 0
-  , proofDepth = 0
-  , boundVars = Map.empty
-  , boundRelVars = Map.empty
-  , boundProofVars = Map.empty
-  }
+import Core.Context (ElaborateM, bindTermVar, bindRelVar, bindProofVar, emptyContext)
 
 -- Main elaboration function
-elaborate :: ElaborateContext -> RawDeclaration
+elaborate :: Context -> RawDeclaration
           -> Either RelTTError           Declaration
 elaborate ctx rawDecl =
   runExcept (runReaderT (elaborateDeclaration rawDecl) ctx)
@@ -69,20 +55,18 @@ elaborateDeclaration (RawTheorem name bindings judgment proof) = do
 
 elaborateDeclaration (RawFixityDecl fixity name) = do
   ctx <- ask
-  let env0 = macroEnv ctx
-      env1 = env0 { macroFixities = Map.insert (nameString name) fixity
-                                         (macroFixities env0) }
-  local (\c -> c { macroEnv = env1 })
+  local (\c -> c { macroFixities = Map.insert (nameString name) fixity
+                                        (macroFixities c) })
         (pure (FixityDecl fixity (nameString name)))
 
 elaborateDeclaration (RawImportDecl (RawImportModule path)) = do
   pure (ImportDecl (ImportModule path))
 
 -- | Elaborate a list of raw declarations
-elaborateDeclarations :: ElaborateContext -> [RawDeclaration] -> Either RelTTError [Declaration]
+elaborateDeclarations :: Context -> [RawDeclaration] -> Either RelTTError [Declaration]
 elaborateDeclarations ctx rawDecls = runExcept (runReaderT (mapM elaborateDeclaration rawDecls) ctx)
 
-elaborateBindings :: [RawBinding] -> ElaborateM ([Binding], ElaborateContext)
+elaborateBindings :: [RawBinding] -> ElaborateM ([Binding], Context)
 elaborateBindings bindings = do
   ctx <- ask
   foldM elaborateBinding ([], ctx) bindings
@@ -95,7 +79,7 @@ elaborateBindings bindings = do
     elaborateBinding (acc, ctx) (RawRelBinding name) = do
       let binding = RelBinding (nameString name)
       -- Theorem parameters should NOT increment relDepth - they're just added to lookup context
-      let newCtx = ctx { boundRelVars = Map.insert (nameString name) (relDepth ctx) (boundRelVars ctx) }
+      let newCtx = bindRelVar (nameString name) ctx
       return (acc ++ [binding], newCtx)
     
     elaborateBinding (acc, ctx) (RawProofBinding name rawJudgment) = do
@@ -131,5 +115,4 @@ elaborateRType = Generic.elaborate
 
 elaborateProof :: RawProof -> ElaborateM Proof
 elaborateProof = Generic.elaborate
-
 

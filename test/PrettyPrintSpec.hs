@@ -4,27 +4,27 @@ import Control.Monad.Reader (runReader)
 import qualified Data.Map as Map
 import Core.Errors
 import Core.Syntax
-import Core.Environment (noMacros, noTheorems, extendMacroEnvironment)
+import Core.Context (emptyContext, extendMacroContext, extendRelContext)
 import Parser.Raw (rawRType)
-import Parser.Elaborate (emptyCtxWithBuiltins, elaborateRType)
+import Parser.Elaborate (elaborateRType)
 import Parser.Mixfix (defaultFixity)
-import Parser.Context (ElaborateContext(..))
+import Core.Context (Context)
 import Interface.PrettyPrint
 import Control.Monad.Reader (Reader, runReader, runReaderT)
 import Control.Monad.Except (runExcept)
 import qualified Data.Map as Map
 import Test.Hspec
-import TestHelpers
+import TestHelpers (simpleParamInfo, shouldBeEqual)
 import Text.Megaparsec (SourcePos (..), errorBundlePretty, initialPos, mkPos, runParser, Parsec)
 import Data.Void (Void)
 type ParseError = String  -- Simplified for now
 
 -- Helper to create parsing context with relation variables
-emptyParseContext :: ElaborateContext  
-emptyParseContext = emptyCtxWithBuiltins
+emptyParseContext :: Context  
+emptyParseContext = emptyContext
 
 -- Helper to run parser in context (simplified version)
-runParserT :: Parser a -> String -> String -> Reader ElaborateContext (Either String a)
+runParserT :: Parser a -> String -> String -> Reader Context (Either String a)
 runParserT parser fileName input = do
   return $ case runParser parser fileName input of
     Left err -> Left (errorBundlePretty err)
@@ -137,7 +137,7 @@ spec = do
       it "hides promotion with parenthesization when needed" $ do
         let original = Arr (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (RVar "R" 0 (initialPos "test")) (initialPos "test")
             prettyResult = prettyRType original
-            ctx = emptyParseContext {boundRelVars = Map.fromList [("R", 0)]}
+            ctx = extendRelContext "R" emptyParseContext
         -- Test that the pretty-printed result parses back to exactly the same AST
         case runReader (runParserT rawRType "" prettyResult) ctx of
           Left err -> expectationFailure $ "Pretty-printed result failed to parse: " ++ err
@@ -162,8 +162,7 @@ spec = do
       it "pretty prints relational macros with promoted terms" $ do
         let original = RMacro "Lift" [MRel (Prom (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))] (initialPos "test")
             prettyResult = prettyRType original
-            liftEnv = extendMacroEnvironment "Lift" ["A"] (RelMacro (RVar "A" 0 (initialPos "test"))) (defaultFixity "TEST") noMacros
-            ctx = emptyParseContext {macroEnv = liftEnv}
+            ctx = extendMacroContext "Lift" [simpleParamInfo "A" RelK] (RelMacro (RVar "A" 0 (initialPos "test"))) (defaultFixity "TEST") emptyParseContext
         -- Test that the pretty-printed result parses back to exactly the same AST
         case runReader (runParserT rawRType "" prettyResult) ctx of
           Left err -> expectationFailure $ "Pretty-printed result failed to parse: " ++ err

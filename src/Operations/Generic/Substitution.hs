@@ -144,10 +144,10 @@ instance SubstAst Proof where
                   MRel r -> MRel r  -- Relations unaffected by proof substitution
                   MProof p -> MProof (go depth p)
         where
-          goArg depth arg = case arg of
+          goArg depthArg arg = case arg of
             TermArg t -> TermArg t  -- Not affected by proof substitution
             RelArg r -> RelArg r    -- Not affected by proof substitution
-            ProofArg p -> ProofArg (go depth p)
+            ProofArg p -> ProofArg (go depthArg p)
 
 -- | SubstAst instance for MacroArg
 -- MacroArg substitution works by delegating to the wrapped type
@@ -211,6 +211,7 @@ extractRelSubstitutions subs =
 applyTermSubsInRType :: [(Int, Term)] -> RType -> RType
 applyTermSubsInRType termSubs rtype = case rtype of
   RVar _ _ _ -> rtype
+  FRVar _ _ -> rtype                     -- Free relation variables unaffected
   RMacro name args pos -> RMacro name (map substMacroArg args) pos
     where substMacroArg = \case
             MTerm t -> MTerm (foldl (flip $ uncurry substIndex) t termSubs)
