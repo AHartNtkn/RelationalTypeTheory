@@ -40,7 +40,6 @@ library
       Parser.Lexer
       Parser.Raw
       Parser.Elaborate
-      Parser.Mixfix
       TypeCheck.Proof
       Interface.REPL
       Module.System

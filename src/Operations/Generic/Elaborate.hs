@@ -25,9 +25,8 @@ import Core.Syntax
 import Core.Raw
 import Core.Errors
 import Core.Context
-import Operations.Generic.Mixfix (MixfixAst(..), reparseG)
+import Operations.Generic.Mixfix (MixfixAst(..), reparseG, mixfixKeywords)
 import Operations.Generic.Token (toTok, hasOperatorG)
-import Parser.Mixfix (mixfixKeywords)
 import Operations.Generic.Macro (elabMacroAppG, MacroAst(..))
 import Operations.Resolve (ResolveAst)
 

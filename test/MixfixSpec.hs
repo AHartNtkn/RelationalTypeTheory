@@ -8,7 +8,7 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Parser.Elaborate (elaborateTerm, elaborateRType)
 import Core.Context (emptyContext, Context, extendMacroContext, extendRelContext, extendTermContext)
-import Parser.Mixfix (MixfixPart(..), parseMixfixPattern, splitMixfix, holes, defaultFixity, mixfixKeywords)
+import Operations.Generic.Mixfix (MixfixPart(..), parseMixfixPattern, splitMixfix, holes, defaultFixity, mixfixKeywords)
 import Core.Syntax
 import Core.Raw
 import Parser.Raw

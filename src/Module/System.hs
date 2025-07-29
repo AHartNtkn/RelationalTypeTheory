@@ -30,7 +30,7 @@ import System.Directory (doesFileExist)
 import System.FilePath (normalise, (</>))
 import Text.Megaparsec (errorBundlePretty, initialPos)
 import Core.Context (extendMacroContext, extendTheoremContext, emptyContext)
-import Parser.Mixfix (defaultFixity)
+import Operations.Generic.Mixfix (defaultFixity)
 import Core.Errors (RelTTError(..), ErrorContext(..))
 
 -- | Module system error types (now using unified RelTTError)

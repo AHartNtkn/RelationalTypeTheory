@@ -64,7 +64,6 @@ library:
   - Parser.Lexer
   - Parser.Raw
   - Parser.Elaborate
-  - Parser.Mixfix
   # TypeCheck modules
   - TypeCheck.Proof
   # Interface modules

@@ -7,7 +7,7 @@ import Parser.Elaborate (elaborate)
 import Core.Context (emptyContext, extendMacroContext, extendTheoremContext, extendTermContext, extendRelContext, extendProofContext, lookupProof)
 import Core.Errors
 import Core.Syntax
-import Parser.Mixfix (defaultFixity)
+import Operations.Generic.Mixfix (defaultFixity)
 import Operations.Generic.BetaEta (betaEtaEquality, normalizeForBetaEta)
 import Operations.Generic.Expansion (expandFully, ExpansionResult(..))
 import Operations.Generic.Equality (alphaEquality)

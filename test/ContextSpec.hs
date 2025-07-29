@@ -6,7 +6,7 @@ import qualified Data.Map as Map
 import Core.Errors
 import Core.Syntax
 import Core.Context (emptyContext, extendMacroContext, extendTermContext, extendRelContext, extendProofContext, extendTheoremContext, lookupTerm, lookupRel, lookupProof, lookupTheorem, emptyTypeEnvironment, extendTypeEnvironment, lookupTypeVar, lookupMacro, shiftContext, isFreshInContext, contextSize, validateContext)
-import Parser.Mixfix (defaultFixity)
+import Operations.Generic.Mixfix (defaultFixity)
 import Test.Hspec
 import Text.Megaparsec (initialPos)
 

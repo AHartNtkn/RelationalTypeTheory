@@ -28,7 +28,7 @@ import Control.Monad (unless)
 import Parser.Elaborate
 import Core.Context (Context, extendTheoremContext, extendMacroContext, emptyContext, extendTermContext, extendRelContext, extendProofContext, inferParamKind, buildContextFromBindings)
 import Core.Syntax
-import Parser.Mixfix (defaultFixity)
+import Operations.Generic.Mixfix (defaultFixity)
 import qualified Core.Raw as Raw
 import Parser.Raw (parseFile)
 import Test.Hspec

@@ -10,7 +10,7 @@ import Operations.Generic.Equality (alphaEquality)
 import Operations.Generic.Substitution (substIndex)
 import Test.Hspec
 import TestHelpers (simpleParamInfo)
-import Parser.Mixfix (defaultFixity)
+import Operations.Generic.Mixfix (defaultFixity)
 import Text.Megaparsec (initialPos)
 
 -- | Normalization result to match old API

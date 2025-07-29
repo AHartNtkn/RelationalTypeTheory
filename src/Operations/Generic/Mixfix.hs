@@ -19,9 +19,16 @@ module Operations.Generic.Mixfix
     -- | Re-exported types and functions
   , Assoc(..)
   , fixM
+  , parseMixfixPattern
+  , holes
+  , defaultFixity
+  , mixfixKeywords
+  , splitMixfix
+  , MixfixPart(..)
   ) where
 
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import qualified Data.IntMap as IntMap
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe)
@@ -33,12 +40,15 @@ import Core.Syntax
 import Core.Raw
 import Core.Errors
 import Core.Context
-import Parser.Mixfix (splitMixfix, mixfixKeywords)
 import Operations.Generic.Token (ToTokenAst, toTok, Tok(..))
 
 --------------------------------------------------------------------------------
 -- | Types and data structures
 --------------------------------------------------------------------------------
+
+-- | Principled representation of mixfix pattern parts
+data MixfixPart = Hole | Literal String
+  deriving (Show, Eq)
 
 -- | Associativity for operators
 data Assoc = ALeft | ARight | ANon deriving Eq
@@ -51,6 +61,60 @@ fixM :: (Monad m, Eq a) => (a -> m a) -> a -> m a
 fixM f x = do
   x' <- f x
   if x' == x then pure x else fixM f x'
+
+--------------------------------------------------------------------------------
+-- | Mixfix pattern parsing and analysis utilities
+--------------------------------------------------------------------------------
+
+-- | Parse a mixfix identifier into its constituent parts
+-- "_+_" -> [Hole, Literal "+", Hole]
+-- "if_then_else_" -> [Literal "if", Hole, Literal "then", Hole, Literal "else", Hole]
+-- "not_" -> [Literal "not", Hole]
+-- "_!" -> [Hole, Literal "!"]
+-- "regular" -> [Literal "regular"]
+parseMixfixPattern :: String -> [MixfixPart]
+parseMixfixPattern = go
+  where
+    go [] = []
+    go ('_' : rest) = Hole : go rest
+    go str =
+      let (literal, rest) = span (/= '_') str
+       in if null literal
+            then go rest
+            else Literal literal : go rest
+
+-- | Count the number of holes in a mixfix pattern
+holes :: String -> Int
+holes = length . filter isHole . parseMixfixPattern
+  where
+    isHole Hole = True
+    isHole _ = False
+
+-- | Extract just the literal parts from a mixfix pattern (for backward compatibility)
+splitMixfix :: String -> [String]
+splitMixfix = map extractLiteral . filter isLiteral . parseMixfixPattern
+  where
+    isLiteral (Literal _) = True
+    isLiteral _ = False
+    extractLiteral (Literal s) = s
+    extractLiteral _ = error "extractLiteral called on non-literal"
+
+-- | Default fixity for macros based on hole count and position
+defaultFixity :: String -> Fixity
+defaultFixity name 
+  | head name == '_' && last name == '_' = Infixl 6
+  | head name == '_' = Postfix 8
+  | last name == '_' = Prefix 9
+  | otherwise = Closed 9
+
+mixfixKeywords :: Context -> Set.Set String
+mixfixKeywords ctx =
+  Set.fromList
+    . filter (not . null)
+    . concatMap splitMixfix
+    . filter ('_' `elem`) -- Only process mixfix patterns (containing underscores)
+    . Map.keys
+    $ macroDefinitions ctx
 
 --------------------------------------------------------------------------------
 -- | Typeclass for AST nodes that support mixfix operator processing  

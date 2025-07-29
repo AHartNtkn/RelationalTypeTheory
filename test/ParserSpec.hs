@@ -7,7 +7,7 @@ import Control.Monad.Except
 import qualified Data.Map as Map
 import Core.Syntax
 import Core.Context (emptyContext, extendMacroContext)
-import Parser.Mixfix (defaultFixity)
+import Operations.Generic.Mixfix (defaultFixity)
 import Parser.Raw
 import Parser.Elaborate (elaborateTerm, elaborateRType, elaborateProof, elaborateDeclaration)
 import Core.Context

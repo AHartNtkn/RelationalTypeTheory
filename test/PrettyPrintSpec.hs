@@ -7,7 +7,7 @@ import Core.Syntax
 import Core.Context (emptyContext, extendMacroContext, extendRelContext)
 import Parser.Raw (rawRType)
 import Parser.Elaborate (elaborateRType)
-import Parser.Mixfix (defaultFixity)
+import Operations.Generic.Mixfix (defaultFixity)
 import Core.Context (Context)
 import Operations.Generic.PrettyPrint
 import Control.Monad.Reader (Reader, runReader, runReaderT)

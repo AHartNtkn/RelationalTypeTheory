@@ -4,7 +4,7 @@ import Core.Context (emptyContext, extendTheoremContext, extendMacroContext, bui
 import Control.Monad (when)
 import Core.Errors (formatError, RelTTError(..), ErrorContext(..))
 import Core.Syntax
-import Parser.Mixfix (defaultFixity)
+import Operations.Generic.Mixfix (defaultFixity)
 import Module.System (parseModuleWithDependencies)
 import Parser.Elaborate (elaborate)
 import qualified Core.Raw as Raw

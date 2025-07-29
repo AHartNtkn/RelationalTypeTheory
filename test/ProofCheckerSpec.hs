@@ -7,7 +7,7 @@ import qualified Data.Map as Map
 import Core.Errors
 import Core.Raw (RawDeclaration(..))
 import Core.Syntax
-import Parser.Mixfix (defaultFixity)
+import Operations.Generic.Mixfix (defaultFixity)
 import Parser.Raw (rawDeclaration)
 import Parser.Elaborate (elaborate)
 import TypeCheck.Proof

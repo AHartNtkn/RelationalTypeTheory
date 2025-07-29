@@ -27,7 +27,7 @@ import Parser.Raw (rawProof, rawRType, rawDeclaration, rawJudgment)
 import Data.Void (Void)
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.Except (runExcept)
-import Parser.Mixfix (defaultFixity)
+import Operations.Generic.Mixfix (defaultFixity)
 
 type Parser = Parsec Void String
 

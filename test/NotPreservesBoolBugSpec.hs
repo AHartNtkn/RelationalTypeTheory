@@ -6,7 +6,7 @@ import Core.Context
 import Core.Syntax
 import Core.Context (emptyContext, extendMacroContext)
 import Operations.Generic.Expansion (expandFully)
-import Parser.Mixfix (defaultFixity)
+import Operations.Generic.Mixfix (defaultFixity)
 import TypeCheck.Proof
 import Test.Hspec
 import TestHelpers (buildContextFromDeclarations, buildContextFromBindings, simpleParamInfo, parseFileDeclarations)

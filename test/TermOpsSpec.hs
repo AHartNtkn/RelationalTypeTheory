@@ -6,7 +6,7 @@ import Core.Errors
 import Core.Syntax
 import Core.Context (extendMacroContext, emptyContext)
 import Operations.Generic.Expansion (expandFully, expandWHNF, ExpansionResult(..))
-import Parser.Mixfix (defaultFixity)
+import Operations.Generic.Mixfix (defaultFixity)
 import Test.Hspec
 import Text.Megaparsec (initialPos)
 
