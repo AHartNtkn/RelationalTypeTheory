@@ -28,8 +28,10 @@ import Core.Errors (RelTTError(..))
 class SubstInto a b where
   -- | Substitute de Bruijn index with replacement (capture-avoiding)
   substIndex :: Int -> a -> b -> b
-  -- | Substitute free variable by name with replacement
-  substFreeVar :: String -> a -> b -> b
+  -- | Apply multiple renamings and substitutions in a single pass
+  -- First argument: bound variable renamings [(oldName, newName)]  
+  -- Second argument: free variable substitutions [(varName, replacement)]
+  substBatch :: [(String, String)] -> [(String, a)] -> b -> b
 
 --------------------------------------------------------------------------------
 -- | Core AST operations typeclass
@@ -62,15 +64,21 @@ instance SubstInto Term Term where
                   MRel r -> MRel r
                   MProof p -> MProof p
 
-  substFreeVar targetName replacement = go
+  substBatch renamings substitutions = go
     where
       go term = case term of
-        FVar name pos | name == targetName -> replacement
-        FVar{} -> term
+        FVar name pos -> 
+          case lookup name substitutions of
+            Just replacement -> replacement
+            Nothing -> term
         Var{} -> term
-        Lam n b p -> Lam n (go b) p
-        App l r p -> App (go l) (go r) p
-        TMacro n as p -> TMacro n (map substMacroArg as) p
+        Lam name body pos -> 
+          let newName = case lookup name renamings of
+                         Just renamed -> renamed
+                         Nothing -> name
+          in Lam newName (go body) pos
+        App t1 t2 pos -> App (go t1) (go t2) pos
+        TMacro name args pos -> TMacro name (map substMacroArg args) pos
           where substMacroArg = \case
                   MTerm t -> MTerm (go t)
                   MRel r -> MRel r
@@ -97,42 +105,52 @@ instance SubstInto RType RType where
         Comp r1 r2 pos -> Comp (go depth r1) (go depth r2) pos
         Prom term pos -> Prom term pos
 
-  substFreeVar targetName replacement = go
+  substBatch renamings substitutions = go
     where
       go rt = case rt of
-        FRVar name pos | name == targetName -> replacement
-        FRVar{} -> rt
+        FRVar name pos -> 
+          case lookup name substitutions of
+            Just replacement -> replacement
+            Nothing -> rt
         RVar{} -> rt
-        RMacro n as p -> RMacro n (map substMacroArg as) p
+        RMacro name args pos -> RMacro name (map substMacroArg args) pos
           where substMacroArg = \case
                   MTerm t -> MTerm t
                   MRel r -> MRel (go r)
                   MProof p -> MProof p
-        Arr a b p -> Arr (go a) (go b) p
-        All n r p -> All n (go r) p
-        Conv r p -> Conv (go r) p
-        Comp a b p -> Comp (go a) (go b) p
-        Prom t p -> Prom t p
+        Arr r1 r2 pos -> Arr (go r1) (go r2) pos
+        All name r pos -> 
+          let newName = case lookup name renamings of
+                         Just renamed -> renamed
+                         Nothing -> name
+          in All newName (go r) pos
+        Conv r pos -> Conv (go r) pos
+        Comp r1 r2 pos -> Comp (go r1) (go r2) pos
+        Prom term pos -> Prom term pos
 
 -- | Substitute terms into relation types (for promoted terms)
 instance SubstInto Term RType where
   substIndex _ _ rtype = rtype  -- de Bruijn substitution doesn't cross type boundaries
   
-  substFreeVar targetName replacement = go
+  substBatch renamings substitutions = go
     where
       go rt = case rt of
         RVar _ _ _ -> rt
         FRVar _ _ -> rt
         RMacro name args pos -> RMacro name (map substMacroArg args) pos
           where substMacroArg = \case
-                  MTerm t -> MTerm (substFreeVar targetName replacement t)
+                  MTerm t -> MTerm (substBatch renamings substitutions t)
                   MRel r -> MRel (go r)
                   MProof p -> MProof p
         Arr r1 r2 pos -> Arr (go r1) (go r2) pos
-        All name r pos -> All name (go r) pos
+        All name r pos -> 
+          let newName = case lookup name renamings of
+                         Just renamed -> renamed
+                         Nothing -> name
+          in All newName (go r) pos
         Conv r pos -> Conv (go r) pos
         Comp r1 r2 pos -> Comp (go r1) (go r2) pos
-        Prom term pos -> Prom (substFreeVar targetName replacement term) pos
+        Prom term pos -> Prom (substBatch renamings substitutions term) pos
 
 -- | Substitute proofs into proofs
 instance SubstInto Proof Proof where
@@ -158,23 +176,47 @@ instance SubstInto Proof Proof where
         PTheoremApp name args pos -> PTheoremApp name args pos
         PMacro name args pos -> PMacro name args pos
 
-  substFreeVar targetName replacement = go
+  substBatch renamings substitutions = go
     where
       go pr = case pr of
-        FPVar name pos | name == targetName -> replacement
-        FPVar{} -> pr
+        FPVar name pos -> 
+          case lookup name substitutions of
+            Just replacement -> replacement
+            Nothing -> pr
         PVar{} -> pr
-        LamP n t b p -> LamP n t (go b) p
-        TyLam n b p -> TyLam n (go b) p
-        RhoElim x t u p1 p2 p -> RhoElim x t u (go p1) (go p2) p
-        Pi p1 x u v p2 p -> Pi (go p1) x u v (go p2) p
-        AppP l r p -> AppP (go l) (go r) p
-        TyApp q t p -> TyApp (go q) t p
-        ConvProof t q u p -> ConvProof t (go q) u p
-        ConvIntro q p -> ConvIntro (go q) p
-        ConvElim q p -> ConvElim (go q) p
-        Pair l r p -> Pair (go l) (go r) p
-        PMacro n as p -> PMacro n as p
+        LamP name ty body pos -> 
+          let newName = case lookup name renamings of
+                         Just renamed -> renamed
+                         Nothing -> name
+          in LamP newName ty (go body) pos
+        TyLam name body pos -> 
+          let newName = case lookup name renamings of
+                         Just renamed -> renamed
+                         Nothing -> name
+          in TyLam newName (go body) pos
+        RhoElim x t1 t2 p1 p2 pos -> 
+          let newX = case lookup x renamings of
+                      Just renamed -> renamed
+                      Nothing -> x
+          in RhoElim newX t1 t2 (go p1) (go p2) pos
+        Pi p1 x u v p2 pos -> 
+          let newX = case lookup x renamings of
+                      Just renamed -> renamed
+                      Nothing -> x
+              newU = case lookup u renamings of
+                      Just renamed -> renamed
+                      Nothing -> u
+              newV = case lookup v renamings of
+                      Just renamed -> renamed
+                      Nothing -> v
+          in Pi (go p1) newX newU newV (go p2) pos
+        AppP p1 p2 pos -> AppP (go p1) (go p2) pos
+        TyApp p ty pos -> TyApp (go p) ty pos
+        ConvProof t1 p t2 pos -> ConvProof t1 (go p) t2 pos
+        ConvIntro p pos -> ConvIntro (go p) pos
+        ConvElim p pos -> ConvElim (go p) pos
+        Pair p1 p2 pos -> Pair (go p1) (go p2) pos
+        PMacro name args pos -> PMacro name args pos
         other -> other
 
 -- | Substitute MacroArgs into MacroArgs
@@ -190,16 +232,16 @@ instance SubstInto MacroArg MacroArg where
       MProof repl -> MProof (substIndex targetIdx repl p)
       _ -> MProof p
 
-  substFreeVar targetName replacement = \case
-    MTerm t -> case replacement of
-      MTerm repl -> MTerm (substFreeVar targetName repl t)
-      _ -> MTerm t
-    MRel r -> case replacement of
-      MRel repl -> MRel (substFreeVar targetName repl r)
-      _ -> MRel r
-    MProof p -> case replacement of
-      MProof repl -> MProof (substFreeVar targetName repl p)
-      _ -> MProof p
+  substBatch renamings substitutions = \case
+    MTerm t -> case lookup "MTerm" substitutions of
+      Just (MTerm repl) -> MTerm repl
+      _ -> MTerm (substBatch renamings [(name, arg) | (name, MTerm arg) <- substitutions] t)
+    MRel r -> case lookup "MRel" substitutions of  
+      Just (MRel repl) -> MRel repl
+      _ -> MRel (substBatch renamings [(name, arg) | (name, MRel arg) <- substitutions] r)
+    MProof p -> case lookup "MProof" substitutions of
+      Just (MProof repl) -> MProof repl
+      _ -> MProof (substBatch renamings [(name, arg) | (name, MProof arg) <- substitutions] p)
 
 --------------------------------------------------------------------------------
 -- | AstCore instances
@@ -239,19 +281,17 @@ instance AstCore MacroArg where
 -- | Apply theorem argument substitutions to term using free variable substitution
 applyTheoremFreeVarSubsToTerm :: [(String, TheoremArg)] -> Term -> Either RelTTError Term
 applyTheoremFreeVarSubsToTerm subs term = 
-  return $ foldl applySub term subs
+  return $ substBatch [] termSubs term
   where
-    applySub acc (paramName, TermArg replacement) = substFreeVar paramName replacement acc
-    applySub acc (paramName, _) = acc  -- Only TermArg affects Term
+    termSubs = [(paramName, replacement) | (paramName, TermArg replacement) <- subs]
 
 -- | Apply theorem argument substitutions to relation type using free variable substitution
 applyTheoremFreeVarSubsToRType :: [(String, TheoremArg)] -> RType -> Either RelTTError RType
 applyTheoremFreeVarSubsToRType subs rtype = 
-  return $ foldl applySub rtype subs
+  return $ substBatch [] termSubs (substBatch [] relSubs rtype)
   where
-    applySub acc (paramName, RelArg replacement) = substFreeVar paramName replacement acc
-    applySub acc (paramName, TermArg replacement) = substFreeVar paramName replacement acc -- Terms into RType
-    applySub acc (paramName, _) = acc  -- ProofArg doesn't affect RType
+    relSubs = [(paramName, replacement) | (paramName, RelArg replacement) <- subs]
+    termSubs = [(paramName, replacement) | (paramName, TermArg replacement) <- subs]
 
 -- | Apply theorem substitutions to a relational judgment using free variable substitution
 applyTheoremFreeVarSubsToJudgment :: [(String, TheoremArg)] -> RelJudgment -> Either RelTTError RelJudgment

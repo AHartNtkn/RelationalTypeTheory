@@ -40,10 +40,6 @@ class (ShiftAst a, SubstInto a a, AstCore a) => MacroAst a where
   toArg       :: a -> MacroArg
   -- | Try to extract from a MacroArg (fails if wrong constructor)
   fromArg     :: MacroArg -> Maybe a
-  -- | Extract variable name from simple variable references (for bound parameters)
-  extractBoundVarName :: a -> Maybe String
-  -- | Rename bound variable names in AST (for bound parameter substitution)
-  renameBoundVar :: String -> String -> a -> a
 
 --------------------------------------------------------------------------------
 -- | Term instance
@@ -53,20 +49,6 @@ instance MacroAst Term where
   toArg = MTerm
   fromArg (MTerm t) = Just t
   fromArg _ = Nothing
-  
-  extractBoundVarName (Var name _ _) = Just name
-  extractBoundVarName (FVar name _) = Just name
-  extractBoundVarName _ = Nothing
-  
-  renameBoundVar oldName newName = go
-    where
-      go (Var name idx pos) = Var name idx pos
-      go (FVar name pos) = FVar name pos
-      go (Lam name body pos) 
-        | name == oldName = Lam newName (go body) pos
-        | otherwise = Lam name (go body) pos
-      go (App t1 t2 pos) = App (go t1) (go t2) pos
-      go (TMacro name args pos) = TMacro name args pos
 
 --------------------------------------------------------------------------------
 -- | Relational type instance  
@@ -76,23 +58,6 @@ instance MacroAst RType where
   toArg = MRel
   fromArg (MRel r) = Just r
   fromArg _ = Nothing
-  
-  extractBoundVarName (RVar name _ _) = Just name
-  extractBoundVarName (FRVar name _) = Just name
-  extractBoundVarName _ = Nothing
-  
-  renameBoundVar oldName newName = go
-    where
-      go (RVar name idx pos) = RVar name idx pos
-      go (FRVar name pos) = FRVar name pos
-      go (RMacro name args pos) = RMacro name args pos
-      go (Arr r1 r2 pos) = Arr (go r1) (go r2) pos
-      go (All name body pos)
-        | name == oldName = All newName (go body) pos
-        | otherwise = All name (go body) pos
-      go (Conv r pos) = Conv (go r) pos
-      go (Comp r1 r2 pos) = Comp (go r1) (go r2) pos
-      go (Prom t pos) = Prom t pos
 
 --------------------------------------------------------------------------------
 -- | Proof instance
@@ -103,38 +68,6 @@ instance MacroAst Proof where
   fromArg (MProof p) = Just p
   fromArg _ = Nothing
   
-  extractBoundVarName (PVar name _ _) = Just name
-  extractBoundVarName (FPVar name _) = Just name
-  extractBoundVarName _ = Nothing
-  
-  renameBoundVar oldName newName = go
-    where
-      go (PVar name idx pos) = PVar name idx pos
-      go (FPVar name pos) = FPVar name pos
-      go (PTheoremApp name args pos) = PTheoremApp name args pos
-      go (LamP name rtype body pos)
-        | name == oldName = LamP newName rtype (go body) pos
-        | otherwise = LamP name rtype (go body) pos
-      go (AppP p1 p2 pos) = AppP (go p1) (go p2) pos
-      go (TyApp proof rtype pos) = TyApp (go proof) rtype pos
-      go (TyLam name body pos)
-        | name == oldName = TyLam newName (go body) pos
-        | otherwise = TyLam name (go body) pos
-      go (ConvProof t1 proof t2 pos) = ConvProof t1 (go proof) t2 pos
-      go (ConvIntro proof pos) = ConvIntro (go proof) pos
-      go (ConvElim proof pos) = ConvElim (go proof) pos
-      go (Iota t1 t2 pos) = Iota t1 t2 pos
-      go (RhoElim name t1 t2 p1 p2 pos)
-        | name == oldName = RhoElim newName t1 t2 (go p1) (go p2) pos
-        | otherwise = RhoElim name t1 t2 (go p1) (go p2) pos
-      go (Pi p1 n1 n2 n3 p2 pos)
-        | n1 == oldName = Pi (go p1) newName n2 n3 (go p2) pos
-        | n2 == oldName = Pi (go p1) n1 newName n3 (go p2) pos
-        | n3 == oldName = Pi (go p1) n1 n2 newName (go p2) pos
-        | otherwise = Pi (go p1) n1 n2 n3 (go p2) pos
-      go (Pair p1 p2 pos) = Pair (go p1) (go p2) pos
-      go (PMacro name args pos) = PMacro name args pos
-
 --------------------------------------------------------------------------------
 -- | Typeclass for generic parameter inference
 --------------------------------------------------------------------------------
@@ -286,18 +219,20 @@ instance ParamInferAst MacroArg where
 instance MacroAst MacroArg where
   toArg = id  -- MacroArg is already the target type
   fromArg = Just  -- Any MacroArg can be converted to MacroArg
-  
-  extractBoundVarName (MTerm t) = extractBoundVarName t
-  extractBoundVarName (MRel r) = extractBoundVarName r
-  extractBoundVarName (MProof p) = extractBoundVarName p
-  
-  renameBoundVar oldName newName (MTerm t) = MTerm (renameBoundVar oldName newName t)
-  renameBoundVar oldName newName (MRel r) = MRel (renameBoundVar oldName newName r)
-  renameBoundVar oldName newName (MProof p) = MProof (renameBoundVar oldName newName p)
 
 --------------------------------------------------------------------------------
 -- | Generic helper functions
 --------------------------------------------------------------------------------
+
+-- | Extract variable name from simple variable references (for bound parameters)
+extractBoundVarName :: MacroArg -> Maybe String
+extractBoundVarName (MTerm (Var name _ _)) = Just name
+extractBoundVarName (MTerm (FVar name _)) = Just name
+extractBoundVarName (MRel (RVar name _ _)) = Just name
+extractBoundVarName (MRel (FRVar name _)) = Just name
+extractBoundVarName (MProof (PVar name _ _)) = Just name
+extractBoundVarName (MProof (FPVar name _)) = Just name
+extractBoundVarName _ = Nothing
 
 -- | Count how many parameter binders occur to the left of index j
 binderPrefixCount :: [ParamInfo] -> Int -> Int
@@ -305,17 +240,23 @@ binderPrefixCount sig j =
   length [ () | (k,ParamInfo{pBinds=True}) <- zip [0..] sig, k < j ]
 
 
--- | Free variable substitution for macro parameters
+-- | Batch macro parameter substitution (avoiding shadowing issues)
 substituteArgsG :: MacroAst a => [ParamInfo] -> [a] -> a -> a
 substituteArgsG sig actuals body = 
-  foldl doSubst body (zip sig actuals)
+  substBatch renamings substitutions body
   where
-    doSubst acc (paramInfo, arg)
-      | pBinds paramInfo = 
-          case extractBoundVarName arg of
-            Just newName -> renameBoundVar (pName paramInfo) newName acc
-            Nothing -> acc  -- malformed bound parameter, skip
-      | otherwise = substFreeVar (pName paramInfo) arg acc
+    -- Separate parameters into renamings and substitutions in single pass
+    (renamings, substitutions) = partitionParams (zip sig actuals)
+    
+    partitionParams [] = ([], [])
+    partitionParams ((paramInfo, actual) : rest) =
+      let (restRenamings, restSubsts) = partitionParams rest
+          actualArg = toArg actual
+      in if pBinds paramInfo
+         then case extractBoundVarName actualArg of
+                Just newName -> ((pName paramInfo, newName) : restRenamings, restSubsts)
+                Nothing -> (restRenamings, restSubsts)  -- malformed bound parameter, skip
+         else (restRenamings, (pName paramInfo, actual) : restSubsts)
 
 --------------------------------------------------------------------------------
 -- | Top-level macro elaborator (used by Elaborate.hs)
@@ -334,7 +275,7 @@ elabMacroAppG ctx name sig body actuals
       Left $ MacroArityMismatch name (length sig) (length actuals)
              (ErrorContext (initialPos "<elab>") "macro application")
   | otherwise = do
-      let body2 = substituteArgsG   sig actuals body
+      let body2 = substituteArgsG sig actuals body
           -- Convert arguments to MacroArgs for context extension
           macroArgs = map toArg actuals
           -- Build dependency-aware contexts
