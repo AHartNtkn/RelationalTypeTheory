@@ -110,26 +110,20 @@ expandStep env mode remainingSteps stepsSoFar ast =
             Nothing -> 
               Left $ InternalError ("Wrong macro body type for " ++ name) (ErrorContext pos "expansion")
             Just body -> do
-              -- Check arity
-              let expectedArity = length paramInfo
-                  actualArity = length args
-              if actualArity /= expectedArity
-                then Left $ MacroArityMismatch name expectedArity actualArity (ErrorContext pos "expansion")
-                else do
-                  -- Expand arguments if needed
-                  expandedArgs <- case mode of
-                    FullExpansion -> mapM (expandFully env) args >>= return . map expandedValue
-                    WeakHeadExpansion -> return args
-                  
-                  -- Use elabMacroAppG for substitution (single source of truth)
-                  substituted <- case elabMacroAppG env name paramInfo (bodyToAst @a body) expandedArgs of
-                    Right result -> return result
-                    Left err -> Left err
-                  
-                  -- Continue expansion
-                  if remainingSteps <= 1
-                    then Left $ InternalError "Macro expansion step limit exceeded" (ErrorContext pos "expansion")
-                    else expandStep env mode (remainingSteps - 1) (stepsSoFar + 1) substituted
+              -- Expand arguments if needed
+              expandedArgs <- case mode of
+                FullExpansion -> mapM (expandFully env) args >>= return . map expandedValue
+                WeakHeadExpansion -> return args
+              
+              -- Use elabMacroAppG for substitution (single source of truth for arity checking)
+              substituted <- case elabMacroAppG env name paramInfo (bodyToAst @a body) expandedArgs of
+                Right result -> return result
+                Left err -> Left err
+              
+              -- Continue expansion
+              if remainingSteps <= 1
+                then Left $ InternalError "Macro expansion step limit exceeded" (ErrorContext pos "expansion")
+                else expandStep env mode (remainingSteps - 1) (stepsSoFar + 1) substituted
     
     Nothing ->
       -- Not a macro application

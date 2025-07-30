@@ -215,11 +215,6 @@ instance ElaborateAst RawProof Proof where
 -- | Handle macro application with cross-category support
 handleMacroAppCrossCategory :: String -> [ParamInfo] -> [RawProof] -> SourcePos -> ElaborateM Proof
 handleMacroAppCrossCategory macroName params args macroPos = do
-  -- Check arity
-  when (length params /= length args) $
-    throwError $ MacroArityMismatch macroName (length params) (length args)
-                 (ErrorContext macroPos "macro application")
-  
   -- Phase 1: Extract binder variable names for dependency analysis
   let binderArgs = 
         [ if pBinds param 
@@ -322,15 +317,6 @@ handleMacroApp macroName params args macroPos = do
   let paramCount = length params
       argCount = length args
       overAppAllowed = allowOverApp @raw @typed
-  
-  -- Check arity constraints
-  if overAppAllowed
-    then when (argCount < paramCount) $
-           throwError $ MacroArityMismatch macroName paramCount argCount 
-                        (ErrorContext macroPos "macro application")
-    else when (paramCount /= argCount) $
-           throwError $ MacroArityMismatch macroName paramCount argCount
-                        (ErrorContext macroPos "macro application")
   
   -- Convert typed arguments to MacroArg
   let macroArgsToConvert = take paramCount args
