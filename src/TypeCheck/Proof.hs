@@ -60,9 +60,23 @@ inferProofType ctx proof = case proof of
       then return $ ProofCheckResult judgment ctx
       else Left $ InvalidDeBruijnIndex idx (ErrorContext pos "proof variable lookup")
 
-  -- Free proof variables should not appear in well-formed proofs
-  FPVar name pos -> 
-    Left $ InternalError ("Free proof variable " ++ name ++ " encountered during type checking") (ErrorContext pos "proof variable lookup")
+  -- Free proof variables: look up as zero-argument theorems
+  FPVar name pos -> do
+    -- Try to look up as theorem (zero-argument theorem application)
+    case lookupTheorem name ctx of
+      Right (bindings, judgment, _) -> do
+        -- Should be zero arguments for proof parameters
+        let argCount = 0
+            bindingCount = length bindings
+        if argCount > bindingCount
+          then Left $ InternalError ("Too many arguments for theorem " ++ name ++ ": expected " ++ show bindingCount ++ ", got " ++ show argCount) (ErrorContext pos "proof parameter lookup")
+          else do
+            -- No arguments to validate
+            -- No substitutions needed for zero arguments
+            return $ ProofCheckResult judgment ctx
+      Left _ -> 
+        -- Not found in theorem context - this is the original error case
+        Left $ InternalError ("Free proof variable " ++ name ++ " not found in theorem context") (ErrorContext pos "proof variable lookup")
 
   -- Theorem application rule: Γ ⊢ theorem_name args : instantiated_judgment
   PTheoremApp name args pos -> do

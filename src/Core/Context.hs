@@ -342,7 +342,13 @@ buildContextFromBindings bindings = foldl addBinding emptyContext bindings
   where
     addBinding ctx (TermBinding name) = extendTermContext name (RMacro "Type" [] (initialPos "<repl>")) ctx
     addBinding ctx (RelBinding name) = extendRelContext name ctx
-    addBinding ctx (ProofBinding name judgment) = extendProofContext name judgment ctx
+    addBinding ctx (ProofBinding name judgment) = 
+      -- Register proof parameters in both proof context (for PVar) and theorem context (for FPVar)
+      let ctxWithProof = extendProofContext name judgment ctx
+          -- Create a zero-argument theorem for this proof parameter
+          -- Use a dummy proof since we only care about the judgment for FPVar resolution
+          dummyProof = PVar name 0 (initialPos "<param>")
+      in extendTheoremContext name [] judgment dummyProof ctxWithProof
 
 -- | Helper function to infer parameter kind from macro body
 inferParamKind :: MacroBody -> VarKind

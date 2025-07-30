@@ -17,7 +17,7 @@ module Operations.Generic.Substitution
   ) where
 
 import Core.Syntax (Term(..), RType(..), Proof(..), TheoremArg(..), RelJudgment(..), Binding(..), MacroArg(..))
-import Operations.Generic.Shift (ShiftAst(..), shift)
+import Operations.Generic.Shift (shift)
 import Core.Errors (RelTTError(..))
 
 --------------------------------------------------------------------------------

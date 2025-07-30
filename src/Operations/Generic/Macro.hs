@@ -22,8 +22,8 @@ import           Text.Megaparsec                (initialPos)
 import           Core.Errors
 import           Core.Syntax
 import           Core.Context (buildDependentContexts)
-import           Operations.Generic.Shift (ShiftAst(..), shift, shiftAbove)
 import           Operations.Generic.Substitution (SubstInto(..), AstCore(..))
+import           Operations.Generic.Shift (ShiftAst(..))
 import           Operations.Resolve (ResolveAst(..))
 import qualified Data.Map as Map
 import qualified Data.Set as Set
