@@ -10,10 +10,38 @@ module Operations.Resolve
   ) where
 
 import qualified Data.Map as Map
+import Control.Monad (zipWithM)
+import Data.List (foldl')
 import Core.Syntax
 import Core.Context
 import Core.Raw (dummyPos)
 import Core.Errors
+
+-- | Resolve macro arguments using dependency-aware contexts
+resolveMacroArgs :: Context -> String -> [MacroArg] -> Either RelTTError [MacroArg]
+resolveMacroArgs ctx macroName args = do
+  case Map.lookup macroName (macroDefinitions ctx) of
+    Nothing -> Left $ UnboundMacro macroName (ErrorContext dummyPos "macro resolution")
+    Just (sig, _) -> do
+      -- Build contexts for each argument based on dependencies
+      let buildArgContext i param =
+            foldl' addBinder ctx [j | j <- pDeps param, j < length args]
+            where
+              addBinder c j 
+                | not (pBinds (sig !! j)) = c  -- Only binders contribute to context
+                | otherwise = case (pKind (sig !! j), args !! j) of
+                    (TermK, MTerm (Var n _ _)) -> bindTermVar n c
+                    (TermK, MTerm (FVar n _)) -> bindTermVar n c  
+                    (RelK, MRel (RVar n _ _)) -> bindRelVar n c
+                    (RelK, MRel (FRVar n _)) -> bindRelVar n c
+                    (ProofK, MProof (PVar n _ _)) -> bindProofVar n dummyJudgment c
+                    (ProofK, MProof (FPVar n _)) -> bindProofVar n dummyJudgment c
+                    _ -> c  -- Mismatched kinds or complex args, skip
+              dummyJudgment = RelJudgment (Var "⊥" 0 dummyPos) (RVar "⊥" 0 dummyPos) (Var "⊥" 0 dummyPos)
+      
+      argContexts <- mapM (\(i, param) -> return $ buildArgContext i param) (zip [0..] sig)
+      -- DEBUG: Show what contexts we're building
+      zipWithM resolveWithContext argContexts args
 
 -- | Generic typeclass for resolving free variables to de Bruijn indices
 class ResolveAst a where
@@ -45,7 +73,7 @@ instance ResolveAst Term where
       resolvedX <- resolveWithContext ctx x
       Right $ App resolvedF resolvedX p
     TMacro n as p -> do
-      resolvedArgs <- mapM (resolveWithContext ctx) as
+      resolvedArgs <- resolveMacroArgs ctx n as
       Right $ TMacro n resolvedArgs p
 
 --------------------------------------------------------------------------------
@@ -61,7 +89,7 @@ instance ResolveAst RType where
         Just RelK -> Right $ FRVar n p                     -- Parameter -> keep as free variable
         _ -> Left $ UnboundVariable ("unbound relational variable \"" ++ n ++ "\"") (ErrorContext p "relational type resolution")
     RMacro n as p -> do
-      resolvedArgs <- mapM (resolveWithContext ctx) as
+      resolvedArgs <- resolveMacroArgs ctx n as
       Right $ RMacro n resolvedArgs p
     Arr a b p    -> do
       resolvedA <- resolveWithContext ctx a
@@ -154,7 +182,7 @@ instance ResolveAst Proof where
       resolvedP2 <- resolveWithContext ctx' p2
       Right $ Pi resolvedP1 x u v resolvedP2 p
     PMacro n as p -> do
-      resolvedArgs <- mapM (resolveWithContext ctx) as
+      resolvedArgs <- resolveMacroArgs ctx n as
       Right $ PMacro n resolvedArgs p
 
 -- | MacroArg resolution instance
