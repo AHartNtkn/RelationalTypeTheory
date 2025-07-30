@@ -27,7 +27,7 @@ import Core.Errors
 import Core.Context
 import Operations.Generic.Mixfix (MixfixAst(..), reparseG, mixfixKeywords)
 import Operations.Generic.Token (toTok, hasOperatorG)
-import Operations.Generic.Macro (elabMacroAppG, MacroAst(..))
+import Operations.Generic.Macro (elabMacroAppG, MacroAst(..), extendContextForBinders)
 import Operations.Resolve (ResolveAst)
 
 --------------------------------------------------------------------------------
@@ -220,8 +220,25 @@ handleMacroAppCrossCategory macroName params args macroPos = do
     throwError $ MacroArityMismatch macroName (length params) (length args)
                  (ErrorContext macroPos "macro application")
   
-  -- Elaborate each argument according to its parameter kind
-  macroArgs <- zipWithM elaborateByKind args params
+  -- Phase 1: Extract binder variable names without elaboration
+  let binderArgs = 
+        [ if pBinds param 
+          then case arg of
+            RPVar name _ -> case pKind param of
+              TermK -> MTerm (FVar (nameString name) dummyPos)
+              RelK -> MRel (FRVar (nameString name) dummyPos)
+              ProofK -> MProof (FPVar (nameString name) dummyPos)
+            _ -> MProof (FPVar "placeholder" dummyPos)  -- Non-variable binder
+          else MProof (FPVar "placeholder" dummyPos)  -- Placeholder for non-binders
+        | (arg, param) <- zip args params
+        ]
+  
+  -- Extend context with binders
+  ctx <- ask
+  let extendedCtx = extendContextForBinders params binderArgs ctx
+  
+  -- Phase 2: Elaborate all arguments in the extended context
+  macroArgs <- local (const extendedCtx) $ zipWithM elaborateByKind args params
   
   -- Create the macro application
   return $ PMacro macroName macroArgs macroPos

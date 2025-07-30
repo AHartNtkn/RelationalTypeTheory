@@ -34,6 +34,7 @@ module Core.Context
     buildContextFromModuleInfo,
     buildContextFromBindings,
     inferParamKind,
+    extendContextForBinders,
   )
 where
 
@@ -46,6 +47,8 @@ import Core.Raw (dummyPos)
 import Text.Megaparsec (initialPos)
 import Control.Monad.Reader
 import Control.Monad.Except
+import           Data.List (foldl')
+
 
 -- | Built-in macro fixities
 builtinFixities :: [(String,Fixity)]
@@ -62,6 +65,7 @@ builtinFixities =
   , ("_,_"         , Infixr  1)
   , ("_⇃_⇂_"       , Prefix  4)
   , ("π_-_._._._"  , Prefix  4)
+  , ("ρ{_._,_}_-_" , Prefix  4)
   ]
 
 -- | Helper to create simple ParamInfo for non-cross-category macros
@@ -82,7 +86,8 @@ builtinMacroBodies =
   , ("Λ_._"       , [ParamInfo "X" RelK True [], ParamInfo "p" ProofK False [0]]      , ProofMacro $ TyLam "X" (PVar "p" 0 dummyPos) dummyPos)
   , ("_{_}"       , [ParamInfo "p" ProofK False [], ParamInfo "R" RelK False []]      , ProofMacro $ TyApp (PVar "p" 1 dummyPos) (RVar "R" 0 dummyPos) dummyPos)
   , ("_⇃_⇂_"      , [ParamInfo "t1" TermK False [], ParamInfo "p" ProofK False [], ParamInfo "t2" TermK False []], ProofMacro $ ConvProof (Var "t1" 2 dummyPos) (PVar "p" 1 dummyPos) (Var "t2" 0 dummyPos) dummyPos)
-  , ("π_-_._._._" , [ParamInfo "p" ProofK False [], ParamInfo "x" TermK True [], ParamInfo "u" ProofK True [1], ParamInfo "v" ProofK True [1], ParamInfo "q" ProofK False [1,2,3]], ProofMacro $ Pi (PVar "p" 4 dummyPos) "x" "u" "v" (PVar "q" 0 dummyPos) dummyPos)
+  , ("π_-_._._._" , [ParamInfo "p" ProofK False [], ParamInfo "x" TermK True [], ParamInfo "u" ProofK True [], ParamInfo "v" ProofK True [], ParamInfo "q" ProofK False [1,2,3]], ProofMacro $ Pi (PVar "p" 4 dummyPos) "x" "u" "v" (PVar "q" 0 dummyPos) dummyPos)
+  , ("ρ{_._,_}_-_" , [ParamInfo "x" TermK True [], ParamInfo "t1" TermK False [0], ParamInfo "t2" TermK False [0], ParamInfo "p" ProofK False [], ParamInfo "q" ProofK False []], ProofMacro $ RhoElim "x" (Var "t1" 3 dummyPos) (Var "t2" 2 dummyPos) (PVar "p" 1 dummyPos) (PVar "q" 0 dummyPos) dummyPos)
   ]
 
 -- | Create context with builtins loaded (standard starting point)
@@ -299,7 +304,7 @@ bindProofVar p j ctx =
       , proofDepth = proofDepth ctx + 1 }
 
 --------------------------------------------------------------------------------
--- | Context building functions (moved from Interface.REPL)
+-- | Context building functions
 --------------------------------------------------------------------------------
 
 -- | Build unified context from ModuleInfo
@@ -329,3 +334,37 @@ inferParamKind :: MacroBody -> VarKind
 inferParamKind (TermMacro _) = TermK
 inferParamKind (RelMacro _) = RelK  
 inferParamKind (ProofMacro _) = ProofK
+
+
+--------------------------------------------------------------------------------
+-- | Context extension for binders
+--------------------------------------------------------------------------------
+
+-- | Extend context with variables bound by macro parameters
+extendContextForBinders :: [ParamInfo] -> [MacroArg] -> Context -> Context
+extendContextForBinders params args ctx = 
+  foldl' extendOne ctx (zip params args)
+  where
+    extendOne :: Context -> (ParamInfo, MacroArg) -> Context
+    extendOne acc (param, arg)
+      | pBinds param = case (pKind param, extractVarName arg) of
+          (TermK, Just name) -> bindTermVar name acc
+          (RelK, Just name) -> bindRelVar name acc
+          (ProofK, Just name) -> 
+            -- For proof binders, we need a dummy judgment
+            let dummyJudgment = RelJudgment 
+                  (Var "dummy" 0 dummyPos) 
+                  (RVar "dummy" 0 dummyPos) 
+                  (Var "dummy" 0 dummyPos)
+            in bindProofVar name dummyJudgment acc
+          _ -> acc  -- Non-variable binders are errors, handled elsewhere
+      | otherwise = acc
+    
+    extractVarName :: MacroArg -> Maybe String
+    extractVarName (MTerm (Var n _ _)) = Just n
+    extractVarName (MTerm (FVar n _)) = Just n
+    extractVarName (MRel (RVar n _ _)) = Just n
+    extractVarName (MRel (FRVar n _)) = Just n
+    extractVarName (MProof (PVar n _ _)) = Just n
+    extractVarName (MProof (FPVar n _)) = Just n
+    extractVarName _ = Nothing

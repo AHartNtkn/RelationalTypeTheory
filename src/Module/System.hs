@@ -415,8 +415,6 @@ validateDependencyGraph graph = do
             Left cyclePath -> Left (CircularDependency cyclePath (ErrorContext (initialPos "<sort>") "topological sort"))
             Right sortedOrder -> Right sortedOrder
 
-
-
 -- | Parse concatenated content from multiple files as a single unit
 parseModuleWithDependencies :: [FilePath] -> ModulePath -> IO (Either ModuleLoadError [Declaration])
 parseModuleWithDependencies searchPathList entryFile = do
