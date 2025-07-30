@@ -48,7 +48,7 @@ testParseTerm tVars rVars pVars env input expected =
       boundRelVarMap = Map.fromList (zip rVars (reverse [0 .. length rVars - 1]))
       boundProofVarMap = Map.fromList [(pVar, (i, RelJudgment (Var "dummy" 0 (initialPos "test")) (RVar "dummy" 0 (initialPos "test")) (Var "dummy" 0 (initialPos "test")))) | (pVar, i) <- zip pVars (reverse [0 .. length pVars - 1])]
       elabCtx = buildTestContext env tVars rVars pVars
-   in case runParser rawTerm "test" (input) of
+   in case runParser raw "test" (input) of
         Left err -> expectationFailure $ "Raw parse failed: " ++ errorBundlePretty err
         Right rawResult -> 
           case runExcept (runReaderT (elaborateTerm rawResult) elabCtx) of
@@ -62,7 +62,7 @@ testParseRType tVars rVars pVars env input expected =
       boundRelVarMap = Map.fromList (zip rVars (reverse [0 .. length rVars - 1]))
       boundProofVarMap = Map.fromList [(pVar, (i, RelJudgment (Var "dummy" 0 (initialPos "test")) (RVar "dummy" 0 (initialPos "test")) (Var "dummy" 0 (initialPos "test")))) | (pVar, i) <- zip pVars (reverse [0 .. length pVars - 1])]
       elabCtx = buildTestContext env tVars rVars pVars
-   in case runParser rawRType "test" (input) of
+   in case runParser raw "test" (input) of
         Left err -> expectationFailure $ "Raw parse failed: " ++ errorBundlePretty err
         Right rawResult -> 
           case runExcept (runReaderT (elaborateRType rawResult) elabCtx) of
@@ -76,7 +76,7 @@ testParseProof tVars rVars pVars env input expected =
       boundRelVarMap = Map.fromList (zip rVars (reverse [0 .. length rVars - 1]))
       boundProofVarMap = Map.fromList [(pVar, (i, RelJudgment (Var "dummy" 0 (initialPos "test")) (RVar "dummy" 0 (initialPos "test")) (Var "dummy" 0 (initialPos "test")))) | (pVar, i) <- zip pVars (reverse [0 .. length pVars - 1])]
       elabCtx = buildTestContext env tVars rVars pVars
-   in case runParser rawProof "test" (input) of
+   in case runParser raw "test" (input) of
         Left err -> expectationFailure $ "Raw parse failed: " ++ errorBundlePretty err
         Right rawResult -> 
           case runExcept (runReaderT (elaborateProof rawResult) elabCtx) of
@@ -114,13 +114,13 @@ testParseFile tVars rVars pVars env input expected =
 -- Helper functions to test parsing failures for different syntactic categories
 testParseTermFailure :: String -> Expectation
 testParseTermFailure input =
-  case runParser rawTerm "test" input of
+  case runParser raw "test" input of
     Left _ -> return () -- Expected failure
     Right result -> expectationFailure $ "Expected parse failure, but got: " ++ show result
 
 testParseRTypeFailure :: String -> Expectation
 testParseRTypeFailure input =
-  case runParser rawRType "test" (input) of
+  case runParser raw "test" (input) of
     Left _ -> return () -- Expected failure
     Right result -> expectationFailure $ "Expected parse failure, but got: " ++ show result
 
@@ -131,7 +131,7 @@ testParseRTypeElaborationFailure tVars rVars pVars env input =
       boundRelVarMap = Map.fromList (zip rVars (reverse [0 .. length rVars - 1]))
       boundProofVarMap = Map.fromList [(pVar, (i, RelJudgment (Var "dummy" 0 (initialPos "test")) (RVar "dummy" 0 (initialPos "test")) (Var "dummy" 0 (initialPos "test")))) | (pVar, i) <- zip pVars (reverse [0 .. length pVars - 1])]
       elabCtx = buildTestContext env tVars rVars pVars
-   in case runParser rawRType "test" (input) of
+   in case runParser raw "test" (input) of
         Left err -> expectationFailure $ "Raw parse failed: " ++ errorBundlePretty err
         Right rawResult -> 
           case runExcept (runReaderT (elaborateRType rawResult) elabCtx) of
@@ -140,7 +140,7 @@ testParseRTypeElaborationFailure tVars rVars pVars env input =
 
 testParseProofFailure :: String -> Expectation
 testParseProofFailure input =
-  case runParser rawProof "test" (input) of
+  case runParser raw "test" (input) of
     Left _ -> return () -- Expected failure
     Right result -> expectationFailure $ "Expected parse failure, but got: " ++ show result
 
@@ -273,7 +273,7 @@ contextAwareMacroParserSpec = describe "Context-aware macro detection" $ do
     let env = createTermMacroEnv [("f", ["x", "y"])]
     -- When macro expects 2 args but gets 1, it should error in elaboration
     let elabCtx = buildTestContext env ["x"] [] []
-    case runParser rawTerm "test" "f x" of
+    case runParser raw "test" "f x" of
       Left err -> expectationFailure $ "Raw parse failed: " ++ errorBundlePretty err
       Right rawResult -> 
         case runExcept (runReaderT (elaborateTerm rawResult) elabCtx) of
@@ -333,7 +333,7 @@ advancedTermMacroScenarioSpec = describe "Advanced term macro scenarios" $ do
     let env = createTermMacroEnv [("binary", ["x", "y"]), ("ternary", ["x", "y", "z"])]
     -- Under-application (partial application) should error in elaboration
     let elabCtx = buildTestContext env ["x", "y", "z"] [] []
-    case runParser rawTerm "test" "binary x" of
+    case runParser raw "test" "binary x" of
       Left err -> expectationFailure $ "Raw parse failed: " ++ errorBundlePretty err
       Right rawResult -> 
         case runExcept (runReaderT (elaborateTerm rawResult) elabCtx) of

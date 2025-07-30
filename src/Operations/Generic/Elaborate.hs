@@ -7,21 +7,20 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 
--- | Generic elaboration infrastructure for all AST types.
--- This module unifies elaboration of RawTerm/RawRType/RawProof into Term/RType/Proof.
+-- | Unified elaboration infrastructure for all AST types.
+-- This module provides a single elaborate function that can produce any target type
+-- based on context and type inference.
 
 module Operations.Generic.Elaborate
-  ( -- * Core typeclass
-    ElaborateAst(..)
-    -- * Main elaboration function
-  , elaborate
+  ( -- * Core elaboration function
+    elaborate
   ) where
 
 import Control.Monad.Except
 import Control.Monad.Reader
 import qualified Data.Map as Map
 
-import Core.Syntax
+import Core.Syntax (Term(..), RType(..), Proof(..), MacroArg(..), MacroBody(..), ParamInfo(..), VarKind(..))
 import Core.Raw
 import Core.Errors
 import Core.Context
@@ -31,165 +30,82 @@ import Operations.Generic.Macro (elabMacroAppG, MacroAst(..))
 import Operations.Resolve (ResolveAst)
 
 --------------------------------------------------------------------------------
--- | Core typeclass for AST elaboration
+-- | Main elaboration function - context-driven typing
 --------------------------------------------------------------------------------
 
-class MixfixAst raw => ElaborateAst raw typed | raw -> typed where
-  -- | Elaborate constructor-specific cases
-  elaborateSpecial :: raw -> ElaborateM typed
-  
-  -- | Get the appropriate bound variables context (used by handleVar)
-  getBoundVarsCtx :: Context -> Map.Map String Int
-  
-  -- | Create a bound variable node (used by handleVar)
-  mkBoundVar :: String -> Int -> SourcePos -> typed
-  
-  -- | Create a free variable node (used by handleVar)
-  mkFreeVar :: String -> SourcePos -> typed
-  
-  -- | Create a macro application node (used by handleMacroApp)
-  mkMacroApp :: String -> [MacroArg] -> SourcePos -> typed
-  
-  -- | Check if a macro body has the right type (used by handleVar)
-  isValidMacroKind :: MacroBody -> Bool
-  
-  -- | Extract the body from a macro if it's the right type (used by handleExplicitMacro)
-  extractMacroBody :: MacroBody -> Maybe typed
-  
-  -- | Make an application node for over-application (used by handleMacroApp)
-  makeApp :: typed -> typed -> SourcePos -> typed
-  
-  -- | Check if over-application is allowed (used by handleMacroApp)
-  allowOverApp :: Bool
-  
-  -- | Extract variable name if this is a variable node (used by handleAppGeneric)
-  extractVarName :: raw -> Maybe String
+-- | Elaborate Raw into any target type based on context
+class ElaborateTarget a where
+  elaborate :: Raw -> ElaborateM a
 
 --------------------------------------------------------------------------------
--- | Main elaboration function
+-- | Term elaboration
 --------------------------------------------------------------------------------
 
-elaborate :: ElaborateAst raw typed => raw -> ElaborateM typed
-elaborate = elaborateSpecial
-
---------------------------------------------------------------------------------
--- | Term instance
---------------------------------------------------------------------------------
-
-instance ElaborateAst RawTerm Term where
-  getBoundVarsCtx ctx = Map.map fst (termBindings ctx)
-  mkBoundVar = Var
-  mkFreeVar = FVar
-  mkMacroApp name args pos = TMacro name args pos
-  
-  isValidMacroKind (TermMacro _) = True
-  isValidMacroKind _ = False
-  
-  extractMacroBody (TermMacro t) = Just t
-  extractMacroBody _ = Nothing
-  
-  makeApp = App
-  allowOverApp = True
-  
-  extractVarName (RTVar name _) = Just (nameString name)
-  extractVarName _ = Nothing
-  
-  elaborateSpecial = \case
-    RTVar name pos -> handleVar @RawTerm @Term name pos
+instance ElaborateTarget Term where
+  elaborate = \case
+    RawVar name pos -> handleVar name pos
     
-    RTParens inner _pos -> elaborate inner  -- Simply elaborate the inner term, parentheses preserve structure during mixfix
+    RawParens inner _pos -> elaborate inner  -- Simply elaborate the inner term
     
-    raw@(RTApp _ _ pos) -> 
-      handleAppGeneric raw pos elaborateAppLeft termMacroHandler
+    raw@(RawApp _ _ pos) -> 
+      handleAppGeneric raw pos termAppFallback termMacroHandler
       where
-        elaborateAppLeft (RTApp rawFunc rawArg _) = do
+        termAppFallback (RawApp rawFunc rawArg _) = do
           func <- elaborate rawFunc
           arg <- elaborate rawArg
           return $ App func arg pos
-        elaborateAppLeft other = elaborate other
+        termAppFallback other = elaborate other
         
         termMacroHandler args macroName params macroPos = do
           ctx <- ask
-          -- Check if it's a bound variable first
+          -- Check if it's a bound term variable first
           case Map.lookup macroName (termBindings ctx) of
-            Just _ -> elaborateAppLeft raw  -- Bound variable - use regular application
+            Just _ -> do
+              -- Bound variable - reconstruct as application and use fallback
+              let rawApp = foldl (\acc arg -> RawApp acc arg macroPos) (RawVar (Name macroName) macroPos) args
+              termAppFallback rawApp
             Nothing -> do
-              elaboratedArgs <- mapM elaborate args
-              handleMacroApp @RawTerm @Term macroName params elaboratedArgs macroPos
+              macroArgs <- elaborateArgsForMacro args params
+              return $ TMacro macroName macroArgs macroPos
     
-    RTMacro nm args pos -> handleExplicitMacro nm args pos
+    RawMacro nm args pos -> handleExplicitMacro nm args pos
 
 --------------------------------------------------------------------------------
--- | RType instance
+-- | RType elaboration  
 --------------------------------------------------------------------------------
 
-instance ElaborateAst RawRType RType where
-  getBoundVarsCtx = relBindings
-  mkBoundVar = RVar
-  mkFreeVar = FRVar
-  mkMacroApp name args pos = RMacro name args pos
-  
-  isValidMacroKind (RelMacro _) = True
-  isValidMacroKind (TermMacro _) = True  -- Terms can be promoted
-  isValidMacroKind _ = False
-  
-  extractMacroBody (RelMacro r) = Just r
-  extractMacroBody _ = Nothing
-  
-  makeApp _ _ _ = error "RType does not support application"
-  allowOverApp = False
-  
-  extractVarName (RRVar name _) = Just (nameString name)
-  extractVarName _ = Nothing
-  
-  elaborateSpecial = \case
-    RRVar name pos -> handleVar @RawRType @RType name pos
+instance ElaborateTarget RType where
+  elaborate = \case
+    RawVar name pos -> handleVar name pos
     
-    RRParens inner _pos -> elaborate inner  -- Simply elaborate the inner relation type, parentheses preserve structure during mixfix
+    RawParens inner _pos -> elaborate inner  -- Simply elaborate the inner relation type
     
-    raw@(RRApp _ _ pos) ->
-      handleAppGeneric raw pos relFallback relMacroHandler
+    raw@(RawApp _ _ pos) ->
+      handleAppGeneric raw pos relAppFallback relMacroHandler
       where
-        relFallback _ = throwError $ InvalidMixfixPattern "bare application is illegal for Rel" 
-                                   (ErrorContext pos "relational macro application")
+        relAppFallback _ = throwError $ InvalidMixfixPattern "bare application is illegal for Rel" 
+                                       (ErrorContext pos "relational macro application")
         
         relMacroHandler args macroName params macroPos = do
-          elaboratedArgs <- mapM elaborate args
-          handleMacroApp @RawRType @RType macroName params elaboratedArgs macroPos
+          macroArgs <- elaborateArgsForMacro args params
+          return $ RMacro macroName macroArgs macroPos
     
-    RRMacro nm args pos -> handleExplicitMacro nm args pos
+    RawMacro nm args pos -> handleExplicitMacro nm args pos
 
 --------------------------------------------------------------------------------
--- | Proof instance
+-- | Proof elaboration
 --------------------------------------------------------------------------------
 
-instance ElaborateAst RawProof Proof where
-  getBoundVarsCtx ctx = Map.map (\(i, _, _) -> i) (proofBindings ctx)
-  mkBoundVar = PVar
-  mkFreeVar = FPVar
-  mkMacroApp name args pos = PMacro name args pos
-  
-  isValidMacroKind (ProofMacro _) = True
-  isValidMacroKind _ = False
-  
-  extractMacroBody (ProofMacro p) = Just p
-  extractMacroBody _ = Nothing
-  
-  makeApp = AppP
-  allowOverApp = True
-  
-  extractVarName (RPVar name _) = Just (nameString name)
-  extractVarName _ = Nothing
-  
-  elaborateSpecial = \case
-    RPVar name pos -> handleVar @RawProof @Proof name pos
+instance ElaborateTarget Proof where
+  elaborate = \case
+    RawVar name pos -> handleVar name pos
     
-    RPParens inner _pos -> elaborate inner  -- Simply elaborate the inner proof, parentheses preserve structure during mixfix
+    RawParens inner _pos -> elaborate inner  -- Simply elaborate the inner proof
     
-    raw@(RPApp _ _ pos) ->
-      handleAppGeneric raw pos proofFallback proofMacroHandler
+    raw@(RawApp _ _ pos) -> 
+      handleAppGeneric raw pos proofAppFallback proofMacroHandler
       where
-        proofFallback rawApp = case flattenApps rawApp of
+        proofAppFallback rawApp = case flattenApps rawApp of
           [rawFunc, rawArg] -> do
             -- Simple binary application
             func <- elaborate rawFunc
@@ -204,22 +120,107 @@ instance ElaborateAst RawProof Proof where
                             (ErrorContext pos "proof application")
         
         proofMacroHandler args macroName params macroPos = do
-          handleMacroAppCrossCategory macroName params args macroPos
+          macroArgs <- elaborateArgsForMacro args params
+          return $ PMacro macroName macroArgs macroPos
     
-    RPMixfix nm args pos -> handleExplicitMacro nm args pos
+    RawMacro nm args pos -> handleExplicitMacro nm args pos
 
 --------------------------------------------------------------------------------
--- | Generic helpers shared across all instances
+-- | Generic helpers
 --------------------------------------------------------------------------------
 
--- | Handle macro application with cross-category support
-handleMacroAppCrossCategory :: String -> [ParamInfo] -> [RawProof] -> SourcePos -> ElaborateM Proof
-handleMacroAppCrossCategory macroName params args macroPos = do
+-- | Generic variable lookup that works for all target types
+class VarHandler a where
+  getBoundVars :: Context -> Map.Map String Int
+  mkBoundVar :: String -> Int -> SourcePos -> a
+  mkFreeVar :: String -> SourcePos -> a
+  mkMacroApp :: String -> [MacroArg] -> SourcePos -> a
+  isValidMacroKind :: MacroBody -> Bool
+
+instance VarHandler Term where
+  getBoundVars ctx = Map.map fst (termBindings ctx)
+  mkBoundVar = Var
+  mkFreeVar = FVar
+  mkMacroApp = TMacro
+  isValidMacroKind (TermMacro _) = True
+  isValidMacroKind _ = False
+
+instance VarHandler RType where
+  getBoundVars = relBindings
+  mkBoundVar = RVar
+  mkFreeVar = FRVar
+  mkMacroApp = RMacro
+  isValidMacroKind (RelMacro _) = True
+  isValidMacroKind (TermMacro _) = True  -- Terms can be promoted
+  isValidMacroKind _ = False
+
+instance VarHandler Proof where
+  getBoundVars ctx = Map.map (\(i, _, _) -> i) (proofBindings ctx)
+  mkBoundVar = PVar
+  mkFreeVar = FPVar
+  mkMacroApp = PMacro
+  isValidMacroKind (ProofMacro _) = True
+  isValidMacroKind _ = False
+
+-- | Single generic variable handler
+handleVar :: forall a. VarHandler a => Name -> SourcePos -> ElaborateM a
+handleVar name pos = do
+  ctx <- ask
+  let varName = nameString name
+      boundVarsMap = getBoundVars @a ctx
+  
+  case Map.lookup varName boundVarsMap of
+    Just bindingDepth ->
+      return $ mkBoundVar @a varName bindingDepth pos
+    Nothing -> 
+      -- Try looking up as a macro with zero arguments
+      case Map.lookup varName (macroDefinitions ctx) of
+        Just ([], macroBody) -> 
+          if isValidMacroKind @a macroBody
+            then return $ mkMacroApp @a varName [] pos
+            else throwError $ UnboundVariable 
+                   ("Wrong macro kind " ++ varName ++ " used in context") 
+                   (ErrorContext pos "variable lookup")
+        Just (params, _) -> 
+          throwError $ MacroArityMismatch varName (length params) 0 
+                       (ErrorContext pos "macro arity check")
+        Nothing -> 
+          -- Unknown variable - emit as free variable
+          return $ mkFreeVar @a varName pos
+
+-- | Generic application handler
+handleAppGeneric :: forall a. ElaborateTarget a => Raw -> SourcePos -> (Raw -> ElaborateM a) -> ([Raw] -> String -> [ParamInfo] -> SourcePos -> ElaborateM a) -> ElaborateM a
+handleAppGeneric raw pos fallback macroHandler = do
+  ctx <- ask
+  let flattened = flattenApps raw
+      ops = mixfixKeywords ctx
+      toks = map (toTok ops) flattened
+  
+  if hasOperatorG toks
+    then reparseG elaborate pos flattened
+    else case flattened of
+      (firstRaw : args) -> do
+        case extractVarName firstRaw of
+          Just macroName -> do
+            case Map.lookup macroName (macroDefinitions ctx) of
+              Nothing -> fallback raw
+              Just (params, _) -> macroHandler args macroName params pos
+          Nothing -> fallback raw
+      _ -> fallback raw
+
+-- | Extract variable name from Raw
+extractVarName :: Raw -> Maybe String
+extractVarName (RawVar name _) = Just (nameString name)
+extractVarName _ = Nothing
+
+-- | Elaborate arguments for macro based on parameter kinds
+elaborateArgsForMacro :: [Raw] -> [ParamInfo] -> ElaborateM [MacroArg]
+elaborateArgsForMacro args params = do
   -- Phase 1: Extract binder variable names for dependency analysis
   let binderArgs = 
         [ if pBinds param 
           then case arg of
-            RPVar name _ -> case pKind param of
+            RawVar name _ -> case pKind param of
               TermK -> MTerm (FVar (nameString name) dummyPos)
               RelK -> MRel (FRVar (nameString name) dummyPos)
               ProofK -> MProof (FPVar (nameString name) dummyPos)
@@ -233,113 +234,59 @@ handleMacroAppCrossCategory macroName params args macroPos = do
   let (argContexts, _) = buildDependentContexts params binderArgs ctx
   
   -- Phase 2: Elaborate each argument with its specific dependency context
-  macroArgs <- sequence 
+  sequence 
     [ local (const (argContexts !! i)) (elaborateByKind arg param)
     | (i, (arg, param)) <- zip [0..] (zip args params)
     ]
-  
-  -- Create the macro application
-  return $ PMacro macroName macroArgs macroPos
   where
-    elaborateByKind :: RawProof -> ParamInfo -> ElaborateM MacroArg
-    elaborateByKind (RPVar name pos) param = case pKind param of
-      TermK -> do
-        -- Convert to term variable and elaborate
-        term <- elaborate (RTVar name pos) :: ElaborateM Term
-        return $ MTerm term
-      RelK -> do
-        -- Convert to relation variable and elaborate
-        rel <- elaborate (RRVar name pos) :: ElaborateM RType
-        return $ MRel rel
-      ProofK -> do
-        -- Elaborate as proof
-        proof <- elaborate (RPVar name pos) :: ElaborateM Proof
-        return $ MProof proof
-    elaborateByKind arg _ = do
-      -- Non-variable: must be proof
-      proof <- elaborate arg
-      return $ MProof proof
+    elaborateByKind :: Raw -> ParamInfo -> ElaborateM MacroArg
+    elaborateByKind arg param = case extractVarName arg of
+      Just varName -> case pKind param of
+        TermK -> do
+          term <- elaborate (RawVar (Name varName) dummyPos) :: ElaborateM Term
+          return $ MTerm term
+        RelK -> do
+          rel <- elaborate (RawVar (Name varName) dummyPos) :: ElaborateM RType
+          return $ MRel rel
+        ProofK -> do
+          proof <- elaborate (RawVar (Name varName) dummyPos) :: ElaborateM Proof
+          return $ MProof proof
+      Nothing -> case pKind param of
+        TermK -> do
+          term <- elaborate arg :: ElaborateM Term
+          return $ MTerm term
+        RelK -> do
+          rel <- elaborate arg :: ElaborateM RType
+          return $ MRel rel
+        ProofK -> do
+          proof <- elaborate arg :: ElaborateM Proof
+          return $ MProof proof
 
--- | Handle variable lookup generically
-handleVar :: forall raw typed. ElaborateAst raw typed => Name -> SourcePos -> ElaborateM typed
-handleVar name pos = do
-  ctx <- ask
-  let varName = nameString name
-      boundVarsMap = getBoundVarsCtx @raw @typed ctx
-  
-  case Map.lookup varName boundVarsMap of
-    Just bindingDepth ->
-      return $ mkBoundVar @raw @typed varName bindingDepth pos
-    Nothing -> 
-      -- Try looking up as a macro with zero arguments
-      case Map.lookup varName (macroDefinitions (ctx)) of
-        Just ([], macroBody) -> 
-          if isValidMacroKind @raw @typed macroBody
-            then return $ mkMacroApp @raw @typed varName [] pos
-            else throwError $ UnboundVariable 
-                   ("Wrong macro kind " ++ varName ++ " used in context") 
-                   (ErrorContext pos "variable lookup")
-        Just (params, _) -> 
-          throwError $ MacroArityMismatch varName (length params) 0 
-                       (ErrorContext pos "macro arity check")
-        Nothing -> 
-          -- Unknown variable - emit as free variable
-          return $ mkFreeVar @raw @typed varName pos
+-- | Macro body extraction that works for all target types
+class MacroBodyExtractor a where
+  extractMacroBody :: MacroBody -> Maybe a
 
--- | Generic application handler that factors out common structure
-handleAppGeneric :: forall raw typed. (ElaborateAst raw typed, Eq raw, Show raw) 
-                 => raw 
-                 -> SourcePos 
-                 -> (raw -> ElaborateM typed)  -- ^ fallback for non-macro applications
-                 -> ([raw] -> String -> [ParamInfo] -> SourcePos -> ElaborateM typed)  -- ^ macro application handler
-                 -> ElaborateM typed
-handleAppGeneric raw pos fallback macroHandler = do
-  ctx <- ask
-  let flattened = flattenApps raw
-      ops = mixfixKeywords (ctx)
-      toks = map (toTok ops) flattened
-  
-  if hasOperatorG toks
-    then reparseG elaborate pos flattened
-    else case flattened of
-      (firstRaw : args) -> do
-        case extractVarName @raw @typed firstRaw of
-          Just macroName -> do
-            case Map.lookup macroName (macroDefinitions (ctx)) of
-              Nothing -> fallback raw
-              Just (params, _) -> macroHandler args macroName params pos
-          Nothing -> fallback raw
-      _ -> fallback raw
+instance MacroBodyExtractor Term where
+  extractMacroBody (TermMacro t) = Just t
+  extractMacroBody _ = Nothing
 
--- | Handle macro application with potential over-application
-handleMacroApp :: forall raw typed. (ElaborateAst raw typed, MacroAst typed) => String -> [ParamInfo] -> [typed] -> SourcePos -> ElaborateM typed
-handleMacroApp macroName params args macroPos = do
-  let paramCount = length params
-      argCount = length args
-      overAppAllowed = allowOverApp @raw @typed
-  
-  -- Convert typed arguments to MacroArg
-  let macroArgsToConvert = take paramCount args
-      macroArgs = map (toArg @typed) macroArgsToConvert
-  
-  -- Split arguments if over-application is allowed
-  if overAppAllowed && argCount > paramCount
-    then do
-      let extraArgs = drop paramCount args
-          macroApp = mkMacroApp @raw @typed macroName macroArgs macroPos
-      foldM (\acc arg -> return $ makeApp @raw @typed acc arg macroPos) macroApp extraArgs
-    else
-      return $ mkMacroApp @raw @typed macroName macroArgs macroPos
+instance MacroBodyExtractor RType where
+  extractMacroBody (RelMacro r) = Just r
+  extractMacroBody _ = Nothing
+
+instance MacroBodyExtractor Proof where
+  extractMacroBody (ProofMacro p) = Just p
+  extractMacroBody _ = Nothing
 
 -- | Handle explicit macro calls
-handleExplicitMacro :: forall raw typed. (ElaborateAst raw typed, MacroAst typed, ResolveAst typed) => Name -> [raw] -> SourcePos -> ElaborateM typed
+handleExplicitMacro :: forall a. (ElaborateTarget a, MacroAst a, ResolveAst a, MacroBodyExtractor a) => Name -> [Raw] -> SourcePos -> ElaborateM a
 handleExplicitMacro nm args pos = do
   let name = nameString nm
   ctx <- ask
-  case Map.lookup name (macroDefinitions (ctx)) of
+  case Map.lookup name (macroDefinitions ctx) of
     Nothing -> throwError $ UnknownMacro name (ErrorContext pos "macro lookup")
     Just (sig, macroBody) -> 
-      case extractMacroBody @raw @typed macroBody of
+      case extractMacroBody @a macroBody of
         Just body -> do
           elaboratedArgs <- mapM elaborate args
           case elabMacroAppG ctx name sig body elaboratedArgs of
@@ -350,3 +297,4 @@ handleExplicitMacro nm args pos = do
         Nothing -> throwError $ InvalidMixfixPattern 
                     ("Wrong macro kind " ++ name ++ " used in context") 
                     (ErrorContext pos "macro application")
+

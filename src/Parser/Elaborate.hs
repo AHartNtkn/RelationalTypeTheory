@@ -28,7 +28,7 @@ elaborate ctx rawDecl =
   runExcept (runReaderT (elaborateDeclaration rawDecl) ctx)
 
 elaborateDeclaration :: RawDeclaration -> ElaborateM Declaration
-elaborateDeclaration (RawMacro name params body) = do
+elaborateDeclaration (RawMacroDef name params body) = do
   ctx <- ask
   let pNames = map nameString params
 
@@ -107,12 +107,12 @@ elaborateJudgment (RawJudgment rawTerm1 rawRType rawTerm2) = do
   return $ RelJudgment term1 rtype term2
 
 -- | Re-export generic elaborate functions for tests
-elaborateTerm :: RawTerm -> ElaborateM Term
+elaborateTerm :: Raw -> ElaborateM Term
 elaborateTerm = Generic.elaborate
 
-elaborateRType :: RawRType -> ElaborateM RType
+elaborateRType :: Raw -> ElaborateM RType
 elaborateRType = Generic.elaborate
 
-elaborateProof :: RawProof -> ElaborateM Proof
+elaborateProof :: Raw -> ElaborateM Proof
 elaborateProof = Generic.elaborate
 

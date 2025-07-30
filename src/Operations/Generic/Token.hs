@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 
 -- | Generic token conversion for mixfix parsing.
--- This module eliminates the duplication between toTokT, toTokR, and toTokP functions.
+-- This module uses the unified Raw type instead of separate raw types.
 
 module Operations.Generic.Token
   ( -- * Typeclass
@@ -14,7 +14,7 @@ module Operations.Generic.Token
 
 import qualified Data.Set as S
 import Text.Megaparsec (SourcePos)
-import Core.Raw (Name(..), RawTerm(..), RawRType(..), RawProof(..))
+import Core.Raw (Name(..), Raw(..))
 
 -- | Token type for mixfix parsing
 data Tok a = TV a                        -- operand
@@ -50,20 +50,10 @@ hasOperatorG = any isOp
     isOp _ = False
 
 --------------------------------------------------------------------------------
--- | Instances for Raw AST types
+-- | Instance for unified Raw AST type
 --------------------------------------------------------------------------------
 
-instance ToTokenAst RawTerm where
+instance ToTokenAst Raw where
   extractVarInfo = \case
-    RTVar name pos -> Just (name, pos)
-    _ -> Nothing
-
-instance ToTokenAst RawRType where  
-  extractVarInfo = \case
-    RRVar name pos -> Just (name, pos)
-    _ -> Nothing
-
-instance ToTokenAst RawProof where
-  extractVarInfo = \case
-    RPVar name pos -> Just (name, pos)
+    RawVar name pos -> Just (name, pos)
     _ -> Nothing

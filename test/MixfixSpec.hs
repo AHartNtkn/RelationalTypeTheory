@@ -45,7 +45,7 @@ mixfixIdentifier = ident
 parseRTypeWithEnv :: Context -> [(String, Int)] -> String -> Either String RType
 parseRTypeWithEnv env relVars input =
   let ctxWithVars = foldr (\(name, _) acc -> extendRelContext name acc) env (reverse relVars)
-   in case runParser rawRType "test" (input) of
+   in case runParser raw "test" (input) of
         Left parseErr -> Left $ errorBundlePretty parseErr
         Right raw ->
           case runExcept (runReaderT (elaborateRType raw) ctxWithVars) of
@@ -130,25 +130,25 @@ fixityDeclSpec = describe "Fixity declaration parsing" $ do
 mixfixRawMacroSpec :: Spec
 mixfixRawMacroSpec = describe "Mixfix macro definition parsing" $ do
   it "parses binary infix macros with auto-parameters" $ do
-    testParseDecl "_+_ a b ≔ a;" (RawMacro (Name "_+_") [Name "a", Name "b"] (RawTermBody (RTVar (Name "a") (initialPos "test"))))
+    testParseDecl "_+_ a b ≔ a;" (RawMacroDef (Name "_+_") [Name "a", Name "b"] (RawTermBody (RawVar (Name "a") (initialPos "test"))))
 
   it "parses ternary mixfix macros with auto-parameters" $ do
     testParseDecl
       "if_then_else_ c t e ≔ t;"
-      ( RawMacro
+      ( RawMacroDef
           (Name "if_then_else_")
           [Name "c", Name "t", Name "e"]
-          (RawTermBody (RTVar (Name "t") (initialPos "test")))
+          (RawTermBody (RawVar (Name "t") (initialPos "test")))
       )
 
   it "parses prefix macros" $ do
-    testParseDecl "not_ b ≔ b;" (RawMacro (Name "not_") [Name "b"] (RawTermBody (RTVar (Name "b") (initialPos "test"))))
+    testParseDecl "not_ b ≔ b;" (RawMacroDef (Name "not_") [Name "b"] (RawTermBody (RawVar (Name "b") (initialPos "test"))))
 
   it "parses postfix macros" $ do
-    testParseDecl "_! n ≔ n;" (RawMacro (Name "_!") [Name "n"] (RawTermBody (RTVar (Name "n") (initialPos "test"))))
+    testParseDecl "_! n ≔ n;" (RawMacroDef (Name "_!") [Name "n"] (RawTermBody (RawVar (Name "n") (initialPos "test"))))
 
   it "handles explicit parameters overriding auto-parameters" $ do
-    testParseDecl "_+_ x y ≔ x;" (RawMacro (Name "_+_") [Name "x", Name "y"] (RawTermBody (RTVar (Name "x") (initialPos "test"))))
+    testParseDecl "_+_ x y ≔ x;" (RawMacroDef (Name "_+_") [Name "x", Name "y"] (RawTermBody (RawVar (Name "x") (initialPos "test"))))
   where
     testParseDecl input expected =
       case runParserEmpty (rawDeclaration <* eof) input of
@@ -193,7 +193,7 @@ mixfixOperatorTableSpec = describe "Dynamic operator table generation" $ do
     testParseWithEnv env input expected =
       -- Add term variables to context
       let ctxWithVars = extendTermContext "b" (RMacro "A" [] (initialPos "test")) $ extendTermContext "a" (RMacro "A" [] (initialPos "test")) env
-       in case runParser rawTerm "test" (input) of
+       in case runParser raw "test" (input) of
             Left parseErr -> expectationFailure $ "Parse failed: " ++ errorBundlePretty parseErr
             Right parsedTerm -> 
               case runExcept (runReaderT (elaborateTerm parsedTerm) ctxWithVars) of
@@ -252,7 +252,7 @@ mixfixParsingSpec = describe "Mixfix expression parsing" $ do
     testParseExpr env vars input expected =
       let -- Add variables with correct de Bruijn indices (reverse order)
           ctxWithVars = foldr (\var acc -> extendTermContext var (RMacro "A" [] (initialPos "test")) acc) env (reverse vars)
-       in case runParser rawTerm "test" (input) of
+       in case runParser raw "test" (input) of
             Left parseErr -> expectationFailure $ "Parse failed: " ++ errorBundlePretty parseErr
             Right parsedTerm -> 
               case runExcept (runReaderT (elaborateTerm parsedTerm) ctxWithVars) of
@@ -400,9 +400,9 @@ mixfixUnicodeSpec = describe "Unicode mixfix operations" $ do
     testParseDecl "postfix 8 _†;" (RawFixityDecl (Postfix 8) (Name "_†"))
 
   it "parses unicode macro definitions" $ do
-    testParseDecl "_∪_ a b ≔ a;" (RawMacro (Name "_∪_") [Name "a", Name "b"] (RawTermBody (RTVar (Name "a") (initialPos "test"))))
-    testParseDecl "¬_ x ≔ x;" (RawMacro (Name "¬_") [Name "x"] (RawTermBody (RTVar (Name "x") (initialPos "test"))))
-    testParseDecl "_† n ≔ n;" (RawMacro (Name "_†") [Name "n"] (RawTermBody (RTVar (Name "n") (initialPos "test"))))
+    testParseDecl "_∪_ a b ≔ a;" (RawMacroDef (Name "_∪_") [Name "a", Name "b"] (RawTermBody (RawVar (Name "a") (initialPos "test"))))
+    testParseDecl "¬_ x ≔ x;" (RawMacroDef (Name "¬_") [Name "x"] (RawTermBody (RawVar (Name "x") (initialPos "test"))))
+    testParseDecl "_† n ≔ n;" (RawMacroDef (Name "_†") [Name "n"] (RawTermBody (RawVar (Name "n") (initialPos "test"))))
 
   it "parses unicode mixfix expressions" $ do
     let env = createUnicodeMixfixEnv [("_∪_", (["a", "b"], Infixl 6))]
@@ -481,7 +481,7 @@ mixfixUnicodeSpec = describe "Unicode mixfix operations" $ do
     testParseExpr env vars input expected =
       let -- Add variables with correct de Bruijn indices (reverse order)
           ctxWithVars = foldr (\var acc -> extendTermContext var (RMacro "A" [] (initialPos "test")) acc) env (reverse vars)
-       in case runParser rawTerm "test" (input) of
+       in case runParser raw "test" (input) of
             Left parseErr -> expectationFailure $ "Parse failed: " ++ errorBundlePretty parseErr
             Right parsedTerm2 -> 
               case runExcept (runReaderT (elaborateTerm parsedTerm2) ctxWithVars) of
@@ -542,7 +542,7 @@ fixityOrderingSpec = describe "Fixity declaration ordering" $ do
     buildEnvironmentFromDecls :: [RawDeclaration] -> Context
     buildEnvironmentFromDecls decls = foldl processDecl emptyContext decls
       where
-        processDecl env (RawMacro (Name name) nameArgs body) =
+        processDecl env (RawMacroDef (Name name) nameArgs body) =
           let args = [case arg of Name s -> s | arg <- nameArgs]
           in if '_' `elem` name
             then -- Mixfix macro: use declared fixity or default

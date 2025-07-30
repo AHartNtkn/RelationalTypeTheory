@@ -1,7 +1,6 @@
 module REPLSpec (spec) where
 
 import Core.Context
-import Core.Context (emptyContext)
 import Control.Monad.State
 import Data.List (isInfixOf)
 import Interface.REPL

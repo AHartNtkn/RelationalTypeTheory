@@ -26,13 +26,12 @@ where
 import Core.Context
 import Control.Monad (unless)
 import Parser.Elaborate
-import Core.Context (Context, extendTheoremContext, extendMacroContext, emptyContext, extendTermContext, extendRelContext, extendProofContext, inferParamKind, buildContextFromBindings)
 import Core.Syntax
 import Operations.Generic.Mixfix (defaultFixity)
 import qualified Core.Raw as Raw
 import Parser.Raw (parseFile)
-import Test.Hspec
-import Text.Megaparsec (initialPos, runParser, errorBundlePretty)
+import Test.Hspec ( expectationFailure, Expectation )
+import Text.Megaparsec (runParser, errorBundlePretty)
 
 -- Helper functions for position-insensitive equality
 equalTerm :: Term -> Term -> Bool

@@ -137,7 +137,7 @@ integrationSpec = describe "Parser-Elaborator integration" $ do
   it "correctly threads position information" $ do
     case runParser rawDeclaration "test" "id ≔ x;" of
       Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
-      Right (RawMacro _ _ (RawTermBody (RTVar _ pos))) -> 
+      Right (RawMacroDef _ _ (RawTermBody (RawVar _ pos))) -> 
         pos `shouldNotBe` dummyPos
       Right other -> expectationFailure $ "Unexpected parse result: " ++ show other
 

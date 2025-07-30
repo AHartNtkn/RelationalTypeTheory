@@ -14,7 +14,7 @@ import Operations.Generic.Equality (alphaEquality)
 import Operations.Generic.FreeVars (freeVars)
 import Operations.Generic.Substitution (substIndex)
 import TypeCheck.Proof
-import Parser.Raw (rawDeclaration, rawProof)
+import Parser.Raw (rawDeclaration, raw)
 import Test.Hspec
 import TestHelpers
 import Text.Megaparsec (initialPos, runParser, errorBundlePretty)
@@ -1046,17 +1046,17 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integratio
     let justParens = "(p)"
     
     putStrLn "\n=== TEST JUST PARENTHESES (p) ==="
-    case runParser rawProof "test" justParens of
+    case runParser raw "test" justParens of
       Left parseErr -> putStrLn $ "Parse error: " ++ show parseErr
       Right result -> putStrLn $ "Raw result: " ++ show result
     
     putStrLn "\n=== TEST WITHOUT PARENTHESES p { R } { S } ==="  
-    case runParser rawProof "test" withoutParens of
+    case runParser raw "test" withoutParens of
       Left parseErr -> putStrLn $ "Parse error: " ++ show parseErr
       Right result -> putStrLn $ "Raw result: " ++ show result
     
     putStrLn "\n=== TEST WITH PARENTHESES (p { R }){ S } ==="
-    case runParser rawProof "test" withParens of
+    case runParser raw "test" withParens of
       Left parseErr -> putStrLn $ "Parse error: " ++ show parseErr
       Right result -> putStrLn $ "Raw result: " ++ show result
 

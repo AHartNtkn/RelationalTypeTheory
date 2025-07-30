@@ -9,48 +9,40 @@ import Text.Megaparsec
 
 spec :: Spec
 spec = do
-  describe "Raw Term Parsing" $ do
+  describe "Unified Raw Parsing" $ do
     it "parses simple variable" $ do
-      case runParser rawTerm "test" "x" of
+      case runParser raw "test" "x" of
         Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
-        Right (RTVar (Name "x") _) -> return ()
-        Right other -> expectationFailure $ "Expected RTVar, got: " ++ show other
+        Right (RawVar (Name "x") _) -> return ()
+        Right other -> expectationFailure $ "Expected RawVar, got: " ++ show other
 
     it "parses function application" $ do
-      case runParser rawTerm "test" "f x" of
+      case runParser raw "test" "f x" of
         Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
-        Right (RTApp (RTVar (Name "f") _) (RTVar (Name "x") _) _) -> return ()
-        Right other -> expectationFailure $ "Expected RTApp, got: " ++ show other
+        Right (RawApp (RawVar (Name "f") _) (RawVar (Name "x") _) _) -> return ()
+        Right other -> expectationFailure $ "Expected RawApp, got: " ++ show other
 
-  describe "Raw RType Parsing" $ do
-    it "parses relational variable" $ do
-      case runParser rawRType "test" "R" of
+    it "parses parenthesized expression" $ do
+      case runParser raw "test" "(x)" of
         Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
-        Right (RRVar (Name "R") _) -> return ()
-        Right other -> expectationFailure $ "Expected RRVar, got: " ++ show other
+        Right (RawParens (RawVar (Name "x") _) _) -> return ()
+        Right other -> expectationFailure $ "Expected RawParens, got: " ++ show other
 
-    it "parses relational application" $ do
-      case runParser rawRType "test" "R S" of
+    it "parses macro applications" $ do
+      case runParser raw "test" "_+_ x y" of
         Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
-        Right (RRApp (RRVar (Name "R") _) (RRVar (Name "S") _) _) -> return ()
-        Right other -> expectationFailure $ "Expected RRApp, got: " ++ show other
-
-  describe "Raw Proof Parsing" $ do
-    it "parses proof variable" $ do
-      case runParser rawProof "test" "p" of
-        Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
-        Right (RPVar (Name "p") _) -> return ()
-        Right other -> expectationFailure $ "Expected RPVar, got: " ++ show other
-
-    it "parses proof application" $ do
-      case runParser rawProof "test" "p q" of
-        Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
-        Right (RPApp (RPVar (Name "p") _) (RPVar (Name "q") _) _) -> return ()
-        Right other -> expectationFailure $ "Expected RPApp, got: " ++ show other
+        Right (RawMacro (Name "_+_") [RawVar (Name "x") _, RawVar (Name "y") _] _) -> return ()
+        Right other -> expectationFailure $ "Expected RawMacro, got: " ++ show other
 
   describe "Raw Declaration Parsing" $ do
-    it "parses simple macro" $ do
+    it "parses simple macro definition" $ do
       case runParser rawDeclaration "test" "id ≔ λ x . x;" of
         Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
-        Right (RawMacro (Name "id") [] _) -> return ()
-        Right other -> expectationFailure $ "Expected RawMacro, got: " ++ show other
+        Right (RawMacroDef (Name "id") [] _) -> return ()
+        Right other -> expectationFailure $ "Expected RawMacroDef, got: " ++ show other
+
+    it "parses parameterized macro definition" $ do
+      case runParser rawDeclaration "test" "const x y ≔ x;" of
+        Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
+        Right (RawMacroDef (Name "const") [Name "x", Name "y"] _) -> return ()
+        Right other -> expectationFailure $ "Expected RawMacroDef with params, got: " ++ show other

@@ -1,8 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 
 -- | Generic mixfix operator processing infrastructure.
--- This module consolidates all the duplicated mixfix parsing logic across
--- Terms, RTypes, and Proofs into a single, extensible implementation.
+-- This module uses the unified Raw type instead of separate raw types.
 
 module Operations.Generic.Mixfix
   ( -- | Typeclass for mixfix-capable AST nodes
@@ -37,7 +36,7 @@ import Control.Monad.Reader
 import Control.Monad.Except (throwError)
 
 import Core.Syntax
-import Core.Raw
+import Core.Raw as Raw
 import Core.Errors
 import Core.Context
 import Operations.Generic.Token (ToTokenAst, toTok, Tok(..))
@@ -127,32 +126,16 @@ class ToTokenAst a => MixfixAst a where
   makeMacro :: Name -> [a] -> SourcePos -> a
 
 --------------------------------------------------------------------------------
--- | AST instances
+-- | Unified Raw instance
 --------------------------------------------------------------------------------
 
-instance MixfixAst RawTerm where
+instance MixfixAst Raw where
   flattenApps = go []
     where
-      go acc (RTApp f x _) = go (x:acc) f
-      go acc t = t:acc
+      go acc (RawApp f x _) = go (x:acc) f
+      go acc r = r:acc
 
-  makeMacro name args pos = RTMacro name args pos
-
-instance MixfixAst RawRType where
-  flattenApps = go []
-    where
-      go acc (RRApp f x _)  = go (x:acc) f
-      go acc r              = r:acc
-
-  makeMacro name args pos = RRMacro name args pos
-
-instance MixfixAst RawProof where
-  flattenApps = go []
-    where
-      go acc (RPApp f x _) = go (x:acc) f
-      go acc p = p:acc
-
-  makeMacro name args pos = RPMixfix name args pos
+  makeMacro name args pos = Raw.RawMacro name args pos
 
 --------------------------------------------------------------------------------
 -- | Helper functions extracted from Elaborate.hs
@@ -338,4 +321,3 @@ reparseG elaborateFunc pos rawList = do
     _ -> throwError $ InvalidMixfixPattern 
            ("cannot resolve operators in reparseG - toks0=" ++ show toks0 ++ ", toks1=" ++ show toks1) 
            (ErrorContext pos "variable lookup")
-

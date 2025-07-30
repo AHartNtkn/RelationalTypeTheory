@@ -5,7 +5,7 @@ import qualified Data.Map as Map
 import Core.Errors
 import Core.Syntax
 import Core.Context (emptyContext, extendMacroContext, extendRelContext)
-import Parser.Raw (rawRType)
+import Parser.Raw (raw)
 import Parser.Elaborate (elaborateRType)
 import Operations.Generic.Mixfix (defaultFixity)
 import Core.Context (Context)
@@ -139,7 +139,7 @@ spec = do
             prettyResult = prettyDefault original
             ctx = extendRelContext "R" emptyParseContext
         -- Test that the pretty-printed result parses back to exactly the same AST
-        case runReader (runParserT rawRType "" prettyResult) ctx of
+        case runReader (runParserT raw "" prettyResult) ctx of
           Left err -> expectationFailure $ "Pretty-printed result failed to parse: " ++ err
           Right rawParsed -> 
             case runExcept (runReaderT (elaborateRType rawParsed) ctx) of
@@ -164,7 +164,7 @@ spec = do
             prettyResult = prettyDefault original
             ctx = extendMacroContext "Lift" [simpleParamInfo "A" RelK] (RelMacro (RVar "A" 0 (initialPos "test"))) (defaultFixity "TEST") emptyParseContext
         -- Test that the pretty-printed result parses back to exactly the same AST
-        case runReader (runParserT rawRType "" prettyResult) ctx of
+        case runReader (runParserT raw "" prettyResult) ctx of
           Left err -> expectationFailure $ "Pretty-printed result failed to parse: " ++ err
           Right rawParsed -> 
             case runExcept (runReaderT (elaborateRType rawParsed) ctx) of

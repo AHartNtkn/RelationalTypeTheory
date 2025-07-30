@@ -64,7 +64,7 @@ buildContextFromDeclarations decls = foldr addDeclaration emptyContext decls
 
 -- Check a theorem in a context
 checkTheoremInContext :: Context -> Declaration -> Either RelTTError ()
-checkTheoremInContext _ (TheoremDef name bindings judgment proof) = do
+checkTheoremInContext _ (TheoremDef _ bindings judgment proof) = do
   let bindingCtx = buildContextFromBindings bindings
   _ <- checkProof bindingCtx proof judgment
   return ()

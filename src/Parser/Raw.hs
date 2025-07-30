@@ -1,8 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Parser.Raw 
-  ( rawTerm
-  , rawRType  
-  , rawProof
+  ( raw
   , rawDeclaration
   , rawJudgment
   , rawBinding
@@ -21,28 +19,12 @@ import Data.List     (foldl1')
 
 type P = Parsec Void String
 
--- =====================================================================
--- Helpers: extract the SourcePos carried by the *right‑hand* operand.
--- We put them here (parser layer) to avoid orphan instances elsewhere.
--- =====================================================================
-
-posT :: RawTerm  -> SourcePos
-posT (RTVar   _ p)   = p
-posT (RTApp   _ _ p) = p
-posT (RTMacro _ _ p) = p
-posT (RTParens _ p)  = p
-
-posR :: RawRType -> SourcePos
-posR (RRVar   _ p)   = p
-posR (RRApp   _ _ p) = p
-posR (RRMacro _ _ p) = p
-posR (RRParens _ p)  = p
-
-posP :: RawProof -> SourcePos
-posP (RPVar         _ p) = p
-posP (RPApp         _ _ p) = p
-posP (RPMixfix      _ _ p) = p
-posP (RPParens      _ p) = p
+-- Helper to extract the SourcePos from Raw
+posR :: Raw -> SourcePos
+posR (RawVar   _ p)   = p
+posR (RawApp   _ _ p) = p
+posR (RawMacro _ _ p) = p
+posR (RawParens _ p)  = p
 
 -- Helper to capture position information
 
@@ -60,23 +42,17 @@ withPosAfter ctor p = do
 -- Entry points for parsing different syntactic categories
 -------------------------------------------------------------------------------
 
-rawTerm :: P RawTerm
-rawTerm = termExpr
-
-rawRType :: P RawRType  
-rawRType = rtypeExpr
-
-rawProof :: P RawProof
-rawProof = proofExpr
+raw :: P Raw
+raw = rawExpr
 
 rawDeclaration :: P RawDeclaration
 rawDeclaration = fixityDecl <|> rawTheorem <|> rawMacro <|> rawImportDecl
 
 rawJudgment :: P RawJudgment
 rawJudgment = do
-  t1 <- rawTerm
-  r <- brackets rawRType
-  t2 <- rawTerm  
+  t1 <- raw
+  r <- brackets raw
+  t2 <- raw  
   return $ RawJudgment t1 r t2
 
 rawBinding :: P RawBinding
@@ -97,61 +73,21 @@ parseFile = do
   return decls
 
 -------------------------------------------------------------------------------
--- Term expressions
+-- Raw expressions
 -------------------------------------------------------------------------------
 
-termExpr :: P RawTerm
-termExpr = do
-  atoms <- some termAtom         -- 1 +  atoms
+rawExpr :: P Raw
+rawExpr = do
+  atoms <- some rawAtom         -- 1 +  atoms
   pure (foldl1' mk atoms)
   where
-    mk l r = RTApp l r (posT r)
+    mk l r = RawApp l r (posR r)
 
-termAtom :: P RawTerm
-termAtom = choice
-  [ withPosAfter RTVar (identName <* notFollowedBy (symbol ":")) -- avoid "x :"
-  , withPosAfter RTParens (parens termExpr)
-  ] <?> "term atom"
--- no termTable needed any more
-
--------------------------------------------------------------------------------
--- Relational type expressions
--------------------------------------------------------------------------------
-
--- | A *simple* relational‑type atom – something that **cannot** absorb further
---   space‑separated arguments.  We will use it to delimit macro arguments.
-rtypeSimpleAtom :: P RawRType
-rtypeSimpleAtom = choice
-  [ withPosAfter RRVar identName
-  , withPosAfter RRParens (parens rtypeExpr)
-  ] <?> "relational type basic atom"
-
-rtypeExpr :: P RawRType
-rtypeExpr = do
-  atoms <- some rtypeAtom
-  pure (foldl1' (\l r -> RRApp l r (posR r)) atoms)
-
-rtypeAtom :: P RawRType
-rtypeAtom = rtypeSimpleAtom
--- no rtypeTable needed
-
--------------------------------------------------------------------------------
--- Proof expressions
--------------------------------------------------------------------------------
-
-proofExpr :: P RawProof
-proofExpr = do
-  atoms <- some proofAtom
-  pure (foldl1' mk atoms)
-  where
-    mk l r = RPApp l r (posP r)
-
-proofAtom :: P RawProof
-proofAtom = choice
-  [ withPosAfter RPVar identName
-  , withPosAfter RPParens (parens proofExpr)
-  ] <?> "proof atom"
--- no proofTable needed
+rawAtom :: P Raw
+rawAtom = choice
+  [ withPosAfter RawVar (identName <* notFollowedBy (symbol ":")) -- avoid "x :"
+  , withPosAfter RawParens (parens rawExpr)
+  ] <?> "raw atom"
 
 -------------------------------------------------------------------------------
 -- Declaration parsing
@@ -164,7 +100,7 @@ rawMacro = do
   _ <- coloneqq
   body <- rawMacroBody
   _ <- symbol ";"
-  return $ RawMacro name params body
+  return $ RawMacroDef name params body
 
 -- | The order matters!  We have to try the *longer* grammar (terms) first,
 -- otherwise something like   "unknown_macro x"   is half‑parsed as a
@@ -176,9 +112,9 @@ rawMacroBody =
   -- Then try relational type (must be followed immediately by ';')  
   -- Finally try proof (must be followed immediately by ';')
   -- This prevents ambiguous parses and ensures correct classification
-      (RawTermBody  <$> try (termExpr  <* lookAhead (symbol ";")))
-  <|> (RawRelBody   <$> try (rtypeExpr <* lookAhead (symbol ";")))
-  <|> (RawProofBody <$> (proofExpr <* lookAhead (symbol ";")))
+      (RawTermBody  <$> try (raw  <* lookAhead (symbol ";")))
+  <|> (RawRelBody   <$> try (raw <* lookAhead (symbol ";")))
+  <|> (RawProofBody <$> (raw <* lookAhead (symbol ";")))
 
 rawTheorem :: P RawDeclaration  
 rawTheorem = do
@@ -188,7 +124,7 @@ rawTheorem = do
   _ <- symbol ":"
   judgment <- rawJudgment
   _ <- coloneqq  
-  proof <- rawProof
+  proof <- raw
   _ <- symbol ";"
   return $ RawTheorem name bindings judgment proof
 

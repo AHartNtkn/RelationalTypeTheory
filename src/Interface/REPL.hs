@@ -23,7 +23,7 @@ import Operations.Generic.Expansion (expandFully, ExpansionResult(..))
 -- Parser implementation using raw parser + elaboration
 import Parser.Elaborate (elaborateDeclaration, elaborateJudgment)
 import qualified Operations.Generic.Elaborate as Generic
-import Parser.Raw (rawProof, rawRType, rawDeclaration, rawJudgment)
+import Parser.Raw (raw, rawDeclaration, rawJudgment)
 import Data.Void (Void)
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.Except (runExcept)
@@ -48,7 +48,7 @@ runParserWithContext _ctx parser input =
 -- Parse and elaborate proof
 parseProof :: Parser Proof
 parseProof = do
-  rawP <- rawProof
+  rawP <- raw
   case runElaborate (Generic.elaborate rawP) of
     Right p -> return p
     Left err -> fail err
@@ -64,7 +64,7 @@ parseRelJudgment = do
 -- Parse and elaborate RType
 parseRType :: Parser RType
 parseRType = do
-  rawR <- rawRType
+  rawR <- raw
   case runElaborate (Generic.elaborate rawR) of
     Right r -> return r
     Left err -> fail err
