@@ -56,10 +56,10 @@ import Data.List (foldl')
 -- | Built-in macro fixities
 builtinFixities :: [(String,Fixity)]
 builtinFixities =
-  [ ("∀_._"        , Prefix  4)   -- quantifier  (prefix, closes with '.')
-  , ("λ_._"        , Prefix  4)
-  , ("Λ_._"        , Prefix  4)
-  , ("λ_:_._"      , Prefix  4)
+  [ ("∀_._"        , Prefix  3)   -- quantifier  (prefix, closes with '.')
+  , ("λ_._"        , Prefix  3)
+  , ("Λ_._"        , Prefix  3)
+  , ("λ_:_._"      , Prefix  3)
   , ("_{_}"        , Postfix 4)   -- type application
   , ("_˘"          , Postfix 8)   -- converse
   , ("_∘_"         , Infixr  6)   -- composition
