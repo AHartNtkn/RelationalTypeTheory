@@ -299,7 +299,7 @@ deBruijnMacroSubstitutionSpec = describe "de Bruijn macro substitution" $ do
 
 -- | Test structural equality
 structuralEqualitySpec :: Spec
-structuralEqualitySpec = describe "structural equality" $ do
+structuralEqualitySpec = describe "alpha-equivalent equality" $ do
   it "compares arrow types: A → B ≡ A → B" $ do
     let ctx = emptyContext
         type1 = Arr (RMacro "A" [] (initialPos "test")) (RMacro "B" [] (initialPos "test")) (initialPos "test")
