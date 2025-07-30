@@ -31,8 +31,8 @@ spec = do
     it "parses macro applications" $ do
       case runParser raw "test" "_+_ x y" of
         Left err -> expectationFailure $ "Parse failed: " ++ errorBundlePretty err
-        Right (RawMacro (Name "_+_") [RawVar (Name "x") _, RawVar (Name "y") _] _) -> return ()
-        Right other -> expectationFailure $ "Expected RawMacro, got: " ++ show other
+        Right (RawApp (RawApp (RawVar (Name "_+_") _) (RawVar (Name "x") _) _) (RawVar (Name "y") _) _) -> return ()
+        Right other -> expectationFailure $ "Expected RawApp structure, got: " ++ show other
 
   describe "Raw Declaration Parsing" $ do
     it "parses simple macro definition" $ do

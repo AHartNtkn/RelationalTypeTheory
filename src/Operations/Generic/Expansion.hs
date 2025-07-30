@@ -26,6 +26,7 @@ import Core.Syntax
 import Core.Errors (RelTTError(..), ErrorContext(..))
 import Text.Megaparsec (initialPos, SourcePos)
 import Operations.Generic.Macro (MacroAst(..), elabMacroAppG)
+import Operations.Generic.Substitution (SubstInto)
 import Operations.Resolve (ResolveAst)
 
 --------------------------------------------------------------------------------
@@ -53,8 +54,8 @@ class (MacroAst a, ResolveAst a) => ExpandAst a where
   -- | Associated type for macro bodies
   type MacroBodyType a
   
-  -- | Extract macro name and arguments if this is a macro application
-  getMacroApp :: a -> Maybe (String, [a], SourcePos)
+  -- | Extract macro name and heterogeneous arguments if this is a macro application
+  getMacroApp :: a -> Maybe (String, [MacroArg], SourcePos)
   
   -- | Construct a macro application node
   mkMacroApp :: String -> [a] -> SourcePos -> a
@@ -73,25 +74,32 @@ class (MacroAst a, ResolveAst a) => ExpandAst a where
 --------------------------------------------------------------------------------
 
 -- | Expand with step limit
-expandWithLimit :: ExpandAst a => Context -> ExpansionMode -> Int -> a -> Either RelTTError (ExpansionResult a)
+expandWithLimit :: (ExpandAst a, SubstInto MacroArg a) => Context -> ExpansionMode -> Int -> a -> Either RelTTError (ExpansionResult a)
 expandWithLimit env mode maxSteps ast = 
   if maxSteps <= 0
     then Left $ InternalError "Macro expansion step limit exceeded" (ErrorContext (initialPos "<expansion>") "expansion")
     else expandStep env mode maxSteps 0 ast
 
 -- | Fully expand all macros
-expandFully :: ExpandAst a => Context -> a -> Either RelTTError (ExpansionResult a)
+expandFully :: (ExpandAst a, SubstInto MacroArg a) => Context -> a -> Either RelTTError (ExpansionResult a)
 expandFully env = expandWithLimit env FullExpansion 1000
 
 -- | Expand to weak head normal form
-expandWHNF :: ExpandAst a => Context -> a -> Either RelTTError (ExpansionResult a)
+expandWHNF :: (ExpandAst a, SubstInto MacroArg a) => Context -> a -> Either RelTTError (ExpansionResult a)
 expandWHNF env = expandWithLimit env WeakHeadExpansion 1000
 
 --------------------------------------------------------------------------------
 -- | Internal expansion logic
 --------------------------------------------------------------------------------
 
-expandStep :: forall a. ExpandAst a => Context -> ExpansionMode -> Int -> Int -> a -> Either RelTTError (ExpansionResult a)
+-- | Helper to expand individual macro arguments
+expandMacroArg :: Context -> MacroArg -> Either RelTTError MacroArg
+expandMacroArg env = \case
+  MTerm t -> MTerm . expandedValue <$> expandFully env t
+  MRel r -> MRel . expandedValue <$> expandFully env r  
+  MProof p -> MProof . expandedValue <$> expandFully env p
+
+expandStep :: forall a. (ExpandAst a, SubstInto MacroArg a) => Context -> ExpansionMode -> Int -> Int -> a -> Either RelTTError (ExpansionResult a)
 expandStep env mode remainingSteps stepsSoFar ast = 
   case getMacroApp ast of
     Just (name, args, pos) ->
@@ -110,9 +118,9 @@ expandStep env mode remainingSteps stepsSoFar ast =
             Nothing -> 
               Left $ InternalError ("Wrong macro body type for " ++ name) (ErrorContext pos "expansion")
             Just body -> do
-              -- Expand arguments if needed
+              -- Expand arguments if needed (args are already [MacroArg])
               expandedArgs <- case mode of
-                FullExpansion -> mapM (expandFully env) args >>= return . map expandedValue
+                FullExpansion -> mapM (expandMacroArg env) args
                 WeakHeadExpansion -> return args
               
               -- Use elabMacroAppG for substitution (single source of truth for arity checking)
@@ -141,7 +149,7 @@ expandStep env mode remainingSteps stepsSoFar ast =
 instance ExpandAst Term where
   type MacroBodyType Term = Term
   
-  getMacroApp (TMacro name args pos) = Just (name, [t | MTerm t <- args], pos)
+  getMacroApp (TMacro name args pos) = Just (name, args, pos)
   getMacroApp _ = Nothing
   
   mkMacroApp name termArgs pos = TMacro name (map MTerm termArgs) pos
@@ -170,7 +178,7 @@ instance ExpandAst Term where
 instance ExpandAst RType where
   type MacroBodyType RType = RType
   
-  getMacroApp (RMacro name args pos) = Just (name, [r | MRel r <- args], pos)
+  getMacroApp (RMacro name args pos) = Just (name, args, pos)
   getMacroApp _ = Nothing
   
   mkMacroApp name relArgs pos = RMacro name (map MRel relArgs) pos
@@ -209,7 +217,7 @@ instance ExpandAst RType where
 instance ExpandAst Proof where
   type MacroBodyType Proof = Proof
   
-  getMacroApp (PMacro name args pos) = Just (name, [p | MProof p <- args], pos)
+  getMacroApp (PMacro name args pos) = Just (name, args, pos)
   getMacroApp _ = Nothing
   
   mkMacroApp name proofArgs pos = PMacro name (map MProof proofArgs) pos

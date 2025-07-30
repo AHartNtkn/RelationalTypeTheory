@@ -1,6 +1,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 -- | Unified, binder-aware macro application for Term, RType and Proof.
 -- This module provides a generic infrastructure that eliminates code duplication
@@ -241,7 +242,7 @@ binderPrefixCount sig j =
 
 
 -- | Batch macro parameter substitution (avoiding shadowing issues)
-substituteArgsG :: MacroAst a => [ParamInfo] -> [a] -> a -> a
+substituteArgsG :: SubstInto MacroArg a => [ParamInfo] -> [MacroArg] -> a -> a
 substituteArgsG sig actuals body = 
   substBatch renamings substitutions body
   where
@@ -249,26 +250,25 @@ substituteArgsG sig actuals body =
     (renamings, substitutions) = partitionParams (zip sig actuals)
     
     partitionParams [] = ([], [])
-    partitionParams ((paramInfo, actual) : rest) =
+    partitionParams ((paramInfo, actualArg) : rest) =
       let (restRenamings, restSubsts) = partitionParams rest
-          actualArg = toArg actual
       in if pBinds paramInfo
          then case extractBoundVarName actualArg of
                 Just newName -> ((pName paramInfo, newName) : restRenamings, restSubsts)
                 Nothing -> (restRenamings, restSubsts)  -- malformed bound parameter, skip
-         else (restRenamings, (pName paramInfo, actual) : restSubsts)
+         else (restRenamings, (pName paramInfo, actualArg) : restSubsts)
 
 --------------------------------------------------------------------------------
 -- | Top-level macro elaborator (used by Elaborate.hs)
 --------------------------------------------------------------------------------
 
 elabMacroAppG
-  :: (MacroAst a, ResolveAst a)
+  :: (MacroAst a, ResolveAst a, SubstInto MacroArg a)
   => Context             -- ^ unified context
   -> String              -- ^ macro name
   -> [ParamInfo]         -- ^ signature from environment
   -> a                   -- ^ stored macro body
-  -> [a]                 -- ^ elaborated actual arguments
+  -> [MacroArg]          -- ^ elaborated actual arguments
   -> Either RelTTError a
 elabMacroAppG ctx name sig body actuals
   | length sig /= length actuals =
@@ -276,8 +276,6 @@ elabMacroAppG ctx name sig body actuals
              (ErrorContext (initialPos "<elab>") "macro application")
   | otherwise = do
       let body2 = substituteArgsG sig actuals body
-          -- Convert arguments to MacroArgs for context extension
-          macroArgs = map toArg actuals
           -- Build dependency-aware contexts
-          (_, finalCtx) = buildDependentContexts sig macroArgs ctx
+          (_, finalCtx) = buildDependentContexts sig actuals ctx
       Operations.Resolve.resolveWithContext finalCtx body2

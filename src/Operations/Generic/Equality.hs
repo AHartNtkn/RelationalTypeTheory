@@ -18,21 +18,34 @@ module Operations.Generic.Equality
   ) where
 
 import qualified Data.Map as Map
-import Core.Syntax ()
+import Core.Syntax
 import Core.Context (Context(..))
 import Operations.Generic.Expansion (ExpandAst(..), getMacroApp, isRightBody, bodyToAst)
-import Operations.Generic.Macro (substituteArgsG)
+import Operations.Generic.Macro (elabMacroAppG)
+import Operations.Generic.Substitution (SubstInto)
+
+--------------------------------------------------------------------------------
+-- | Helper functions for macro argument equality
+--------------------------------------------------------------------------------
+
+-- | Alpha equality for heterogeneous macro arguments
+alphaEqualityMacroArg :: Context -> Int -> MacroArg -> MacroArg -> Bool
+alphaEqualityMacroArg env stepsLeft arg1 arg2 = case (arg1, arg2) of
+  (MTerm t1, MTerm t2) -> alphaEqualityStep env t1 t2 stepsLeft
+  (MRel r1, MRel r2) -> alphaEqualityStep env r1 r2 stepsLeft
+  (MProof p1, MProof p2) -> alphaEqualityStep env p1 p2 stepsLeft
+  _ -> False  -- Different types
 
 --------------------------------------------------------------------------------
 -- | Generic lazy equality with minimal macro expansion
 --------------------------------------------------------------------------------
 
 -- | Alpha equality: expand macros lazily when structural comparison fails
-alphaEquality :: (Eq a, ExpandAst a) => Context -> a -> a -> Bool
+alphaEquality :: (Eq a, ExpandAst a, SubstInto MacroArg a) => Context -> a -> a -> Bool
 alphaEquality env x y = alphaEqualityStep env x y 100  -- Max 100 expansion steps
 
 -- | Internal alpha equality with step limit to prevent infinite loops
-alphaEqualityStep :: (Eq a, ExpandAst a) => Context -> a -> a -> Int -> Bool
+alphaEqualityStep :: (Eq a, ExpandAst a, SubstInto MacroArg a) => Context -> a -> a -> Int -> Bool
 alphaEqualityStep env x y stepsLeft
   | stepsLeft <= 0 = False  -- Prevent infinite expansion
   | otherwise = 
@@ -53,8 +66,8 @@ alphaEqualityStep env x y stepsLeft
         (Just (xName, xArgs, _), Just (yName, yArgs, _)) -> 
           -- Both are macros
           if xName == yName && length xArgs == length yArgs
-          then -- Same macro name and arity - recurse on arguments
-               all (\(arg1, arg2) -> alphaEqualityStep env arg1 arg2 (stepsLeft - 1)) (zip xArgs yArgs) 
+          then -- Same macro name and arity - check alpha equality of arguments
+               all (uncurry (alphaEqualityMacroArg env (stepsLeft - 1))) (zip xArgs yArgs)
           else -- Different macros - expand left first, then right if needed
                case expandOneMacro env x of
                  Just x' -> alphaEqualityStep env x' y (stepsLeft - 1)
@@ -64,23 +77,19 @@ alphaEqualityStep env x y stepsLeft
                      Nothing -> False
 
 -- | Expand exactly one macro application, returning Nothing if not a macro or expansion fails
-expandOneMacro :: forall a. ExpandAst a => Context -> a -> Maybe a
+expandOneMacro :: forall a. (ExpandAst a, SubstInto MacroArg a) => Context -> a -> Maybe a
 expandOneMacro env ast = 
   case getMacroApp ast of
     Nothing -> Nothing  -- Not a macro
-    Just (name, args, pos) ->
+    Just (name, args, _pos) ->
       case Map.lookup name (macroDefinitions env) of
         Nothing -> Nothing  -- Macro not found
         Just (paramInfo, macroBody) ->
           case isRightBody @a macroBody of
             Nothing -> Nothing  -- Wrong body type
             Just body -> 
-              let expectedArity = length paramInfo
-                  actualArity = length args
-              in if actualArity /= expectedArity
-                then Nothing  -- Arity mismatch
-                else 
-                  let substituted = substituteArgsG paramInfo args (bodyToAst @a body)
-                  in Just substituted
+              case elabMacroAppG env name paramInfo (bodyToAst @a body) args of
+                Right result -> Just result
+                Left _ -> Nothing  -- Expansion failed
 
 

@@ -343,7 +343,7 @@ inferProofType ctx proof = case proof of
     case Map.lookup name (macroDefinitions ctx) of
       Nothing -> Left $ UnknownMacro name (ErrorContext pos "proof macro lookup")
       Just (sig, ProofMacro body) -> 
-        case elabMacroAppG ctx name sig body [p | MProof p <- args] of
+        case elabMacroAppG ctx name sig body args of
           Right expandedProof -> inferProofType ctx expandedProof
           Left err -> Left $ InternalError ("Proof macro expansion failed: " ++ show err) (ErrorContext pos "proof macro expansion")
       Just (_, TermMacro _) -> Left $ InvalidMixfixPattern ("Term macro " ++ name ++ " used in proof context") (ErrorContext pos "proof macro application")

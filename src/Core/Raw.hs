@@ -31,7 +31,6 @@ newtype Name = Name String deriving (Show, Eq, Ord)
 data Raw
   = RawVar Name SourcePos                    -- x, X, p
   | RawApp Raw Raw SourcePos                 -- t u, R S, p q
-  | RawMacro Name [Raw] SourcePos            -- user mixfix/macros _+_ etc.
   | RawParens Raw SourcePos                  -- (t), (R), (p) - explicit parentheses
   deriving (Show, Eq)
 
@@ -98,7 +97,6 @@ instance StripPos Raw where
   stripPos = \case
     RawVar n _          -> RawVar n dummyPos
     RawApp f x _        -> RawApp (stripPos f) (stripPos x) dummyPos
-    RawMacro n ts _     -> RawMacro n (map stripPos ts) dummyPos
     RawParens t _       -> RawParens (stripPos t) dummyPos
 
 instance StripPos RawArg where

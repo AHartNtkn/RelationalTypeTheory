@@ -26,8 +26,6 @@ import Core.Errors
 import Core.Context
 import Operations.Generic.Mixfix (MixfixAst(..), reparseG, mixfixKeywords)
 import Operations.Generic.Token (toTok, hasOperatorG)
-import Operations.Generic.Macro (elabMacroAppG, MacroAst(..))
-import Operations.Resolve (ResolveAst)
 
 --------------------------------------------------------------------------------
 -- | Main elaboration function - context-driven typing
@@ -68,7 +66,6 @@ instance ElaborateTarget Term where
               macroArgs <- elaborateArgsForMacro args params
               return $ TMacro macroName macroArgs macroPos
     
-    RawMacro nm args pos -> handleExplicitMacro nm args pos
 
 --------------------------------------------------------------------------------
 -- | RType elaboration  
@@ -90,7 +87,6 @@ instance ElaborateTarget RType where
           macroArgs <- elaborateArgsForMacro args params
           return $ RMacro macroName macroArgs macroPos
     
-    RawMacro nm args pos -> handleExplicitMacro nm args pos
 
 --------------------------------------------------------------------------------
 -- | Proof elaboration
@@ -123,7 +119,6 @@ instance ElaborateTarget Proof where
           macroArgs <- elaborateArgsForMacro args params
           return $ PMacro macroName macroArgs macroPos
     
-    RawMacro nm args pos -> handleExplicitMacro nm args pos
 
 --------------------------------------------------------------------------------
 -- | Generic helpers
@@ -262,39 +257,5 @@ elaborateArgsForMacro args params = do
           proof <- elaborate arg :: ElaborateM Proof
           return $ MProof proof
 
--- | Macro body extraction that works for all target types
-class MacroBodyExtractor a where
-  extractMacroBody :: MacroBody -> Maybe a
 
-instance MacroBodyExtractor Term where
-  extractMacroBody (TermMacro t) = Just t
-  extractMacroBody _ = Nothing
-
-instance MacroBodyExtractor RType where
-  extractMacroBody (RelMacro r) = Just r
-  extractMacroBody _ = Nothing
-
-instance MacroBodyExtractor Proof where
-  extractMacroBody (ProofMacro p) = Just p
-  extractMacroBody _ = Nothing
-
--- | Handle explicit macro calls
-handleExplicitMacro :: forall a. (ElaborateTarget a, MacroAst a, ResolveAst a, MacroBodyExtractor a) => Name -> [Raw] -> SourcePos -> ElaborateM a
-handleExplicitMacro nm args pos = do
-  let name = nameString nm
-  ctx <- ask
-  case Map.lookup name (macroDefinitions ctx) of
-    Nothing -> throwError $ UnknownMacro name (ErrorContext pos "macro lookup")
-    Just (sig, macroBody) -> 
-      case extractMacroBody @a macroBody of
-        Just body -> do
-          elaboratedArgs <- mapM elaborate args
-          case elabMacroAppG ctx name sig body elaboratedArgs of
-            Right result -> return result
-            Left err -> throwError $ InvalidMixfixPattern 
-                         ("Macro application failed for " ++ name ++ ": " ++ show err) 
-                         (ErrorContext pos "macro application")
-        Nothing -> throwError $ InvalidMixfixPattern 
-                    ("Wrong macro kind " ++ name ++ " used in context") 
-                    (ErrorContext pos "macro application")
 

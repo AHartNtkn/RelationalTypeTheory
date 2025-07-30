@@ -243,6 +243,195 @@ instance SubstInto MacroArg MacroArg where
       Just (MProof repl) -> MProof repl
       _ -> MProof (substBatch renamings [(name, arg) | (name, MProof arg) <- substitutions] p)
 
+-- | Substitute MacroArgs into Terms (heterogeneous substitution)
+instance SubstInto MacroArg Term where
+  substIndex targetIdx replacement = go 0
+    where
+      go depth term = case term of
+        Var name i pos
+          | i == depth + targetIdx -> 
+              case replacement of
+                MTerm repl -> shift depth repl
+                _ -> term  -- Wrong type, no substitution
+          | i > depth + targetIdx -> Var name (i - 1) pos
+          | otherwise -> term
+        FVar{} -> term
+        Lam name body pos -> Lam name (go (depth + 1) body) pos
+        App t1 t2 pos -> App (go depth t1) (go depth t2) pos
+        TMacro name args pos -> TMacro name (map substMacroArg args) pos
+          where substMacroArg = \case
+                  MTerm t -> MTerm (go depth t)
+                  MRel r -> MRel r  -- No cross-boundary substitution
+                  MProof p -> MProof p
+
+  substBatch renamings substitutions = go
+    where
+      go term = case term of
+        FVar name pos -> 
+          case lookup name substitutions of
+            Just (MTerm replacement) -> replacement
+            Just _ -> error $ "Type mismatch: expected MTerm for variable " ++ name
+            Nothing -> 
+              case lookup name renamings of
+                Just newName -> FVar newName pos
+                Nothing -> term
+        Var name i pos -> 
+          case lookup name renamings of
+            Just newName -> Var newName i pos
+            Nothing -> term
+        Lam name body pos -> 
+          let newName = case lookup name renamings of
+                         Just renamed -> renamed
+                         Nothing -> name
+          in Lam newName (go body) pos
+        App t1 t2 pos -> App (go t1) (go t2) pos
+        TMacro name args pos -> TMacro name (map substMacroArg args) pos
+          where substMacroArg = \case
+                  MTerm t -> MTerm (go t)
+                  MRel r -> MRel (substBatch renamings substitutions r)
+                  MProof p -> MProof (substBatch renamings substitutions p)
+
+-- | Substitute MacroArgs into RTypes (heterogeneous substitution)
+instance SubstInto MacroArg RType where
+  substIndex targetIdx replacement = go 0
+    where
+      go depth rtype = case rtype of
+        RVar name i pos
+          | i == depth + targetIdx -> 
+              case replacement of
+                MRel repl -> shift depth repl
+                _ -> rtype  -- Wrong type, no substitution
+          | i > depth + targetIdx -> RVar name (i - 1) pos
+          | otherwise -> rtype
+        FRVar{} -> rtype
+        All name r pos -> All name (go (depth + 1) r) pos
+        Arr r1 r2 pos -> Arr (go depth r1) (go depth r2) pos
+        Comp r1 r2 pos -> Comp (go depth r1) (go depth r2) pos
+        Conv r pos -> Conv (go depth r) pos
+        Prom term pos -> Prom term pos  -- No cross-boundary substitution
+        RMacro name args pos -> RMacro name (map substMacroArg args) pos
+          where substMacroArg = \case
+                  MTerm t -> MTerm t  -- No cross-boundary substitution
+                  MRel r -> MRel (go depth r)
+                  MProof p -> MProof p
+
+  substBatch renamings substitutions = go
+    where
+      go rtype = case rtype of
+        FRVar name pos -> 
+          case lookup name substitutions of
+            Just (MRel replacement) -> replacement
+            Just _ -> error $ "Type mismatch: expected MRel for variable " ++ name
+            Nothing -> 
+              case lookup name renamings of
+                Just newName -> FRVar newName pos
+                Nothing -> rtype
+        RVar name i pos -> 
+          case lookup name renamings of
+            Just newName -> RVar newName i pos
+            Nothing -> rtype
+        All name r pos -> 
+          let newName = case lookup name renamings of
+                         Just renamed -> renamed
+                         Nothing -> name
+          in All newName (go r) pos
+        Arr r1 r2 pos -> Arr (go r1) (go r2) pos
+        Comp r1 r2 pos -> Comp (go r1) (go r2) pos
+        Conv r pos -> Conv (go r) pos
+        Prom term pos -> Prom (substBatch renamings substitutions term) pos
+        RMacro name args pos -> RMacro name (map substMacroArg args) pos
+          where substMacroArg = \case
+                  MTerm t -> MTerm (substBatch renamings substitutions t)
+                  MRel r -> MRel (go r)
+                  MProof p -> MProof (substBatch renamings substitutions p)
+
+-- | Substitute MacroArgs into Proofs (heterogeneous substitution)
+instance SubstInto MacroArg Proof where
+  substIndex targetIdx replacement = go 0
+    where
+      go depth proof = case proof of
+        PVar name i pos
+          | i == depth + targetIdx -> 
+              case replacement of
+                MProof repl -> shift depth repl
+                _ -> proof  -- Wrong type, no substitution
+          | i > depth + targetIdx -> PVar name (i - 1) pos
+          | otherwise -> proof
+        FPVar{} -> proof
+        LamP name ty body pos -> LamP name ty (go (depth + 1) body) pos
+        AppP p1 p2 pos -> AppP (go depth p1) (go depth p2) pos
+        TyLam name body pos -> TyLam name (go (depth + 1) body) pos
+        TyApp p ty pos -> TyApp (go depth p) ty pos  -- No cross-boundary substitution
+        ConvProof t1 p t2 pos -> ConvProof t1 (go depth p) t2 pos  -- No cross-boundary substitution
+        RhoElim x t1 t2 p1 p2 pos -> RhoElim x t1 t2 (go depth p1) (go depth p2) pos  -- No cross-boundary substitution
+        Iota t1 t2 pos -> Iota t1 t2 pos  -- No cross-boundary substitution
+        ConvIntro p pos -> ConvIntro (go depth p) pos
+        ConvElim p pos -> ConvElim (go depth p) pos
+        Pair p1 p2 pos -> Pair (go depth p1) (go depth p2) pos
+        Pi p x y z q pos -> Pi (go depth p) x y z (go (depth + 3) q) pos  -- x, y, z bind
+        PTheoremApp name args pos -> PTheoremApp name args pos
+        PMacro name args pos -> PMacro name (map substMacroArg args) pos
+          where substMacroArg = \case
+                  MTerm t -> MTerm t  -- No cross-boundary substitution
+                  MRel r -> MRel r
+                  MProof p -> MProof (go depth p)
+
+  substBatch renamings substitutions = go
+    where
+      go proof = case proof of
+        FPVar name pos -> 
+          case lookup name substitutions of
+            Just (MProof replacement) -> replacement
+            Just _ -> error $ "Type mismatch: expected MProof for variable " ++ name
+            Nothing -> 
+              case lookup name renamings of
+                Just newName -> FPVar newName pos
+                Nothing -> proof
+        PVar name i pos -> 
+          case lookup name renamings of
+            Just newName -> PVar newName i pos
+            Nothing -> proof
+        LamP name ty body pos -> 
+          let newName = case lookup name renamings of
+                         Just renamed -> renamed
+                         Nothing -> name
+          in LamP newName (substBatch renamings substitutions ty) (go body) pos
+        AppP p1 p2 pos -> AppP (go p1) (go p2) pos
+        TyLam name body pos -> 
+          let newName = case lookup name renamings of
+                         Just renamed -> renamed
+                         Nothing -> name
+          in TyLam newName (go body) pos
+        TyApp p ty pos -> TyApp (go p) (substBatch renamings substitutions ty) pos
+        ConvProof t1 p t2 pos -> 
+          ConvProof (substBatch renamings substitutions t1) (go p) (substBatch renamings substitutions t2) pos
+        RhoElim x t1 t2 p1 p2 pos -> 
+          let newName = case lookup x renamings of
+                         Just renamed -> renamed
+                         Nothing -> x
+          in RhoElim newName (substBatch renamings substitutions t1) (substBatch renamings substitutions t2) (go p1) (go p2) pos
+        Iota t1 t2 pos -> Iota (substBatch renamings substitutions t1) (substBatch renamings substitutions t2) pos
+        ConvIntro p pos -> ConvIntro (go p) pos
+        ConvElim p pos -> ConvElim (go p) pos
+        Pair p1 p2 pos -> Pair (go p1) (go p2) pos
+        Pi p x y z q pos -> 
+          let newX = case lookup x renamings of
+                       Just renamed -> renamed
+                       Nothing -> x
+              newY = case lookup y renamings of
+                       Just renamed -> renamed
+                       Nothing -> y
+              newZ = case lookup z renamings of
+                       Just renamed -> renamed
+                       Nothing -> z
+          in Pi (go p) newX newY newZ (go q) pos
+        PTheoremApp name args pos -> PTheoremApp name args pos
+        PMacro name args pos -> PMacro name (map substMacroArg args) pos
+          where substMacroArg = \case
+                  MTerm t -> MTerm (substBatch renamings substitutions t)
+                  MRel r -> MRel (substBatch renamings substitutions r)
+                  MProof p -> MProof (go p)
+
 --------------------------------------------------------------------------------
 -- | AstCore instances
 --------------------------------------------------------------------------------

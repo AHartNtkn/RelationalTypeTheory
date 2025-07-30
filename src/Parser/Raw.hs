@@ -23,7 +23,6 @@ type P = Parsec Void String
 posR :: Raw -> SourcePos
 posR (RawVar   _ p)   = p
 posR (RawApp   _ _ p) = p
-posR (RawMacro _ _ p) = p
 posR (RawParens _ p)  = p
 
 -- Helper to capture position information

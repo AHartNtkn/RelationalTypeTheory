@@ -71,18 +71,20 @@ stripJudgmentPositions (RelJudgment t1 rt t2) =
 
 stripTermPositions :: Term -> Term
 stripTermPositions (Var name idx _) = Var name idx dummyPos
+stripTermPositions (FVar name _) = FVar name dummyPos
 stripTermPositions (Lam name body _) = Lam name (stripTermPositions body) dummyPos  
 stripTermPositions (App t1 t2 _) = App (stripTermPositions t1) (stripTermPositions t2) dummyPos
 stripTermPositions (TMacro name args _) = TMacro name (map stripMacroArgPositions args) dummyPos
 
 stripRTypePositions :: RType -> RType
 stripRTypePositions (RVar name idx _) = RVar name idx dummyPos
+stripRTypePositions (FRVar name _) = FRVar name dummyPos
+stripRTypePositions (RMacro name args _) = RMacro name (map stripMacroArgPositions args) dummyPos
 stripRTypePositions (Arr rt1 rt2 _) = Arr (stripRTypePositions rt1) (stripRTypePositions rt2) dummyPos
 stripRTypePositions (All name rt _) = All name (stripRTypePositions rt) dummyPos
 stripRTypePositions (Comp rt1 rt2 _) = Comp (stripRTypePositions rt1) (stripRTypePositions rt2) dummyPos
 stripRTypePositions (Conv rt _) = Conv (stripRTypePositions rt) dummyPos
 stripRTypePositions (Prom term _) = Prom (stripTermPositions term) dummyPos
-stripRTypePositions (RMacro name args _) = RMacro name (map stripMacroArgPositions args) dummyPos
 
 stripMacroArgPositions :: MacroArg -> MacroArg
 stripMacroArgPositions (MTerm t) = MTerm (stripTermPositions t)
@@ -142,7 +144,7 @@ termElaborationSpec = describe "Term elaboration" $ do
   it "fails on unknown macro reference" $ do
     let pos = initialPos ""
     let ctx = testContext Map.empty Map.empty
-    let rawDecl = RawMacroDef (Name "test") [] (RawTermBody (RawMacro (Name "unknown") [] pos))
+    let rawDecl = RawMacroDef (Name "test") [] (RawTermBody (RawVar (Name "unknown") pos))
     let expectedErr = UnknownMacro "unknown" (ErrorContext pos "elaboration")
     testElaborateFailure ctx rawDecl expectedErr
 
@@ -150,7 +152,7 @@ termElaborationSpec = describe "Term elaboration" $ do
     let pos = initialPos ""
     let testMacros = Map.singleton "two_param" (simpleTermMacro ["x", "y"] (Var "x" 0 pos))
     let ctx = testContext testMacros Map.empty
-    let rawDecl = RawMacroDef (Name "test") [] (RawTermBody (RawMacro (Name "two_param") [RawVar (Name "z") pos] pos))
+    let rawDecl = RawMacroDef (Name "test") [] (RawTermBody (RawApp (RawVar (Name "two_param") pos) (RawVar (Name "z") pos) pos))
     let expectedErr = MacroArityMismatch "two_param" 2 1 (ErrorContext pos "elaboration")
     testElaborateFailure ctx rawDecl expectedErr
 
@@ -159,27 +161,27 @@ rtypeElaborationSpec = describe "Relational type elaboration" $ do
   it "elaborates arrow types" $ do
     let pos = initialPos ""
     let ctx = testContextWithRels [("A", 1), ("B", 0)] 2
-    let rawDecl = RawMacroDef (Name "arrow") [] (RawRelBody (RawMacro (Name "_→_") [RawVar (Name "A") pos, RawVar (Name "B") pos] pos))
+    let rawDecl = RawMacroDef (Name "arrow") [] (RawRelBody (RawApp (RawApp (RawVar (Name "_→_") pos) (RawVar (Name "A") pos) pos) (RawVar (Name "B") pos) pos))
     let expected = MacroDef "arrow" [] (RelMacro (Arr (RVar "A" 1 pos) (RVar "B" 0 pos) pos))
     testElaborate ctx rawDecl expected
 
   it "elaborates universal quantification" $ do
     let pos = initialPos ""
-    let rawDecl = RawMacroDef (Name "forall") [] (RawRelBody (RawMacro (Name "∀_._") [RawVar (Name "X") pos, RawVar (Name "X") pos] pos))
+    let rawDecl = RawMacroDef (Name "forall") [] (RawRelBody (RawApp (RawApp (RawVar (Name "∀_._") pos) (RawVar (Name "X") pos) pos) (RawVar (Name "X") pos) pos))
     let expected = MacroDef "forall" [] (RelMacro (All "X" (RVar "X" 0 pos) pos))
     testElaborate emptyContext rawDecl expected
 
   it "elaborates composition" $ do
     let pos = initialPos ""
     let ctx = testContextWithRels [("R", 1), ("S", 0)] 2
-    let rawDecl = RawMacroDef (Name "comp") [] (RawRelBody (RawMacro (Name "_∘_") [RawVar (Name "R") pos, RawVar (Name "S") pos] pos))
+    let rawDecl = RawMacroDef (Name "comp") [] (RawRelBody (RawApp (RawApp (RawVar (Name "_∘_") pos) (RawVar (Name "R") pos) pos) (RawVar (Name "S") pos) pos))
     let expected = MacroDef "comp" [] (RelMacro (Comp (RVar "R" 1 pos) (RVar "S" 0 pos) pos))
     testElaborate ctx rawDecl expected
 
   it "elaborates converse" $ do
     let pos = initialPos ""
     let ctx = testContextWithRels [("R", 0)] 1
-    let rawDecl = RawMacroDef (Name "conv") [] (RawRelBody (RawMacro (Name "_˘") [RawVar (Name "R") pos] pos))
+    let rawDecl = RawMacroDef (Name "conv") [] (RawRelBody (RawApp (RawVar (Name "_˘") pos) (RawVar (Name "R") pos) pos))
     let expected = MacroDef "conv" [] (RelMacro (Conv (RVar "R" 0 pos) pos))
     testElaborate ctx rawDecl expected
 
@@ -197,7 +199,7 @@ proofElaborationSpec = describe "Proof elaboration" $ do
     let pos = initialPos ""
     let rawBindings = [RawTermBinding (Name "x"), RawRelBinding (Name "R")]
     let rawJudgment = RawJudgment (RawVar (Name "x") pos) (RawVar (Name "R") pos) (RawVar (Name "x") pos)
-    let rawProof = RawMacro (Name "ι⟨_,_⟩") [RawVar (Name "x") pos, RawVar (Name "x") pos] pos
+    let rawProof = RawApp (RawApp (RawVar (Name "ι⟨_,_⟩") pos) (RawVar (Name "x") pos) pos) (RawVar (Name "x") pos) pos
     let rawDecl = RawTheorem (Name "identity") rawBindings rawJudgment rawProof
     
     let expectedBindings = [TermBinding "x", RelBinding "R"]
@@ -211,7 +213,7 @@ proofElaborationSpec = describe "Proof elaboration" $ do
     let pos = initialPos ""
     let rawBindings = [RawTermBinding (Name "x"), RawRelBinding (Name "R"), RawRelBinding (Name "S")]
     let rawJudgment = RawJudgment (RawVar (Name "x") pos) (RawVar (Name "R") pos) (RawVar (Name "x") pos)
-    let rawProof = RawMacro (Name "λ_:_._") [RawVar (Name "p") pos, RawVar (Name "S") pos, RawVar (Name "p") pos] pos
+    let rawProof = RawApp (RawApp (RawApp (RawVar (Name "λ_:_._") pos) (RawVar (Name "p") pos) pos) (RawVar (Name "S") pos) pos) (RawVar (Name "p") pos) pos
     let rawDecl = RawTheorem (Name "lambda_test") rawBindings rawJudgment rawProof
     
     let expectedBindings = [TermBinding "x", RelBinding "R", RelBinding "S"]
@@ -266,7 +268,7 @@ variableBindingSpec = describe "Variable binding and de Bruijn indices" $ do
   it "correctly handles nested lambda bindings" $ do
     let pos = initialPos ""
     let rawDecl = RawMacroDef (Name "nested") [] 
-          (RawTermBody (RawMacro (Name "λ_._") [RawVar (Name "x") pos, RawMacro (Name "λ_._") [RawVar (Name "y") pos, RawVar (Name "x") pos] pos] pos))
+          (RawTermBody (RawApp (RawApp (RawVar (Name "λ_._") pos) (RawVar (Name "x") pos) pos) (RawApp (RawApp (RawVar (Name "λ_._") pos) (RawVar (Name "y") pos) pos) (RawVar (Name "x") pos) pos) pos))
     let expected = MacroDef "nested" [] 
           (TermMacro (Lam "x" (Lam "y" (Var "x" 1 pos) pos) pos))
     testElaborate emptyContext rawDecl expected
@@ -274,7 +276,7 @@ variableBindingSpec = describe "Variable binding and de Bruijn indices" $ do
   it "correctly handles nested universal quantification" $ do
     let pos = initialPos ""
     let rawDecl = RawMacroDef (Name "nested_forall") [] 
-          (RawRelBody (RawMacro (Name "∀_._") [RawVar (Name "X") pos, RawMacro (Name "∀_._") [RawVar (Name "Y") pos, RawVar (Name "X") pos] pos] pos))
+          (RawRelBody (RawApp (RawApp (RawVar (Name "∀_._") pos) (RawVar (Name "X") pos) pos) (RawApp (RawApp (RawVar (Name "∀_._") pos) (RawVar (Name "Y") pos) pos) (RawVar (Name "X") pos) pos) pos))
     let expected = MacroDef "nested_forall" [] 
           (RelMacro (All "X" (All "Y" (RVar "X" 1 pos) pos) pos))
     testElaborate emptyContext rawDecl expected
@@ -283,8 +285,8 @@ variableBindingSpec = describe "Variable binding and de Bruijn indices" $ do
     let pos = initialPos ""
     let rawBindings = [RawTermBinding (Name "x"), RawRelBinding (Name "R"), RawRelBinding (Name "S"), RawRelBinding (Name "T")]
     let rawJudgment = RawJudgment (RawVar (Name "x") pos) (RawVar (Name "R") pos) (RawVar (Name "x") pos)
-    let rawProof = RawMacro (Name "λ_:_._") [RawVar (Name "p") pos, RawVar (Name "S") pos,
-                    RawMacro (Name "λ_:_._") [RawVar (Name "q") pos, RawVar (Name "T") pos, RawVar (Name "p") pos] pos] pos
+    let rawProof = RawApp (RawApp (RawApp (RawVar (Name "λ_:_._") pos) (RawVar (Name "p") pos) pos) (RawVar (Name "S") pos) pos)
+                    (RawApp (RawApp (RawApp (RawVar (Name "λ_:_._") pos) (RawVar (Name "q") pos) pos) (RawVar (Name "T") pos) pos) (RawVar (Name "p") pos) pos) pos
     let rawDecl = RawTheorem (Name "nested_proof_lambda") rawBindings rawJudgment rawProof
     
     let expectedBindings = [TermBinding "x", RelBinding "R", RelBinding "S", RelBinding "T"]
