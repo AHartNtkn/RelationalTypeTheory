@@ -12,7 +12,6 @@ module Operations.Generic.Macro
     -- | Generic helper algorithms
   , renameBinderVarsG
   , substituteArgsG
-  , extendContextForBinders
     -- | Top-level elaborator for all AST categories
   , elabMacroAppG
     -- | Generic parameter inference  
@@ -23,8 +22,7 @@ module Operations.Generic.Macro
 import           Text.Megaparsec                (initialPos)
 import           Core.Errors
 import           Core.Syntax
-import           Core.Context
-import           Core.Raw (dummyPos)
+import           Core.Context (buildDependentContexts)
 import           Operations.Generic.Shift (ShiftAst(..), shift, shiftAbove)
 import           Operations.Generic.Substitution (SubstAst(..))
 import           Operations.Resolve (ResolveAst(..))
@@ -340,6 +338,6 @@ elabMacroAppG ctx name sig body actuals
           body2 = substituteArgsG   sig actuals body1
           -- Convert arguments to MacroArgs for context extension
           macroArgs = map toArg actuals
-          -- Extend context with any binders
-          extendedCtx = extendContextForBinders sig macroArgs ctx
-      Operations.Resolve.resolveWithContext extendedCtx body2
+          -- Build dependency-aware contexts
+          (_, finalCtx) = buildDependentContexts sig macroArgs ctx
+      Operations.Resolve.resolveWithContext finalCtx body2

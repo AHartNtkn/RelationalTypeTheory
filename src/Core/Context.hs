@@ -34,7 +34,10 @@ module Core.Context
     buildContextFromModuleInfo,
     buildContextFromBindings,
     inferParamKind,
-    extendContextForBinders,
+    -- Dependency-aware context extension
+    insertBinder,
+    buildDependentContexts,
+    extractVarNameFromMacroArg,
   )
 where
 
@@ -47,7 +50,7 @@ import Core.Raw (dummyPos)
 import Text.Megaparsec (initialPos)
 import Control.Monad.Reader
 import Control.Monad.Except
-import           Data.List (foldl')
+import Data.List (foldl')
 
 
 -- | Built-in macro fixities
@@ -337,34 +340,63 @@ inferParamKind (ProofMacro _) = ProofK
 
 
 --------------------------------------------------------------------------------
--- | Context extension for binders
+-- | Dependency-aware context extension for macro binders
 --------------------------------------------------------------------------------
 
--- | Extend context with variables bound by macro parameters
-extendContextForBinders :: [ParamInfo] -> [MacroArg] -> Context -> Context
-extendContextForBinders params args ctx = 
-  foldl' extendOne ctx (zip params args)
+-- | Extract variable name from a MacroArg
+extractVarNameFromMacroArg :: MacroArg -> Maybe String
+extractVarNameFromMacroArg (MTerm (Var n _ _)) = Just n
+extractVarNameFromMacroArg (MTerm (FVar n _)) = Just n
+extractVarNameFromMacroArg (MRel (RVar n _ _)) = Just n
+extractVarNameFromMacroArg (MRel (FRVar n _)) = Just n
+extractVarNameFromMacroArg (MProof (PVar n _ _)) = Just n
+extractVarNameFromMacroArg (MProof (FPVar n _)) = Just n
+extractVarNameFromMacroArg _ = Nothing
+
+-- | One-step binder insertion (used internally)
+insertBinder :: ParamInfo -> MacroArg -> Context -> Context
+insertBinder param arg ctx
+  | pBinds param = case (pKind param, extractVarNameFromMacroArg arg) of
+      (TermK, Just name) -> bindTermVar name ctx
+      (RelK, Just name) -> bindRelVar name ctx
+      (ProofK, Just name) -> 
+        let dummyJudgment = RelJudgment 
+              (Var "⊥" 0 dummyPos) 
+              (RVar "⊥" 0 dummyPos) 
+              (Var "⊥" 0 dummyPos)
+        in bindProofVar name dummyJudgment ctx
+      _ -> ctx  -- Non-variable binders are errors, handled elsewhere
+  | otherwise = ctx
+
+-- | Build Γᵢ for every parameter and the final Γ⁺ containing all binders.
+--
+--   The list at index i is the context that must be used when elaborating argument i.
+--
+buildDependentContexts
+  :: [ParamInfo] -> [MacroArg]
+  -> Context                           -- Γ₀
+  -> ([Context]      -- Γ₀ … Γₙ₋₁
+     , Context)      -- Γ⁺
+buildDependentContexts params args gamma0 = (ctxPerArg, finalCtx)
   where
-    extendOne :: Context -> (ParamInfo, MacroArg) -> Context
-    extendOne acc (param, arg)
-      | pBinds param = case (pKind param, extractVarName arg) of
-          (TermK, Just name) -> bindTermVar name acc
-          (RelK, Just name) -> bindRelVar name acc
-          (ProofK, Just name) -> 
-            -- For proof binders, we need a dummy judgment
-            let dummyJudgment = RelJudgment 
-                  (Var "dummy" 0 dummyPos) 
-                  (RVar "dummy" 0 dummyPos) 
-                  (Var "dummy" 0 dummyPos)
-            in bindProofVar name dummyJudgment acc
-          _ -> acc  -- Non-variable binders are errors, handled elsewhere
-      | otherwise = acc
-    
-    extractVarName :: MacroArg -> Maybe String
-    extractVarName (MTerm (Var n _ _)) = Just n
-    extractVarName (MTerm (FVar n _)) = Just n
-    extractVarName (MRel (RVar n _ _)) = Just n
-    extractVarName (MRel (FRVar n _)) = Just n
-    extractVarName (MProof (PVar n _ _)) = Just n
-    extractVarName (MProof (FPVar n _)) = Just n
-    extractVarName _ = Nothing
+    -- Accumulate binders seen so far
+    step (binderEnv, ctx) (idx, (p, a)) =
+      let ctxForThis =
+            foldl' (\c j ->
+                     case Map.lookup j binderEnv of
+                       Just (paramInfo, arg) -> insertBinder paramInfo arg c
+                       Nothing -> c)
+                   gamma0
+                   (pDeps p)
+          ctx'      = if pBinds p then insertBinder p a ctx else ctx
+          env'      = if pBinds p then Map.insert idx (p, a) binderEnv
+                                  else binderEnv
+      in  (env', ctx', ctxForThis)
+
+    (_, finalCtx, ctxListRev) =
+      foldl' (\(e, c, acc) x -> let (e', c', ctxI) = step (e, c) x
+                               in  (e', c', ctxI:acc))
+             (Map.empty, gamma0, [])
+             (zip [0..] (zip params args))
+
+    ctxPerArg = reverse ctxListRev

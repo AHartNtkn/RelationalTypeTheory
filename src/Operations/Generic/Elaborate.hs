@@ -27,7 +27,7 @@ import Core.Errors
 import Core.Context
 import Operations.Generic.Mixfix (MixfixAst(..), reparseG, mixfixKeywords)
 import Operations.Generic.Token (toTok, hasOperatorG)
-import Operations.Generic.Macro (elabMacroAppG, MacroAst(..), extendContextForBinders)
+import Operations.Generic.Macro (elabMacroAppG, MacroAst(..))
 import Operations.Resolve (ResolveAst)
 
 --------------------------------------------------------------------------------
@@ -220,7 +220,7 @@ handleMacroAppCrossCategory macroName params args macroPos = do
     throwError $ MacroArityMismatch macroName (length params) (length args)
                  (ErrorContext macroPos "macro application")
   
-  -- Phase 1: Extract binder variable names without elaboration
+  -- Phase 1: Extract binder variable names for dependency analysis
   let binderArgs = 
         [ if pBinds param 
           then case arg of
@@ -233,12 +233,15 @@ handleMacroAppCrossCategory macroName params args macroPos = do
         | (arg, param) <- zip args params
         ]
   
-  -- Extend context with binders
+  -- Build dependency-aware contexts
   ctx <- ask
-  let extendedCtx = extendContextForBinders params binderArgs ctx
+  let (argContexts, _) = buildDependentContexts params binderArgs ctx
   
-  -- Phase 2: Elaborate all arguments in the extended context
-  macroArgs <- local (const extendedCtx) $ zipWithM elaborateByKind args params
+  -- Phase 2: Elaborate each argument with its specific dependency context
+  macroArgs <- sequence 
+    [ local (const (argContexts !! i)) (elaborateByKind arg param)
+    | (i, (arg, param)) <- zip [0..] (zip args params)
+    ]
   
   -- Create the macro application
   return $ PMacro macroName macroArgs macroPos
