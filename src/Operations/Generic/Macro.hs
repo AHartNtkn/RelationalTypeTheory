@@ -43,6 +43,8 @@ class SubstAst a => MacroAst a where
   varNameOf   :: a -> Maybe String
   -- | Rename binder variable names (α-conversion only, indices untouched)
   mapBinders  :: (String -> String) -> a -> a
+  -- | Substitute free variable by name with replacement
+  substFreeVar :: String -> a -> a -> a
   -- | Convert to a MacroArg for heterogeneous collections
   toArg       :: a -> MacroArg
   -- | Try to extract from a MacroArg (fails if wrong constructor)
@@ -64,6 +66,19 @@ instance MacroAst Term where
         App l r p      -> App (go l) (go r) p
         TMacro n as p  -> TMacro n as p  -- MacroArgs are already heterogeneous, no mapping needed
         other          -> other
+  substFreeVar targetName replacement = go
+    where
+      go tm = case tm of
+        FVar name pos | name == targetName -> replacement
+        FVar{} -> tm
+        Var{} -> tm
+        Lam n b p -> Lam n (go b) p
+        App l r p -> App (go l) (go r) p
+        TMacro n as p -> TMacro n (map substMacroArg as) p
+          where substMacroArg = \case
+                  MTerm t -> MTerm (go t)
+                  MRel r -> MRel r    -- Relations unaffected by term substitution
+                  MProof p -> MProof p -- Proofs unaffected by term substitution
   toArg = MTerm
   fromArg (MTerm t) = Just t
   fromArg _ = Nothing
@@ -86,6 +101,22 @@ instance MacroAst RType where
         Conv r p       -> Conv (go r) p
         RMacro n as p  -> RMacro n as p  -- MacroArgs are already heterogeneous
         other          -> other
+  substFreeVar targetName replacement = go
+    where
+      go rt = case rt of
+        FRVar name pos | name == targetName -> replacement
+        FRVar{} -> rt
+        RVar{} -> rt
+        RMacro n as p -> RMacro n (map substMacroArg as) p
+          where substMacroArg = \case
+                  MTerm t -> MTerm t      -- Terms unaffected by relational substitution
+                  MRel r -> MRel (go r)
+                  MProof p -> MProof p    -- Proofs unaffected by relational substitution
+        Arr a b p -> Arr (go a) (go b) p
+        All n r p -> All n (go r) p
+        Conv r p -> Conv (go r) p
+        Comp a b p -> Comp (go a) (go b) p
+        Prom t p -> Prom t p  -- Promoted terms unaffected by relational substitution
   toArg = MRel
   fromArg (MRel r) = Just r
   fromArg _ = Nothing
@@ -114,6 +145,28 @@ instance MacroAst Proof where
         Pair l r p            -> Pair (go l) (go r) p
         PMacro n as p         -> PMacro n as p  -- MacroArgs are already heterogeneous
         other                 -> other
+  substFreeVar targetName replacement = go
+    where
+      go pr = case pr of
+        FPVar name pos | name == targetName -> replacement
+        FPVar{} -> pr
+        PVar{} -> pr
+        LamP n t b p -> LamP n t (go b) p  -- RType unchanged, only proof
+        TyLam n b p -> TyLam n (go b) p
+        RhoElim x t u p1 p2 p -> RhoElim x t u (go p1) (go p2) p  -- Terms unchanged, proofs substituted
+        Pi p1 x u v p2 p -> Pi (go p1) x u v (go p2) p  -- Terms unchanged, proofs substituted
+        AppP l r p -> AppP (go l) (go r) p
+        TyApp q t p -> TyApp (go q) t p  -- RType unchanged, only proof
+        ConvProof t q u p -> ConvProof t (go q) u p  -- Terms unchanged, only proof
+        ConvIntro q p -> ConvIntro (go q) p
+        ConvElim q p -> ConvElim (go q) p
+        Pair l r p -> Pair (go l) (go r) p
+        PMacro n as p -> PMacro n (map substMacroArg as) p
+          where substMacroArg = \case
+                  MTerm t -> MTerm t      -- Terms unaffected by proof substitution
+                  MRel r -> MRel r        -- Relations unaffected by proof substitution
+                  MProof p -> MProof (go p)
+        other -> other
   toArg = MProof
   fromArg (MProof p) = Just p
   fromArg _ = Nothing
@@ -282,6 +335,11 @@ instance MacroAst MacroArg where
     MRel r -> MRel (mapBinders rename r)
     MProof p -> MProof (mapBinders rename p)
   
+  substFreeVar targetName replacement = \case
+    MTerm t -> MTerm (substFreeVar targetName (case replacement of MTerm repl -> repl; _ -> t) t)
+    MRel r -> MRel (substFreeVar targetName (case replacement of MRel repl -> repl; _ -> r) r)
+    MProof p -> MProof (substFreeVar targetName (case replacement of MProof repl -> repl; _ -> p) p)
+  
   toArg = id  -- MacroArg is already the target type
   
   fromArg = Just  -- Any MacroArg can be converted to MacroArg
@@ -305,17 +363,14 @@ renameBinderVarsG sig actuals =
       renameOne acc _ = acc
   in  \body -> foldl renameOne body (zip [0..] sig)
 
--- | Positional substitution for value parameters (capture-avoiding, index-based)
+-- | Free variable substitution for macro parameters
 substituteArgsG :: MacroAst a => [ParamInfo] -> [a] -> a -> a
-substituteArgsG sig actuals =
-  let doOne acc (j,paramInfo,arg)
-        | pBinds paramInfo = acc
-        | otherwise =
-            let k     = binderPrefixCount sig j
-                arg'  = shiftN k arg
-                idx   = length sig - 1 - j
-            in  substIndex idx arg' acc
-  in  \body -> foldl doOne body (zip3 [0..] sig actuals)
+substituteArgsG sig actuals body = 
+  foldl doSubst body (zip sig actuals)
+  where
+    doSubst acc (paramInfo, arg)
+      | pBinds paramInfo = acc  -- Skip binder parameters
+      | otherwise = substFreeVar (pName paramInfo) arg acc
 
 --------------------------------------------------------------------------------
 -- | Top-level macro elaborator (used by Elaborate.hs)

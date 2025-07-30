@@ -21,7 +21,7 @@ paramInfoInferenceSpec :: Spec
 paramInfoInferenceSpec = describe "Parameter inference" $ do
   it "detects lambda binders in term macros" $ do
     let params = ["x", "t"]
-        body = Lam "x" (Var "t" 0 (initialPos "test")) (initialPos "test")
+        body = Lam "x" (FVar "t" (initialPos "test")) (initialPos "test")  -- Use free variable
         inferred = inferParamInfosG params body
     
     -- x should be detected as a binder
@@ -34,7 +34,7 @@ paramInfoInferenceSpec = describe "Parameter inference" $ do
 
   it "detects forall binders in relational macros" $ do
     let params = ["X", "T"]
-        body = All "X" (RVar "T" 0 (initialPos "test")) (initialPos "test")
+        body = All "X" (FRVar "T" (initialPos "test")) (initialPos "test")  -- Use free variable
         inferred = inferParamInfosG params body
     
     -- X should be detected as a binder
@@ -47,7 +47,7 @@ paramInfoInferenceSpec = describe "Parameter inference" $ do
 
   it "detects no binders in composition macros" $ do
     let params = ["R", "S"]
-        body = Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test")
+        body = Comp (FRVar "R" (initialPos "test")) (FRVar "S" (initialPos "test")) (initialPos "test")  -- Use free variables
         inferred = inferParamInfosG params body
     
     -- Neither R nor S should be binders
@@ -60,7 +60,7 @@ paramInfoInferenceSpec = describe "Parameter inference" $ do
 
   it "detects proof binders in proof macros" $ do
     let params = ["x", "R", "p"]
-        body = LamP "x" (RVar "R" 1 (initialPos "test")) (PVar "p" 0 (initialPos "test")) (initialPos "test")
+        body = LamP "x" (FRVar "R" (initialPos "test")) (FPVar "p" (initialPos "test")) (initialPos "test")  -- Use free variables
         inferred = inferParamInfosG params body
     
     -- x should be detected as a proof binder
@@ -72,7 +72,7 @@ paramInfoInferenceSpec = describe "Parameter inference" $ do
 
   it "detects multiple binders in Pi" $ do
     let params = ["p1", "x", "u", "v", "p2"]
-        body = Pi (PVar "p1" 4 (initialPos "test")) "x" "u" "v" (PVar "p2" 0 (initialPos "test")) (initialPos "test")
+        body = Pi (FPVar "p1" (initialPos "test")) "x" "u" "v" (FPVar "p2" (initialPos "test")) (initialPos "test")  -- Use free variables
         inferred = inferParamInfosG params body
     
     -- x should be a term binder
@@ -96,30 +96,30 @@ binderAwareSubstitutionSpec = describe "Binder-aware substitution" $ do
   it "renames binder variables correctly" $ do
     let sig = [ParamInfo "x" TermK True [], ParamInfo "t" TermK False [0]]
         actuals = [Var "y" 0 (initialPos "test"), Var "body" 0 (initialPos "test")]
-        body = Lam "x" (Var "t" 0 (initialPos "test")) (initialPos "test")
+        body = Lam "x" (FVar "t" (initialPos "test")) (initialPos "test")  -- Use free variable
         result = renameBinderVarsG sig (map toArg actuals) (toArg body)
     
     case fromArg result of
       Just (Lam name _ _) -> name `shouldBe` "y"  -- x should be renamed to y
       _ -> expectationFailure "Expected lambda after renaming"
 
-  it "substitutes non-binder arguments with shifting" $ do
+  it "substitutes non-binder arguments with free variables" $ do
     let sig = [ParamInfo "x" TermK True [], ParamInfo "t" TermK False [0]]
         actuals = [Var "y" 0 (initialPos "test"), Var "body" 0 (initialPos "test")]
-        body = Lam "x" (Var "t" 0 (initialPos "test")) (initialPos "test")
+        body = Lam "x" (FVar "t" (initialPos "test")) (initialPos "test")  -- Use free variable
         renamed = renameBinderVarsG sig (map toArg actuals) (toArg body)
         result = substituteArgsG sig (map toArg actuals) renamed
     
     case fromArg result of
       Just (Lam _ (Var name idx _) _) -> do
         name `shouldBe` "body"  -- t should be substituted with body
-        idx `shouldBe` 1        -- shifted by 1 due to lambda binder
+        idx `shouldBe` 0        -- no shifting needed for free variable substitution
       _ -> expectationFailure "Expected lambda with substituted body"
 
   it "handles composition without binders" $ do
     let sig = [ParamInfo "R" RelK False [], ParamInfo "S" RelK False []]
         actuals = [RVar "A" 0 (initialPos "test"), RVar "B" 0 (initialPos "test")]
-        body = Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test")
+        body = Comp (FRVar "R" (initialPos "test")) (FRVar "S" (initialPos "test")) (initialPos "test")  -- Use free variables
         result = substituteArgsG sig (map toArg actuals) (toArg body)
     
     case fromArg result of
@@ -134,7 +134,7 @@ mixfixBinderOrderSpec = describe "Mix-fix parameter order independence" $ do
   it "handles binder-first patterns like λ_._" $ do
     let sig = [ParamInfo "x" TermK True [], ParamInfo "t" TermK False [0]]
         actuals = [Var "var" 0 (initialPos "test"), Var "expr" 0 (initialPos "test")]
-        body = Lam "x" (Var "t" 0 (initialPos "test")) (initialPos "test")
+        body = Lam "x" (FVar "t" (initialPos "test")) (initialPos "test")  -- Use free variable
         renamed = renameBinderVarsG sig (map toArg actuals) (toArg body)
         result = substituteArgsG sig (map toArg actuals) renamed
     
@@ -149,8 +149,8 @@ mixfixBinderOrderSpec = describe "Mix-fix parameter order independence" $ do
     -- Pattern where argument comes before binder: arg |λ x . body
     let sig = [ParamInfo "arg" TermK False [], ParamInfo "x" TermK True [], ParamInfo "body" TermK False [1]]
         actuals = [Var "a" 0 (initialPos "test"), Var "y" 0 (initialPos "test"), Var "b" 0 (initialPos "test")]
-        macroBody = App (Var "arg" 2 (initialPos "test")) 
-                       (Lam "x" (Var "body" 0 (initialPos "test")) (initialPos "test"))
+        macroBody = App (FVar "arg" (initialPos "test")) 
+                       (Lam "x" (FVar "body" (initialPos "test")) (initialPos "test"))  -- Use free variables
                        (initialPos "test")
         renamed = renameBinderVarsG sig (map toArg actuals) (toArg macroBody)
         result = substituteArgsG sig (map toArg actuals) renamed
@@ -170,7 +170,7 @@ nestedBinderSpec = describe "Nested binder handling" $ do
   it "handles nested lambdas correctly" $ do
     let sig = [ParamInfo "x" TermK True [], ParamInfo "y" TermK True [], ParamInfo "body" TermK False [0,1]]
         actuals = [Var "a" 0 (initialPos "test"), Var "b" 0 (initialPos "test"), Var "expr" 0 (initialPos "test")]
-        macroBody = Lam "x" (Lam "y" (Var "body" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
+        macroBody = Lam "x" (Lam "y" (FVar "body" (initialPos "test")) (initialPos "test")) (initialPos "test")  -- Use free variable
         renamed = renameBinderVarsG sig (map toArg actuals) (toArg macroBody)
         result = substituteArgsG sig (map toArg actuals) renamed
     

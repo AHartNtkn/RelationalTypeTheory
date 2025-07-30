@@ -31,18 +31,8 @@ elaborateDeclaration :: RawDeclaration -> ElaborateM Declaration
 elaborateDeclaration (RawMacroDef name params body) = do
   ctx <- ask
   let pNames = map nameString params
-
-      -- Using the centralized binder functions
-
-      ctxTerm  = foldl (flip bindTermVar) ctx pNames   -- last parameter = index 0
-      ctxRel   = foldl (flip bindRelVar ) ctx pNames
-      ctxProof = ctx  -- proof macros can reference any variables
-  -------------------------------------------------------------------------
-  elaboratedBody <- case body of
-    RawTermBody _ -> local (const ctxTerm) (elaborateMacroBody body)
-    RawRelBody  _ -> local (const ctxRel ) (elaborateMacroBody body)
-    RawProofBody _ -> local (const ctxProof) (elaborateMacroBody body)
-
+  -- Don't bind parameters - macro bodies should keep parameter references as free variables
+  elaboratedBody <- elaborateMacroBody body
   pure $ MacroDef (nameString name) pNames elaboratedBody
   
 elaborateDeclaration (RawTheorem name bindings judgment proof) = do
