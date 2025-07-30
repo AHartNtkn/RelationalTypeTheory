@@ -25,7 +25,8 @@ import qualified Data.Map as Map
 import Core.Syntax
 import Core.Errors (RelTTError(..), ErrorContext(..))
 import Text.Megaparsec (initialPos, SourcePos)
-import Operations.Generic.Macro (MacroAst(..), renameBinderVarsG, substituteArgsG)
+import Operations.Generic.Macro (MacroAst(..), elabMacroAppG)
+import Operations.Resolve (ResolveAst)
 
 --------------------------------------------------------------------------------
 -- | Expansion modes
@@ -48,7 +49,7 @@ data ExpansionResult a = ExpansionResult
 -- | Core typeclass for macro expansion
 --------------------------------------------------------------------------------
 
-class MacroAst a => ExpandAst a where
+class (MacroAst a, ResolveAst a) => ExpandAst a where
   -- | Associated type for macro bodies
   type MacroBodyType a
   
@@ -120,9 +121,10 @@ expandStep env mode remainingSteps stepsSoFar ast =
                     FullExpansion -> mapM (expandFully env) args >>= return . map expandedValue
                     WeakHeadExpansion -> return args
                   
-                  -- Rename binders and substitute
-                  let renamedBody = renameBinderVarsG paramInfo expandedArgs (bodyToAst @a body)
-                      substituted = substituteArgsG paramInfo expandedArgs renamedBody
+                  -- Use elabMacroAppG for substitution (single source of truth)
+                  substituted <- case elabMacroAppG env name paramInfo (bodyToAst @a body) expandedArgs of
+                    Right result -> return result
+                    Left err -> Left err
                   
                   -- Continue expansion
                   if remainingSteps <= 1

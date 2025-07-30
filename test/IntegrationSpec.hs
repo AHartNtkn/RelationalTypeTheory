@@ -598,7 +598,7 @@ basicPipelineSpec = describe "basic pipeline tests" $ do
         let newContext = buildContextFromDeclarations decls
         -- Test the theorem proof checking
         case theoremDefs of
-          [TheoremDef "reflexivity" bindings judgment proof] -> do
+          [TheoremDef "reflexivity" bindings _ proof] -> do
             let ctx = buildContextFromBindings bindings
             case inferProofType ctx proof of
               Right _ -> do
@@ -661,9 +661,8 @@ errorHandlingPipelineSpec = describe "error handling pipeline tests" $ do
       Right decls -> do
         let theoremDefs = [d | d@(TheoremDef _ _ _ _) <- decls]
         case theoremDefs of
-          [TheoremDef _ bindings judgment proof] -> do
+          [TheoremDef _ bindings _ proof] -> do
             let ctx = buildContextFromBindings bindings
-                newContext = buildContextFromDeclarations decls
             case inferProofType ctx proof of
               Left _ -> return () -- Expected proof checking error
               Right _ -> expectationFailure "Expected proof checking to fail"
@@ -799,7 +798,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
     let env = extendMacroContext "id" [] (TermMacro (Lam "x" (Var "x" 0 ip) ip)) (defaultFixity "TEST") emptyContext
         termCtx =
           extendTermContext "t" (RMacro "A" [] ip) $
-            extendTermContext "x" (RMacro "A" [] ip) emptyContext
+            extendTermContext "x" (RMacro "A" [] ip) env
 
         -- Parse and check: ι⟨t, id x⟩
         -- This should prove: t[(id x)^]((id x) t)
@@ -821,7 +820,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
     let env = extendMacroContext "const" [testParamInfo "a"] (TermMacro (Lam "x" (Var "a" 0 ip) ip)) (defaultFixity "TEST") emptyContext
         termCtx =
           extendTermContext "y" (RMacro "B" [] ip) $
-            extendTermContext "x" (RMacro "A" [] ip) emptyContext
+            extendTermContext "x" (RMacro "A" [] ip) env
 
         -- Create proof context with TMacro in judgments
         -- p : (const y) [R→S] (const y)
@@ -853,7 +852,7 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
 
         termCtx =
           extendTermContext "f" (RMacro "A→B" [] ip) $
-            extendTermContext "x" (RMacro "A" [] ip) emptyContext
+            extendTermContext "x" (RMacro "A" [] ip) macroEnv2
 
         -- Nested TMacro: app (id f) x should represent ((λ x . x) f) x ≡ f x
         nestedTMacro = TMacro "app" [MTerm (TMacro "id" [MTerm (Var "f" 1 ip)] ip), MTerm (Var "x" 0 ip)] ip
@@ -937,10 +936,9 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
     -- The theorem binding 'x' and the pi-bound 'x' are different variables
     let input = "⊢ shadowing_bug_test (R : Rel) (S : Rel) (a : Term) (b : Term) (x : Term) (p : a [R ∘ S] b) : a [R] x ≔ π p - x . u . v . u;"
     case parseFileDeclarations input of
-      Right [TheoremDef _ bindings judgment proof] -> do
+      Right [TheoremDef _ bindings _ proof] -> do
         -- Build context from bindings
         let ctx = buildContextFromBindings bindings
-            newContext = emptyContext
         -- This should fail type checking because the pi-bound x and parameter x are different
         case inferProofType ctx proof of
           Right _ -> expectationFailure "Expected type checking to fail due to variable shadowing, but it passed"
@@ -953,10 +951,9 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
     -- This should also FAIL because the conclusion 'a [R] x' doesn't match what pi elimination produces
     let input = "⊢ pi_type_error_test (R : Rel) (S : Rel) (a : Term) (b : Term) (x : Term) (p : a [R ∘ S] b) : a [R] x ≔ π p - y . u . v . u;"
     case parseFileDeclarations input of
-      Right [TheoremDef _ bindings judgment proof] -> do
+      Right [TheoremDef _ bindings _ proof] -> do
         -- Build context from bindings
         let ctx = buildContextFromBindings bindings
-            newContext = emptyContext
         -- This should fail type checking
         case inferProofType ctx proof of
           Right _ -> expectationFailure "Expected type checking to fail, but it passed"
@@ -968,9 +965,8 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
     -- Test that term variable indices are shifted correctly
     let input = "⊢ pi_shift_term (R : Rel) (S : Rel) (t : Term) (p : t [R ∘ S] t) : t [R] t ≔ π p - x . u . v . ι⟨t,t⟩;"
     case parseFileDeclarations input of
-      Right [TheoremDef _ bindings judgment proof] -> do
+      Right [TheoremDef _ bindings _ proof] -> do
         let ctx = buildContextFromBindings bindings
-            newContext = emptyContext
         -- This should fail because after shifting, the 't' in the conclusion should have index 1, not 0
         case inferProofType ctx proof of
           Right _ -> expectationFailure "Expected type checking to fail due to incorrect index shifting"
@@ -982,9 +978,8 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
     -- Test that λ (proof lambda) shifts proof variable indices correctly
     let input = "⊢ lambda_shift_test (R : Rel) (a : Term) (q : a [R] a) : (λ x . a) [R → R] (λ x' . a) ≔ λ p : R . q;"
     case parseFileDeclarations input of
-      Right [TheoremDef _ bindings judgment proof] -> do
+      Right [TheoremDef _ bindings _ proof] -> do
         let ctx = buildContextFromBindings bindings
-            newContext = emptyContext
         -- The 'q' inside the lambda body should have its index shifted when 'p' is bound
         case inferProofType ctx proof of
           Right _ -> return () -- Expected to pass
@@ -996,9 +991,8 @@ tmacroProofIntegrationSpec = describe "TMacro proof integration" $ do
     -- Test multiple nested binders to ensure cumulative shifting works
     let input = "⊢ nested_shift (R : Rel) (S : Rel) (T : Rel) (a : Term) (p : a [R ∘ S ∘ T] a) : a [∀ X . R → X → T] a ≔ Λ X . λ u : R . λ v : X . π p - x . r . s . π s - y . t . u' . ι⟨ a , a ⟩;"
     case parseFileDeclarations input of
-      Right [TheoremDef _ bindings judgment proof] -> do
+      Right [TheoremDef _ bindings _ proof] -> do
         let ctx = buildContextFromBindings bindings
-            newContext = emptyContext
         -- This tests cumulative shifting through multiple binders
         case inferProofType ctx proof of
           _ -> return () -- We mainly want to see the AST structure
@@ -1013,9 +1007,8 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integratio
     let theoremText = "⊢ bug_test (S : Rel) (a : Term) (b : Term) (p : a [∀ X . S] b) : a [S] b ≔ p { S };"
     case parseDeclaration theoremText of
       Left parseErr -> expectationFailure $ "Parse should succeed: " ++ parseErr
-      Right (TheoremDef _ bindings judgment proof) -> do
+      Right (TheoremDef _ bindings _ proof) -> do
         let ctx = buildContextFromBindings bindings
-            newContext = emptyContext
         case inferProofType ctx proof of
           Right _ -> return () -- Should succeed
           Left err ->
@@ -1072,9 +1065,8 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integratio
     let theoremText = "⊢ nested_bug (R : Rel) (S : Rel) (T : Rel) (a : Term) (b : Term) (p : a [∀ X . ∀ Y . X ∘ T] b) : a [R ∘ T] b ≔ (p { R }){ S };"
     case parseDeclaration theoremText of
       Left parseErr -> expectationFailure $ "Parse should succeed: " ++ parseErr
-      Right (TheoremDef _ bindings judgment proof) -> do
+      Right (TheoremDef _ bindings _ proof) -> do
         let ctx = buildContextFromBindings bindings
-            newContext = emptyContext
         case inferProofType ctx proof of
           Right _ -> return () -- Should work when bug is fixed
           Left err ->
@@ -1090,7 +1082,6 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integratio
       Left parseErr -> expectationFailure $ "Parse should succeed: " ++ parseErr
       Right (TheoremDef _ bindings judgment proof) -> do
         let ctx = buildContextFromBindings bindings
-            newContext = emptyContext
         case inferProofType ctx proof of
           Right result -> 
             if resultJudgment result == judgment

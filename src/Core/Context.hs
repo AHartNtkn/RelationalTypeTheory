@@ -78,19 +78,19 @@ simpleParams kind names = [ParamInfo n kind False [] | n <- names]
 -- | Built-in macro bodies with parameter lists
 builtinMacroBodies :: [(String, [ParamInfo], MacroBody)]
 builtinMacroBodies =
-  [ ("λ_._"       , [ParamInfo "x" TermK True [], ParamInfo "t" TermK False [0]]     , TermMacro $ Lam "x" (Var "t" 0 dummyPos) dummyPos)
-  , ("∀_._"       , [ParamInfo "X" RelK True [], ParamInfo "T" RelK False [0]]       , RelMacro $ All "X" (RVar "T" 0 dummyPos) dummyPos)
-  , ("_˘"         , simpleParams RelK ["R"]           , RelMacro $ Conv (RVar "R" 0 dummyPos) dummyPos)
-  , ("_∘_"        , simpleParams RelK ["R","S"]       , RelMacro $ Comp (RVar "R" 1 dummyPos) (RVar "S" 0 dummyPos) dummyPos)
-  , ("_→_"        , simpleParams RelK ["A","B"]       , RelMacro $ Arr (RVar "A" 1 dummyPos) (RVar "B" 0 dummyPos) dummyPos)
-  , ("ι⟨_,_⟩"     , simpleParams TermK ["t1","t2"]    , ProofMacro $ Iota (Var "t1" 1 dummyPos) (Var "t2" 0 dummyPos) dummyPos)
-  , ("_,_"        , simpleParams ProofK ["p","q"]     , ProofMacro $ Pair (PVar "p" 1 dummyPos) (PVar "q" 0 dummyPos) dummyPos)
-  , ("λ_:_._"     , [ParamInfo "x" TermK True [], ParamInfo "T" RelK False [], ParamInfo "p" ProofK False [0]]  , ProofMacro $ LamP "x" (RVar "T" 1 dummyPos) (PVar "p" 0 dummyPos) dummyPos)
-  , ("Λ_._"       , [ParamInfo "X" RelK True [], ParamInfo "p" ProofK False [0]]      , ProofMacro $ TyLam "X" (PVar "p" 0 dummyPos) dummyPos)
-  , ("_{_}"       , [ParamInfo "p" ProofK False [], ParamInfo "R" RelK False []]      , ProofMacro $ TyApp (PVar "p" 1 dummyPos) (RVar "R" 0 dummyPos) dummyPos)
-  , ("_⇃_⇂_"      , [ParamInfo "t1" TermK False [], ParamInfo "p" ProofK False [], ParamInfo "t2" TermK False []], ProofMacro $ ConvProof (Var "t1" 2 dummyPos) (PVar "p" 1 dummyPos) (Var "t2" 0 dummyPos) dummyPos)
-  , ("π_-_._._._" , [ParamInfo "p" ProofK False [], ParamInfo "x" TermK True [], ParamInfo "u" ProofK True [], ParamInfo "v" ProofK True [], ParamInfo "q" ProofK False [1,2,3]], ProofMacro $ Pi (PVar "p" 4 dummyPos) "x" "u" "v" (PVar "q" 0 dummyPos) dummyPos)
-  , ("ρ{_._,_}_-_" , [ParamInfo "x" TermK True [], ParamInfo "t1" TermK False [0], ParamInfo "t2" TermK False [0], ParamInfo "p" ProofK False [], ParamInfo "q" ProofK False []], ProofMacro $ RhoElim "x" (Var "t1" 3 dummyPos) (Var "t2" 2 dummyPos) (PVar "p" 1 dummyPos) (PVar "q" 0 dummyPos) dummyPos)
+  [ ("λ_._"       , [ParamInfo "x" TermK True [], ParamInfo "t" TermK False [0]]     , TermMacro $ Lam "x" (FVar "t" dummyPos) dummyPos)
+  , ("∀_._"       , [ParamInfo "X" RelK True [], ParamInfo "T" RelK False [0]]       , RelMacro $ All "X" (FRVar "T" dummyPos) dummyPos)
+  , ("_˘"         , simpleParams RelK ["R"]           , RelMacro $ Conv (FRVar "R" dummyPos) dummyPos)
+  , ("_∘_"        , simpleParams RelK ["R","S"]       , RelMacro $ Comp (FRVar "R" dummyPos) (FRVar "S" dummyPos) dummyPos)
+  , ("_→_"        , simpleParams RelK ["A","B"]       , RelMacro $ Arr (FRVar "A" dummyPos) (FRVar "B" dummyPos) dummyPos)
+  , ("ι⟨_,_⟩"     , simpleParams TermK ["t1","t2"]    , ProofMacro $ Iota (FVar "t1" dummyPos) (FVar "t2" dummyPos) dummyPos)
+  , ("_,_"        , simpleParams ProofK ["p","q"]     , ProofMacro $ Pair (FPVar "p" dummyPos) (FPVar "q" dummyPos) dummyPos)
+  , ("λ_:_._"     , [ParamInfo "x" TermK True [], ParamInfo "T" RelK False [], ParamInfo "p" ProofK False [0]]  , ProofMacro $ LamP "x" (FRVar "T" dummyPos) (FPVar "p" dummyPos) dummyPos)
+  , ("Λ_._"       , [ParamInfo "X" RelK True [], ParamInfo "p" ProofK False [0]]      , ProofMacro $ TyLam "X" (FPVar "p" dummyPos) dummyPos)
+  , ("_{_}"       , [ParamInfo "p" ProofK False [], ParamInfo "R" RelK False []]      , ProofMacro $ TyApp (FPVar "p" dummyPos) (FRVar "R" dummyPos) dummyPos)
+  , ("_⇃_⇂_"      , [ParamInfo "t1" TermK False [], ParamInfo "p" ProofK False [], ParamInfo "t2" TermK False []], ProofMacro $ ConvProof (FVar "t1" dummyPos) (FPVar "p" dummyPos) (FVar "t2" dummyPos) dummyPos)
+  , ("π_-_._._._" , [ParamInfo "p" ProofK False [], ParamInfo "x" TermK True [], ParamInfo "u" ProofK True [], ParamInfo "v" ProofK True [], ParamInfo "q" ProofK False [1,2,3]], ProofMacro $ Pi (FPVar "p" dummyPos) "x" "u" "v" (FPVar "q" dummyPos) dummyPos)
+  , ("ρ{_._,_}_-_" , [ParamInfo "x" TermK True [], ParamInfo "t1" TermK False [0], ParamInfo "t2" TermK False [0], ParamInfo "p" ProofK False [], ParamInfo "q" ProofK False []], ProofMacro $ RhoElim "x" (FVar "t1" dummyPos) (FVar "t2" dummyPos) (FPVar "p" dummyPos) (FPVar "q" dummyPos) dummyPos)
   ]
 
 -- | Create context with builtins loaded (standard starting point)

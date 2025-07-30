@@ -4,7 +4,7 @@ module MacroBinderSpec (spec) where
 
 import qualified Data.Set as Set
 import Core.Syntax
-import Operations.Generic.Macro (renameBinderVarsG, substituteArgsG, inferParamInfosG)
+import Operations.Generic.Macro (renameBinderVarsG, substituteArgsG, inferParamInfosG, toArg, fromArg)
 import Test.Hspec
 import Text.Megaparsec (initialPos)
 
@@ -97,21 +97,21 @@ binderAwareSubstitutionSpec = describe "Binder-aware substitution" $ do
     let sig = [ParamInfo "x" TermK True [], ParamInfo "t" TermK False [0]]
         actuals = [Var "y" 0 (initialPos "test"), Var "body" 0 (initialPos "test")]
         body = Lam "x" (Var "t" 0 (initialPos "test")) (initialPos "test")
-        result = renameBinderVarsG sig actuals body
+        result = renameBinderVarsG sig (map toArg actuals) (toArg body)
     
-    case result of
-      Lam name _ _ -> name `shouldBe` "y"  -- x should be renamed to y
+    case fromArg result of
+      Just (Lam name _ _) -> name `shouldBe` "y"  -- x should be renamed to y
       _ -> expectationFailure "Expected lambda after renaming"
 
   it "substitutes non-binder arguments with shifting" $ do
     let sig = [ParamInfo "x" TermK True [], ParamInfo "t" TermK False [0]]
         actuals = [Var "y" 0 (initialPos "test"), Var "body" 0 (initialPos "test")]
         body = Lam "x" (Var "t" 0 (initialPos "test")) (initialPos "test")
-        renamed = renameBinderVarsG sig actuals body
-        result = substituteArgsG sig actuals renamed
+        renamed = renameBinderVarsG sig (map toArg actuals) (toArg body)
+        result = substituteArgsG sig (map toArg actuals) renamed
     
-    case result of
-      Lam _ (Var name idx _) _ -> do
+    case fromArg result of
+      Just (Lam _ (Var name idx _) _) -> do
         name `shouldBe` "body"  -- t should be substituted with body
         idx `shouldBe` 1        -- shifted by 1 due to lambda binder
       _ -> expectationFailure "Expected lambda with substituted body"
@@ -120,10 +120,10 @@ binderAwareSubstitutionSpec = describe "Binder-aware substitution" $ do
     let sig = [ParamInfo "R" RelK False [], ParamInfo "S" RelK False []]
         actuals = [RVar "A" 0 (initialPos "test"), RVar "B" 0 (initialPos "test")]
         body = Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test")
-        result = substituteArgsG sig actuals body
+        result = substituteArgsG sig (map toArg actuals) (toArg body)
     
-    case result of
-      Comp (RVar name1 _ _) (RVar name2 _ _) _ -> do
+    case fromArg result of
+      Just (Comp (RVar name1 _ _) (RVar name2 _ _) _) -> do
         name1 `shouldBe` "A"  -- R substituted with A
         name2 `shouldBe` "B"  -- S substituted with B
       _ -> expectationFailure "Expected composition with substituted args"
@@ -135,11 +135,11 @@ mixfixBinderOrderSpec = describe "Mix-fix parameter order independence" $ do
     let sig = [ParamInfo "x" TermK True [], ParamInfo "t" TermK False [0]]
         actuals = [Var "var" 0 (initialPos "test"), Var "expr" 0 (initialPos "test")]
         body = Lam "x" (Var "t" 0 (initialPos "test")) (initialPos "test")
-        renamed = renameBinderVarsG sig actuals body
-        result = substituteArgsG sig actuals renamed
+        renamed = renameBinderVarsG sig (map toArg actuals) (toArg body)
+        result = substituteArgsG sig (map toArg actuals) renamed
     
-    case result of
-      Lam name (Var bodyName bodyIdx _) _ -> do
+    case fromArg result of
+      Just (Lam name (Var bodyName bodyIdx _) _) -> do
         name `shouldBe` "var"     -- binder renamed
         bodyName `shouldBe` "expr" -- body substituted
         bodyIdx `shouldBe` 1      -- shifted under binder
@@ -152,11 +152,11 @@ mixfixBinderOrderSpec = describe "Mix-fix parameter order independence" $ do
         macroBody = App (Var "arg" 2 (initialPos "test")) 
                        (Lam "x" (Var "body" 0 (initialPos "test")) (initialPos "test"))
                        (initialPos "test")
-        renamed = renameBinderVarsG sig actuals macroBody
-        result = substituteArgsG sig actuals renamed
+        renamed = renameBinderVarsG sig (map toArg actuals) (toArg macroBody)
+        result = substituteArgsG sig (map toArg actuals) renamed
     
-    case result of
-      App (Var argName argIdx _) (Lam binderName (Var bodyName bodyIdx _) _) _ -> do
+    case fromArg result of
+      Just (App (Var argName argIdx _) (Lam binderName (Var bodyName bodyIdx _) _) _) -> do
         argName `shouldBe` "a"      -- arg substituted
         argIdx `shouldBe` 2         -- shifted by 0 (no binders to left of arg)
         binderName `shouldBe` "y"   -- binder renamed
@@ -171,11 +171,11 @@ nestedBinderSpec = describe "Nested binder handling" $ do
     let sig = [ParamInfo "x" TermK True [], ParamInfo "y" TermK True [], ParamInfo "body" TermK False [0,1]]
         actuals = [Var "a" 0 (initialPos "test"), Var "b" 0 (initialPos "test"), Var "expr" 0 (initialPos "test")]
         macroBody = Lam "x" (Lam "y" (Var "body" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")
-        renamed = renameBinderVarsG sig actuals macroBody
-        result = substituteArgsG sig actuals renamed
+        renamed = renameBinderVarsG sig (map toArg actuals) (toArg macroBody)
+        result = substituteArgsG sig (map toArg actuals) renamed
     
-    case result of
-      Lam outerName (Lam innerName (Var bodyName bodyIdx _) _) _ -> do
+    case fromArg result of
+      Just (Lam outerName (Lam innerName (Var bodyName bodyIdx _) _) _) -> do
         outerName `shouldBe` "a"    -- x renamed to a
         innerName `shouldBe` "b"    -- y renamed to b
         bodyName `shouldBe` "expr"  -- body substituted
