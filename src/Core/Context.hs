@@ -7,6 +7,7 @@ module Core.Context
     extendTermContext,
     extendRelContext,
     extendProofContext,
+    extendParameterContext,
     extendTypeEnvironment,
     extendMacroContext,
     extendTheoremContext,
@@ -14,6 +15,7 @@ module Core.Context
     lookupTerm,
     lookupRel,
     lookupProof,
+    lookupParameter,
     lookupTypeVar,
     lookupMacro,
     lookupTheorem,
@@ -102,6 +104,7 @@ emptyContext =
   { termBindings = Map.empty
   , relBindings = Map.empty
   , proofBindings = Map.empty
+  , parameterBindings = Map.empty
   , termDepth = 0
   , relDepth = 0
   , proofDepth = 0
@@ -140,6 +143,11 @@ extendProofContext name judgment ctx =
    in ctx
         { proofBindings = Map.insert name (proofIdx, Just termDepthWhenStored, Just judgment) shiftedProofs
         }
+
+-- | Extend context with a parameter binding (for theorem/macro parameters)
+extendParameterContext :: String -> VarKind -> Context -> Context
+extendParameterContext name kind ctx =
+  ctx { parameterBindings = Map.insert name kind (parameterBindings ctx) }
 
 -- | Extend type environment with a type variable binding
 extendTypeEnvironment :: String -> RType -> TypeEnvironment -> TypeEnvironment
@@ -199,6 +207,10 @@ lookupTheorem name ctx =
   case Map.lookup name (theoremDefinitions ctx) of
     Just theorem -> Right theorem
     Nothing -> Left $ UnknownTheorem name (ErrorContext (initialPos "<context>") "theorem lookup")
+
+-- | Look up a parameter in the context
+lookupParameter :: String -> Context -> Maybe VarKind
+lookupParameter name ctx = Map.lookup name (parameterBindings ctx)
 
 -- | Shift all de Bruijn indices in a context by a given amount
 shiftContext :: Int -> Context -> Context

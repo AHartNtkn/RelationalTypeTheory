@@ -19,7 +19,19 @@ import Core.Syntax
 import Core.Raw
 import qualified Operations.Generic.Elaborate as Generic
 import Core.Errors (RelTTError(..))
-import Core.Context (ElaborateM, emptyContext)
+import Core.Context (ElaborateM, emptyContext, extendParameterContext, inferParamKind)
+
+-- Helper function to extract VarKind from RawBinding
+rawBindingToVarKind :: RawBinding -> VarKind
+rawBindingToVarKind (RawTermBinding _) = TermK
+rawBindingToVarKind (RawRelBinding _) = RelK
+rawBindingToVarKind (RawProofBinding _ _) = ProofK
+
+-- Helper function to extract name from RawBinding
+rawBindingName :: RawBinding -> String
+rawBindingName (RawTermBinding name) = nameString name
+rawBindingName (RawRelBinding name) = nameString name
+rawBindingName (RawProofBinding name _) = nameString name
 
 -- Main elaboration function
 elaborate :: Context -> RawDeclaration
@@ -31,17 +43,26 @@ elaborateDeclaration :: RawDeclaration -> ElaborateM Declaration
 elaborateDeclaration (RawMacroDef name params body) = do
   ctx <- ask
   let pNames = map nameString params
-  -- Don't bind parameters - macro bodies should keep parameter references as free variables
-  elaboratedBody <- elaborateMacroBody body
-  pure $ MacroDef (nameString name) pNames elaboratedBody
+  -- For macro parameters, assume they have RelK kind (most common case)
+  -- This is a simplification - a more sophisticated system would infer this
+  let paramKind = RelK -- Default assumption for macro parameters
+      paramCtx = foldr (\pName ctxAcc -> extendParameterContext pName paramKind ctxAcc) ctx pNames
+  -- Elaborate the body with parameters in parameter context
+  local (const paramCtx) $ do
+    elaboratedBody <- elaborateMacroBody body
+    pure $ MacroDef (nameString name) pNames elaboratedBody
   
 elaborateDeclaration (RawTheorem name bindings judgment proof) = do
-  -- Elaborate bindings but don't extend context - theorem bodies should keep parameter references as free variables
-  elaboratedBindings <- mapM elaborateBinding bindings
-  -- Elaborate judgment and proof in original context (parameters become free vars)
-  elaboratedJudgment <- elaborateJudgment judgment
-  elaboratedProof <- Generic.elaborate proof
-  return $ TheoremDef (nameString name) elaboratedBindings elaboratedJudgment elaboratedProof
+  -- Add parameters to parameter context for macro expansion
+  ctx <- ask
+  let paramCtx = foldr (\binding ctx -> extendParameterContext (rawBindingName binding) (rawBindingToVarKind binding) ctx) ctx bindings
+  local (const paramCtx) $ do
+    -- Elaborate bindings (parameters remain as free variables in output)
+    elaboratedBindings <- mapM elaborateBinding bindings
+    -- Elaborate judgment and proof with parameters in parameter context
+    elaboratedJudgment <- elaborateJudgment judgment
+    elaboratedProof <- Generic.elaborate proof
+    return $ TheoremDef (nameString name) elaboratedBindings elaboratedJudgment elaboratedProof
   where
     elaborateBinding (RawTermBinding name) = return $ TermBinding (nameString name)
     elaborateBinding (RawRelBinding name) = return $ RelBinding (nameString name)

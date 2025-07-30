@@ -32,8 +32,10 @@ instance ResolveAst Term where
   resolveWithContext ctx = \case
     Var n i p   -> Right $ Var n i p                      -- Already resolved
     FVar n p    -> case Map.lookup n (termBindings ctx) of  -- Free variable to resolve
-      Just (i, _)  -> Right $ Var n i p
-      Nothing -> Left $ UnboundVariable ("unbound term variable \"" ++ n ++ "\" after macro resolution") (ErrorContext p "term resolution")
+      Just (i, _)  -> Right $ Var n i p                   -- Bound variable -> de Bruijn index
+      Nothing -> case lookupParameter n ctx of            -- Check parameter context
+        Just TermK -> Right $ FVar n p                    -- Parameter -> keep as free variable
+        _ -> Left $ UnboundVariable ("unbound term variable \"" ++ n ++ "\" after macro resolution") (ErrorContext p "term resolution")
     Lam n b p   -> do
       let ctx' = bindTermVar n ctx
       resolvedBody <- resolveWithContext ctx' b
@@ -54,8 +56,10 @@ instance ResolveAst RType where
   resolveWithContext ctx = \case
     RVar n i p   -> Right $ RVar n i p                     -- Already resolved
     FRVar n p    -> case Map.lookup n (relBindings ctx) of   -- Free relational variable to resolve
-      Just i  -> Right $ RVar n i p
-      Nothing -> Left $ UnboundVariable ("unbound relational variable \"" ++ n ++ "\"") (ErrorContext p "relational type resolution")
+      Just i  -> Right $ RVar n i p                        -- Bound variable -> de Bruijn index
+      Nothing -> case lookupParameter n ctx of             -- Check parameter context
+        Just RelK -> Right $ FRVar n p                     -- Parameter -> keep as free variable
+        _ -> Left $ UnboundVariable ("unbound relational variable \"" ++ n ++ "\"") (ErrorContext p "relational type resolution")
     RMacro n as p -> do
       resolvedArgs <- mapM (resolveWithContext ctx) as
       Right $ RMacro n resolvedArgs p
@@ -86,8 +90,10 @@ instance ResolveAst Proof where
   resolveWithContext ctx = \case
     PVar n i p -> Right $ PVar n i p                      -- Already resolved
     FPVar n p  -> case Map.lookup n (proofBindings ctx) of   -- Free proof variable to resolve
-      Just (i, _, _)  -> Right $ PVar n i p
-      Nothing -> Left $ UnboundVariable ("unbound proof variable \"" ++ n ++ "\"") (ErrorContext p "proof resolution")
+      Just (i, _, _)  -> Right $ PVar n i p               -- Bound variable -> de Bruijn index
+      Nothing -> case lookupParameter n ctx of            -- Check parameter context
+        Just ProofK -> Right $ FPVar n p                  -- Parameter -> keep as free variable
+        _ -> Left $ UnboundVariable ("unbound proof variable \"" ++ n ++ "\"") (ErrorContext p "proof resolution")
     PTheoremApp n args p -> do
       resolvedArgs <- mapM resolveArg args
       Right $ PTheoremApp n resolvedArgs p

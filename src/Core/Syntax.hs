@@ -128,6 +128,9 @@ data Context = Context
     relBindings :: Map.Map String Int,                 -- ^ rel var name -> de Bruijn index  
     proofBindings :: Map.Map String (Int, Maybe Int, Maybe RelJudgment), -- ^ proof var -> (index, optional termDepthWhenStored, optional judgment)
     
+    -- Parameter bindings (theorem/macro parameters that should remain free)
+    parameterBindings :: Map.Map String VarKind,      -- ^ parameter name -> variable kind
+    
     -- Depth tracking for binder nesting
     termDepth :: Int,     -- ^ current lambda depth for terms
     relDepth :: Int,      -- ^ current forall depth for relations  
