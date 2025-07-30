@@ -216,6 +216,17 @@ instance ParamInferAst MacroArg where
     MRel r -> walkForParams idxOf stk r
     MProof p -> walkForParams idxOf stk p
 
+instance ParamInferAst MacroBody where
+  getVarKind = \case
+    TermMacro _ -> TermK
+    RelMacro _ -> RelK
+    ProofMacro _ -> ProofK
+  
+  walkForParams idxOf stk = \case
+    TermMacro t -> walkForParams idxOf stk t
+    RelMacro r -> walkForParams idxOf stk r
+    ProofMacro p -> walkForParams idxOf stk p
+
 -- | MacroAst instance for MacroArg
 instance MacroAst MacroArg where
   toArg = id  -- MacroArg is already the target type

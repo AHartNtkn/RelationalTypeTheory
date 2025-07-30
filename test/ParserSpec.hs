@@ -394,24 +394,24 @@ advancedTermMacroScenarioSpec = describe "Advanced term macro scenarios" $ do
 macroBodyDisambiguationSpec :: Spec
 macroBodyDisambiguationSpec = describe "MacroBody disambiguation" $ do
   it "parses macro definitions with term bodies" $ do
-    testParseDeclaration [] [] [] emptyContext "TermMacro x ≔ x;" (MacroDef "TermMacro" ["x"] (TermMacro (Var "x" 0 (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "TermMacro x ≔ x;" (MacroDef "TermMacro" ["x"] (TermMacro (FVar "x" (initialPos "test"))))
     testParseDeclaration [] [] [] emptyContext "Lambda ≔ λ x . x;" (MacroDef "Lambda" [] (TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))))
-    testParseDeclaration [] [] [] emptyContext "AppMacro f x ≔ f x;" (MacroDef "AppMacro" ["f", "x"] (TermMacro (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "AppMacro f x ≔ f x;" (MacroDef "AppMacro" ["f", "x"] (TermMacro (App (FVar "f" (initialPos "test")) (FVar "x" (initialPos "test")) (initialPos "test"))))
 
   it "parses macro definitions with relational type bodies" $ do
-    testParseDeclaration [] [] [] emptyContext "Arrow A B ≔ A -> B;" (MacroDef "Arrow" ["A", "B"] (RelMacro (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))))
-    testParseDeclaration [] [] [] emptyContext "Composition R S ≔ R ∘ S;" (MacroDef "Composition" ["R", "S"] (RelMacro (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"))))
-    testParseDeclaration [] [] [] emptyContext "Universal X ≔ ∀ Y . X -> Y;" (MacroDef "Universal" ["X"] (RelMacro (All "Y" (Arr (RVar "X" 1 (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "Arrow A B ≔ A -> B;" (MacroDef "Arrow" ["A", "B"] (RelMacro (Arr (FRVar "A" (initialPos "test")) (FRVar "B" (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "Composition R S ≔ R ∘ S;" (MacroDef "Composition" ["R", "S"] (RelMacro (Comp (FRVar "R" (initialPos "test")) (FRVar "S" (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "Universal X ≔ ∀ Y . X -> Y;" (MacroDef "Universal" ["X"] (RelMacro (All "Y" (Arr (FRVar "X" (initialPos "test")) (RVar "Y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))))
 
   it "parses parenthesized terms as term macros" $ do
     testParseDeclaration [] [] [] emptyContext "ParenId ≔ (λ x . x);" (MacroDef "ParenId" [] (TermMacro (Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test"))))
-    testParseDeclaration [] [] [] emptyContext "ParenApp f x ≔ (f x);" (MacroDef "ParenApp" ["f", "x"] (TermMacro (App (Var "f" 1 (initialPos "test")) (Var "x" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "ParenApp f x ≔ (f x);" (MacroDef "ParenApp" ["f", "x"] (TermMacro (App (FVar "f" (initialPos "test")) (FVar "x" (initialPos "test")) (initialPos "test"))))
 
   it "tries term parsing first, then falls back to relational" $ do
     -- Lambda terms should parse as terms
-    testParseDeclaration [] [] [] emptyContext "TermFirst x ≔ λ y . x y;" (MacroDef "TermFirst" ["x"] (TermMacro (Lam "y" (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "TermFirst x ≔ λ y . x y;" (MacroDef "TermFirst" ["x"] (TermMacro (Lam "y" (App (FVar "x" (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))))
     -- Relational operators should parse as relational
-    testParseDeclaration [] [] [] emptyContext "RelSecond R ≔ R -> R;" (MacroDef "RelSecond" ["R"] (RelMacro (Arr (RVar "R" 0 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "RelSecond R ≔ R -> R;" (MacroDef "RelSecond" ["R"] (RelMacro (Arr (FRVar "R" (initialPos "test")) (FRVar "R" (initialPos "test")) (initialPos "test"))))
 
   it "handles complex macro body disambiguation" $ do
     -- Lambda terms should parse as terms
@@ -421,21 +421,21 @@ macroBodyDisambiguationSpec = describe "MacroBody disambiguation" $ do
       (MacroDef "LambdaBody" [] (TermMacro (Lam "x" (Lam "y" (App (Var "x" 1 (initialPos "test")) (Var "y" 0 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test"))))
 
     -- Compositions should parse as relational types
-    testParseDeclaration [] [] [] emptyContext "CompBody R S ≔ R ∘ S;" (MacroDef "CompBody" ["R", "S"] (RelMacro (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "CompBody R S ≔ R ∘ S;" (MacroDef "CompBody" ["R", "S"] (RelMacro (Comp (FRVar "R" (initialPos "test")) (FRVar "S" (initialPos "test")) (initialPos "test"))))
     -- Arrows should parse as relational types
-    testParseDeclaration [] [] [] emptyContext "ArrowBody A B ≔ A -> B;" (MacroDef "ArrowBody" ["A", "B"] (RelMacro (Arr (RVar "A" 1 (initialPos "test")) (RVar "B" 0 (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "ArrowBody A B ≔ A -> B;" (MacroDef "ArrowBody" ["A", "B"] (RelMacro (Arr (FRVar "A" (initialPos "test")) (FRVar "B" (initialPos "test")) (initialPos "test"))))
 
   it "handles macro body with quantifiers" $ do
     testParseDeclaration [] [] [] emptyContext "ForallBody ≔ ∀ X . X;" (MacroDef "ForallBody" [] (RelMacro (All "X" (RVar "X" 0 (initialPos "test")) (initialPos "test"))))
-    testParseDeclaration [] [] [] emptyContext "ForallComp R ≔ ∀ X . R ∘ X;" (MacroDef "ForallComp" ["R"] (RelMacro (All "X" (Comp (RVar "R" 1 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "ForallComp R ≔ ∀ X . R ∘ X;" (MacroDef "ForallComp" ["R"] (RelMacro (All "X" (Comp (FRVar "R" (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))))
 
   it "handles macro body with converse operations" $ do
-    testParseDeclaration [] [] [] emptyContext "ConvBody R ≔ R ˘;" (MacroDef "ConvBody" ["R"] (RelMacro (Conv (RVar "R" 0 (initialPos "test")) (initialPos "test"))))
-    testParseDeclaration [] [] [] emptyContext "ConvComp R S ≔ (R ∘ S)˘;" (MacroDef "ConvComp" ["R", "S"] (RelMacro (Conv (Comp (RVar "R" 1 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "ConvBody R ≔ R ˘;" (MacroDef "ConvBody" ["R"] (RelMacro (Conv (FRVar "R" (initialPos "test")) (initialPos "test"))))
+    testParseDeclaration [] [] [] emptyContext "ConvComp R S ≔ (R ∘ S)˘;" (MacroDef "ConvComp" ["R", "S"] (RelMacro (Conv (Comp (FRVar "R" (initialPos "test")) (FRVar "S" (initialPos "test")) (initialPos "test")) (initialPos "test"))))
 
   it "handles nested disambiguation in complex expressions" $ do
     -- Complex term with applications
-    testParseDeclaration [] [] [] emptyContext "ComplexTerm f g x ≔ (λh. h (f x)) g;" ( MacroDef "ComplexTerm" ["f", "g", "x"] (TermMacro (App (Lam "h" (App (Var "h" 0 (initialPos "test")) (App (Var "f" 3 (initialPos "test")) (Var "x" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (Var "g" 1 (initialPos "test")) (initialPos "test")))  )
+    testParseDeclaration [] [] [] emptyContext "ComplexTerm f g x ≔ (λh. h (f x)) g;" ( MacroDef "ComplexTerm" ["f", "g", "x"] (TermMacro (App (Lam "h" (App (Var "h" 0 (initialPos "test")) (App (FVar "f" (initialPos "test")) (FVar "x" (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")) (FVar "g" (initialPos "test")) (initialPos "test")))  )
 
     -- Complex relational type with nested structure
     testParseDeclaration [] [] []
@@ -444,7 +444,7 @@ macroBodyDisambiguationSpec = describe "MacroBody disambiguation" $ do
       ( MacroDef
           "ComplexRel"
           ["R", "S", "T"]
-          (RelMacro (All "X" (Arr (Comp (RVar "R" 3 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (Comp (Conv (RVar "S" 2 (initialPos "test")) (initialPos "test")) (RVar "T" 1 (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")))
+          (RelMacro (All "X" (Arr (Comp (FRVar "R" (initialPos "test")) (RVar "X" 0 (initialPos "test")) (initialPos "test")) (Comp (Conv (FRVar "S" (initialPos "test")) (initialPos "test")) (FRVar "T" (initialPos "test")) (initialPos "test")) (initialPos "test")) (initialPos "test")))
       )
 
 rtypeParserSpec :: Spec

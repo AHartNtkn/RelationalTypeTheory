@@ -11,18 +11,17 @@ module Operations.Generic.FreeVars
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Core.Syntax
+import Operations.Generic.Expansion (ExpandAst(..))
 
 --------------------------------------------------------------------------------
 -- | Typeclass for AST nodes that support free variable analysis
 --------------------------------------------------------------------------------
 
-class FreeVarsAst a where
+class (ExpandAst a) => FreeVarsAst a where
   -- | Extract variable name if this node is a variable, Nothing otherwise
   extractVarName :: a -> Maybe String
   -- | Core free variable analysis (without macro handling)
   freeVarsCore :: (Context -> a -> S.Set String) -> Context -> a -> S.Set String
-  -- | Extract macro name and arguments if this is a macro application
-  extractMacro :: a -> Maybe (String, [a])
 
 --------------------------------------------------------------------------------
 -- | Generic binder-aware free variable analysis
@@ -30,9 +29,9 @@ class FreeVarsAst a where
 
 freeVars :: FreeVarsAst a => Context -> a -> S.Set String
 freeVars ctx node = 
-  case extractMacro node of
+  case getMacroApp node of
     Nothing -> freeVarsCore freeVars ctx node
-    Just (macroName, args) ->
+    Just (macroName, args, _pos) ->
       case M.lookup macroName (macroDefinitions ctx) of
         Nothing -> S.unions (map (freeVars ctx) args)  -- conservative fallback
         Just (sig, _) ->
@@ -66,23 +65,17 @@ instance FreeVarsAst Term where
   extractVarName (FVar x _) = Just x    -- Free variables also have names
   extractVarName _ = Nothing
   
-  extractMacro (TMacro name args _) = Just (name, [t | MTerm t <- args])
-  extractMacro _ = Nothing
-  
   freeVarsCore recurse ctx = \case
     Var x _ _   -> S.singleton x
     FVar x _    -> S.singleton x          -- Free variables contribute to free variable set
     Lam x b _   -> S.delete x (recurse ctx b)
     App f a _   -> recurse ctx f `S.union` recurse ctx a
-    TMacro _ _ _ -> error "TMacro should be handled by extractMacro"
+    TMacro _ _ _ -> error "TMacro should be handled by getMacroApp"
 
 instance FreeVarsAst RType where
   extractVarName (RVar x _ _) = Just x
   extractVarName (FRVar x _) = Just x   -- Free variables also have names
   extractVarName _ = Nothing
-  
-  extractMacro (RMacro name args _) = Just (name, [r | MRel r <- args])
-  extractMacro _ = Nothing
   
   freeVarsCore recurse ctx = \case
     RVar x _ _  -> S.singleton x
@@ -92,15 +85,12 @@ instance FreeVarsAst RType where
     Comp a b _  -> recurse ctx a `S.union` recurse ctx b
     Conv r _    -> recurse ctx r
     Prom t _    -> freeVars ctx t  -- delegate to term analysis
-    RMacro _ _ _ -> error "RMacro should be handled by extractMacro"
+    RMacro _ _ _ -> error "RMacro should be handled by getMacroApp"
 
 instance FreeVarsAst Proof where
   extractVarName (PVar x _ _) = Just x
   extractVarName (FPVar x _) = Just x   -- Free variables also have names
   extractVarName _ = Nothing
-  
-  extractMacro (PMacro name args _) = Just (name, [p | MProof p <- args])
-  extractMacro _ = Nothing
   
   freeVarsCore recurse ctx = \case
     PVar x _ _          -> S.singleton x
@@ -122,7 +112,7 @@ instance FreeVarsAst Proof where
     RhoElim x _ _ p1 p2 _ -> S.delete x (recurse ctx p1) `S.union` recurse ctx p2
     Pair p1 p2 _        -> recurse ctx p1 `S.union` recurse ctx p2
     Pi p1 x u v p2 _    -> recurse ctx p1 `S.union` S.delete x (S.delete u (S.delete v (recurse ctx p2)))
-    PMacro _ _ _         -> error "PMacro should be handled by extractMacro"
+    PMacro _ _ _         -> error "PMacro should be handled by getMacroApp"
 
 -- | MacroArg free variables instance
 instance FreeVarsAst MacroArg where
@@ -130,8 +120,6 @@ instance FreeVarsAst MacroArg where
     MTerm t -> extractVarName t
     MRel r -> extractVarName r
     MProof p -> extractVarName p
-    
-  extractMacro _ = Nothing  -- MacroArgs are not macros themselves
   
   freeVarsCore _recurse ctx = \case
     MTerm t -> freeVars ctx t

@@ -8,7 +8,8 @@ module Interface.REPL
   )
 where
 
-import Core.Context (lookupMacro, lookupTerm, emptyContext, ElaborateM, extendMacroContext, extendTheoremContext, buildContextFromModuleInfo, buildContextFromBindings, inferParamKind)
+import Core.Context (lookupMacro, lookupTerm, emptyContext, ElaborateM, extendMacroContext, extendTheoremContext, buildContextFromModuleInfo, buildContextFromBindings)
+import Operations.Generic.Macro (inferParamInfosG)
 import Control.Monad.State
 import qualified Data.Map as Map
 import Core.Errors
@@ -261,8 +262,8 @@ executeREPLCommand cmd = case cmd of
                 put $ currentState {replContext = newContext, replDeclarations = newDecls}
                 return $ "Added theorem: " ++ name
           MacroDef name params body -> do
-            -- Convert string params to ParamInfo (simplified)
-            let paramInfos = map (\paramName -> ParamInfo paramName (inferParamKind body) False []) params
+            -- Convert string params to ParamInfo using structural analysis
+            let paramInfos = inferParamInfosG params body
                 newContext = extendMacroContext name paramInfos body (defaultFixity name) (replContext currentState)
             put $ currentState {replContext = newContext, replDeclarations = newDecls}
             return $ "Added macro: " ++ name

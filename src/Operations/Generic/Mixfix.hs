@@ -135,7 +135,8 @@ instance MixfixAst Raw where
       go acc (RawApp f x _) = go (x:acc) f
       go acc r = r:acc
 
-  makeMacro name args pos = Raw.RawMacro name args pos
+  makeMacro name args pos = 
+    foldl (\acc arg -> RawApp acc arg pos) (RawVar name pos) args
 
 --------------------------------------------------------------------------------
 -- | Helper functions extracted from Elaborate.hs

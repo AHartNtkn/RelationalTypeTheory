@@ -31,6 +31,7 @@ import System.FilePath (normalise, (</>))
 import Text.Megaparsec (errorBundlePretty, initialPos)
 import Core.Context (extendMacroContext, extendTheoremContext, emptyContext)
 import Operations.Generic.Mixfix (defaultFixity)
+import Operations.Generic.Macro (inferParamInfosG)
 import Core.Errors (RelTTError(..), ErrorContext(..))
 
 -- | Module system error types (now using unified RelTTError)
@@ -204,7 +205,7 @@ elaborateDeclarationsWithContext ctx rawDecls =
       case elaboratedDecl of
         MacroDef name params body -> do
           -- For macros, we need to convert string params to ParamInfo and extend context
-          let paramInfos = map (\paramName -> ParamInfo paramName (inferParamKind body) False []) params
+          let paramInfos = inferParamInfosG params body
               newCtx = extendMacroContext name paramInfos body (defaultFixity name) currentCtx
           elaborateSequentially newCtx remaining (elaboratedDecl:acc)
         TheoremDef name bindings judgment proof -> do
@@ -214,12 +215,6 @@ elaborateDeclarationsWithContext ctx rawDecls =
         _ -> 
           -- Other declarations don't change the context
           elaborateSequentially currentCtx remaining (elaboratedDecl:acc)
-
--- | Infer parameter kind from macro body (simplified)
-inferParamKind :: MacroBody -> VarKind
-inferParamKind (TermMacro _) = TermK
-inferParamKind (RelMacro _) = RelK  
-inferParamKind (ProofMacro _) = ProofK
 
 -- | Extract list of exported symbols
 extractExportList :: [ExportDeclaration] -> [Declaration] -> [String]

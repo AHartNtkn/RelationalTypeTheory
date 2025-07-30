@@ -19,6 +19,7 @@ import Control.Monad (unless)
 import Parser.Elaborate
 import Core.Syntax
 import Operations.Generic.Mixfix (defaultFixity)
+import Operations.Generic.Macro (inferParamInfosG)
 import qualified Core.Raw as Raw
 import Parser.Raw (parseFile)
 import Test.Hspec ( expectationFailure, Expectation )
@@ -93,7 +94,7 @@ parseFileDeclarations content =
     
     updateContextWithDeclaration :: Declaration -> Context -> Context
     updateContextWithDeclaration (MacroDef name params body) ctx =
-      let paramInfos = map (\pName -> ParamInfo pName (inferParamKind body) False []) params
+      let paramInfos = inferParamInfosG params body
       in extendMacroContext name paramInfos body (defaultFixity "TEST") ctx
     updateContextWithDeclaration (TheoremDef name bindings judgment proof) ctx =
       extendTheoremContext name bindings judgment proof ctx
@@ -105,7 +106,7 @@ buildContextFromDeclarations :: [Declaration] -> Context
 buildContextFromDeclarations decls = foldr addDeclaration emptyContext decls
   where
     addDeclaration (MacroDef name params body) ctx =
-      let paramInfos = map (\pName -> ParamInfo pName (inferParamKind body) False []) params
+      let paramInfos = inferParamInfosG params body
       in extendMacroContext name paramInfos body (defaultFixity "TEST") ctx
     addDeclaration (TheoremDef name bindings judgment proof) ctx =
       extendTheoremContext name bindings judgment proof ctx
