@@ -5,7 +5,7 @@ import Core.Context (emptyContext, Context)
 import Core.Errors
 import Core.Syntax
 import TypeCheck.Proof
-import Operations.Generic.Substitution (applyTheoremsSubsToTerm, applyTheoremSubsToRType)
+import Operations.Generic.Substitution (applyTheoremFreeVarSubsToTerm, applyTheoremFreeVarSubsToRType)
 import Test.Hspec
 import Text.Megaparsec (initialPos)
 
@@ -98,55 +98,55 @@ spec = describe "Theorem Argument Validation" $ do
       result <- return $ instantiateTheoremJudgment bindings args originalJudgment
       result `shouldBe` Right expectedJudgment
 
-  describe "applyTheoremsSubsToTerm" $ do
+  describe "applyTheoremFreeVarSubsToTerm" $ do
     it "handles empty substitutions" $ do
-      let term = Var "x" 0 dummyPos
+      let term = FVar "x" dummyPos  -- Use free variable
           substitutions = []
-      result <- return $ applyTheoremsSubsToTerm substitutions term
+      result <- return $ applyTheoremFreeVarSubsToTerm substitutions term
       result `shouldBe` Right term
 
-    it "substitutes term variable correctly" $ do
-      let originalTerm = Var "x" 0 dummyPos
+    it "substitutes free variable correctly" $ do
+      let originalTerm = FVar "x" dummyPos  -- Use free variable
           replacementTerm = Var "a" 0 dummyPos
-          substitutions = [(TermBinding "x", TermArg replacementTerm)]
-      result <- return $ applyTheoremsSubsToTerm substitutions originalTerm
+          substitutions = [("x", TermArg replacementTerm)]  -- Use parameter name mapping
+      result <- return $ applyTheoremFreeVarSubsToTerm substitutions originalTerm
       result `shouldBe` Right replacementTerm
 
     it "preserves non-matching variables" $ do
-      let term = Var "y" 0 dummyPos
+      let term = FVar "y" dummyPos  -- Use free variable
           replacementTerm = Var "a" 0 dummyPos
-          substitutions = [(TermBinding "x", TermArg replacementTerm)]
-      result <- return $ applyTheoremsSubsToTerm substitutions term
+          substitutions = [("x", TermArg replacementTerm)]  -- Use parameter name mapping
+      result <- return $ applyTheoremFreeVarSubsToTerm substitutions term
       result `shouldBe` Right term
 
     it "handles complex term substitutions" $ do
-      let originalTerm = App (Var "f" 0 dummyPos) (Var "x" 1 dummyPos) dummyPos
+      let originalTerm = App (FVar "f" dummyPos) (FVar "x" dummyPos) dummyPos  -- Use free variables
           replacementTerm = Var "a" 0 dummyPos
-          substitutions = [(TermBinding "x", TermArg replacementTerm)]
-          expectedTerm = App (Var "f" 0 dummyPos) replacementTerm dummyPos
-      result <- return $ applyTheoremsSubsToTerm substitutions originalTerm
+          substitutions = [("x", TermArg replacementTerm)]  -- Use parameter name mapping
+          expectedTerm = App (FVar "f" dummyPos) replacementTerm dummyPos
+      result <- return $ applyTheoremFreeVarSubsToTerm substitutions originalTerm
       result `shouldBe` Right expectedTerm
 
-  describe "applyTheoremSubsToRType" $ do
+  describe "applyTheoremFreeVarSubsToRType" $ do
     it "handles empty substitutions" $ do
-      let rtype = RVar "R" 0 dummyPos
+      let rtype = FRVar "R" dummyPos  -- Use free relation variable
           substitutions = []
-      result <- return $ applyTheoremSubsToRType substitutions rtype
+      result <- return $ applyTheoremFreeVarSubsToRType substitutions rtype
       result `shouldBe` Right rtype
 
-    it "substitutes relation variable correctly" $ do
-      let originalRType = RVar "R" 0 dummyPos
+    it "substitutes free relation variable correctly" $ do
+      let originalRType = FRVar "R" dummyPos  -- Use free relation variable
           replacementRType = RVar "S" 0 dummyPos
-          substitutions = [(RelBinding "R", RelArg replacementRType)]
-      result <- return $ applyTheoremSubsToRType substitutions originalRType
+          substitutions = [("R", RelArg replacementRType)]  -- Use parameter name mapping
+      result <- return $ applyTheoremFreeVarSubsToRType substitutions originalRType
       result `shouldBe` Right replacementRType
 
     it "handles complex relation substitutions" $ do
-      let originalRType = Comp (RVar "R" 0 dummyPos) (RVar "S" 1 dummyPos) dummyPos
+      let originalRType = Comp (FRVar "R" dummyPos) (FRVar "S" dummyPos) dummyPos  -- Use free relation variables
           replacementRType = RVar "T" 0 dummyPos
-          substitutions = [(RelBinding "R", RelArg replacementRType)]
-          expectedRType = Comp replacementRType (RVar "S" 1 dummyPos) dummyPos
-      result <- return $ applyTheoremSubsToRType substitutions originalRType
+          substitutions = [("R", RelArg replacementRType)]  -- Use parameter name mapping
+          expectedRType = Comp replacementRType (FRVar "S" dummyPos) dummyPos
+      result <- return $ applyTheoremFreeVarSubsToRType substitutions originalRType
       result `shouldBe` Right expectedRType
 
 isLeft :: Either a b -> Bool

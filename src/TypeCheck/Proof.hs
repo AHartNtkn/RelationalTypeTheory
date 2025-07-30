@@ -18,7 +18,7 @@ import Operations.Generic.Expansion (expandFully, ExpansionResult(..))
 import Operations.Generic.BetaEta (betaEtaEquality)
 import Operations.Generic.Equality (alphaEquality)
 import Operations.Generic.Shift (shift, shiftWithBoundsCheck, shiftTermsInRType, shiftTermsInRTypeWithBoundsCheck, shiftTermExcept, shiftRTypeExcept, shiftFreeRelVars)
-import Operations.Generic.Substitution (SubstAst(..), applyTheoremSubsToJudgment)
+import Operations.Generic.Substitution (SubstInto(..), applyTheoremFreeVarSubsToJudgment)
 import Operations.Generic.Macro (elabMacroAppG)
 import Operations.Generic.Expansion (expandWHNF)
 
@@ -372,8 +372,9 @@ checkTheoremArgs bindings args ctx pos =
       (RelBinding _, RelArg _) ->
         go (accSubs ++ [(bind, arg)]) (arg : accArgs) rest
       (ProofBinding _ templJudg, ProofArg p) -> do
-        -- instantiate the template with what we already know
-        instTempl <- applyTheoremSubsToJudgment accSubs templJudg
+        -- instantiate the template with what we already know (using free variable substitution)
+        let paramMap = [(bindingName b, arg) | (b, arg) <- accSubs]
+        instTempl <- applyTheoremFreeVarSubsToJudgment paramMap templJudg
 
         -- infer and compare
         ProofCheckResult {resultJudgment = actualJudg} <-
@@ -395,9 +396,15 @@ checkTheoremArgs bindings args ctx pos =
             "Theorem argument type mismatch"
             (ErrorContext pos "theorem argument validation")
 
+-- | Extract the name from a binding
+bindingName :: Binding -> String
+bindingName (TermBinding name) = name
+bindingName (RelBinding name) = name
+bindingName (ProofBinding name _) = name
+
 -- | Instantiate a theorem judgment by applying argument substitutions
 instantiateTheoremJudgment :: [Binding] -> [TheoremArg] -> RelJudgment -> Either RelTTError RelJudgment
 instantiateTheoremJudgment bindings args judgment = do
-  let substitutions = zip bindings args
-  applyTheoremSubsToJudgment substitutions judgment
+  let paramMap = [(bindingName b, arg) | (b, arg) <- zip bindings args]
+  applyTheoremFreeVarSubsToJudgment paramMap judgment
 

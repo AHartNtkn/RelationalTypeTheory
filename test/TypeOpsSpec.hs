@@ -12,7 +12,7 @@ import Text.Megaparsec (initialPos)
 import Operations.Generic.Expansion (expandFully, expandWHNF, ExpansionResult(..))
 import Operations.Generic.FreeVars (freeVars)
 import Operations.Generic.Equality (alphaEquality)
-import Operations.Generic.Substitution (SubstAst(..))
+import Operations.Generic.Substitution (SubstInto(..))
 import Operations.Generic.Shift (ShiftAst(..))
 
 import qualified Data.Map as Map

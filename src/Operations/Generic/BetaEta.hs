@@ -23,7 +23,7 @@ import Core.Syntax (Term(..), MacroArg(..))
 import Core.Context (Context)
 import Operations.Generic.Equality (alphaEquality) 
 import Operations.Generic.Expansion (expandFully, ExpansionResult(..))
-import Operations.Generic.Substitution (SubstAst(..))
+import Operations.Generic.Substitution (SubstInto(..))
 import Operations.Generic.Shift (ShiftAst(..), shiftAboveWithBoundsCheck)
 import Core.Errors (RelTTError(..))
 

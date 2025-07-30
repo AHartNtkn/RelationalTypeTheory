@@ -24,7 +24,7 @@ import qualified Data.Map as Map
 import Core.Syntax (Term(..), RType(..), Proof(..), TheoremArg(..), MacroArg(..))
 import Core.Context (Context(..))
 import Operations.Generic.Expansion (ExpandAst(..), getMacroApp, isRightBody, bodyToAst)
-import Operations.Generic.Macro (renameBinderVarsG, substituteArgsG)
+import Operations.Generic.Macro (substituteArgsG)
 
 --------------------------------------------------------------------------------
 -- | Core typeclass for lazy equality checking
@@ -94,8 +94,7 @@ expandOneMacro env ast =
               in if actualArity /= expectedArity
                 then Nothing  -- Arity mismatch
                 else 
-                  let renamedBody = renameBinderVarsG paramInfo args (bodyToAst @a body)
-                      substituted = substituteArgsG paramInfo args renamedBody
+                  let substituted = substituteArgsG paramInfo args (bodyToAst @a body)
                   in Just substituted
 
 -- | Alpha-equivalence for theorem arguments (which may contain binders)

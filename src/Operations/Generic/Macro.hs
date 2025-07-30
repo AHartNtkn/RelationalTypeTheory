@@ -10,7 +10,6 @@ module Operations.Generic.Macro
   ( -- | Typeclass for generic macro operations
     MacroAst(..)
     -- | Generic helper algorithms
-  , renameBinderVarsG
   , substituteArgsG
     -- | Top-level elaborator for all AST categories
   , elabMacroAppG
@@ -24,7 +23,7 @@ import           Core.Errors
 import           Core.Syntax
 import           Core.Context (buildDependentContexts)
 import           Operations.Generic.Shift (ShiftAst(..), shift, shiftAbove)
-import           Operations.Generic.Substitution (SubstAst(..))
+import           Operations.Generic.Substitution (SubstInto(..), AstCore(..))
 import           Operations.Resolve (ResolveAst(..))
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -36,15 +35,7 @@ import           Core.Utils (updateAt)
 -- | Minimal operations that any AST category must provide for macro processing
 --------------------------------------------------------------------------------
 
-class SubstAst a => MacroAst a where
-  -- | de Bruijn shift free variables by given amount
-  shiftN      :: Int -> a -> a
-  -- | Extract variable name if this node is a variable, Nothing otherwise
-  varNameOf   :: a -> Maybe String
-  -- | Rename binder variable names (α-conversion only, indices untouched)
-  mapBinders  :: (String -> String) -> a -> a
-  -- | Substitute free variable by name with replacement
-  substFreeVar :: String -> a -> a -> a
+class (ShiftAst a, SubstInto a a, AstCore a) => MacroAst a where
   -- | Convert to a MacroArg for heterogeneous collections
   toArg       :: a -> MacroArg
   -- | Try to extract from a MacroArg (fails if wrong constructor)
@@ -55,30 +46,6 @@ class SubstAst a => MacroAst a where
 --------------------------------------------------------------------------------
 
 instance MacroAst Term where
-  shiftN           = shift
-  varNameOf (Var v _ _) = Just v
-  varNameOf (FVar v _)  = Just v
-  varNameOf _           = Nothing
-  mapBinders f = go
-    where
-      go tm = case tm of
-        Lam n b p      -> Lam (f n) (go b) p
-        App l r p      -> App (go l) (go r) p
-        TMacro n as p  -> TMacro n as p  -- MacroArgs are already heterogeneous, no mapping needed
-        other          -> other
-  substFreeVar targetName replacement = go
-    where
-      go tm = case tm of
-        FVar name pos | name == targetName -> replacement
-        FVar{} -> tm
-        Var{} -> tm
-        Lam n b p -> Lam n (go b) p
-        App l r p -> App (go l) (go r) p
-        TMacro n as p -> TMacro n (map substMacroArg as) p
-          where substMacroArg = \case
-                  MTerm t -> MTerm (go t)
-                  MRel r -> MRel r    -- Relations unaffected by term substitution
-                  MProof p -> MProof p -- Proofs unaffected by term substitution
   toArg = MTerm
   fromArg (MTerm t) = Just t
   fromArg _ = Nothing
@@ -88,35 +55,6 @@ instance MacroAst Term where
 --------------------------------------------------------------------------------
 
 instance MacroAst RType where
-  shiftN           = shiftAbove 0
-  varNameOf (RVar v _ _) = Just v
-  varNameOf (FRVar v _)  = Just v
-  varNameOf _            = Nothing
-  mapBinders f = go
-    where
-      go rt = case rt of
-        All n b p      -> All (f n) (go b) p
-        Arr a b p      -> Arr (go a) (go b) p
-        Comp a b p     -> Comp (go a) (go b) p
-        Conv r p       -> Conv (go r) p
-        RMacro n as p  -> RMacro n as p  -- MacroArgs are already heterogeneous
-        other          -> other
-  substFreeVar targetName replacement = go
-    where
-      go rt = case rt of
-        FRVar name pos | name == targetName -> replacement
-        FRVar{} -> rt
-        RVar{} -> rt
-        RMacro n as p -> RMacro n (map substMacroArg as) p
-          where substMacroArg = \case
-                  MTerm t -> MTerm t      -- Terms unaffected by relational substitution
-                  MRel r -> MRel (go r)
-                  MProof p -> MProof p    -- Proofs unaffected by relational substitution
-        Arr a b p -> Arr (go a) (go b) p
-        All n r p -> All n (go r) p
-        Conv r p -> Conv (go r) p
-        Comp a b p -> Comp (go a) (go b) p
-        Prom t p -> Prom t p  -- Promoted terms unaffected by relational substitution
   toArg = MRel
   fromArg (MRel r) = Just r
   fromArg _ = Nothing
@@ -126,47 +64,6 @@ instance MacroAst RType where
 --------------------------------------------------------------------------------
 
 instance MacroAst Proof where
-  shiftN      = shift
-  varNameOf (PVar v _ _) = Just v
-  varNameOf (FPVar v _)  = Just v
-  varNameOf _            = Nothing
-  mapBinders f = go
-    where
-      go pr = case pr of
-        LamP n t b p          -> LamP (f n) t (go b) p
-        TyLam n b p           -> TyLam (f n) (go b) p
-        RhoElim x t u p1 p2 p -> RhoElim (f x) t u (go p1) (go p2) p
-        Pi p1 x u v p2 p      -> Pi (go p1) (f x) (f u) (f v) (go p2) p
-        AppP l r p            -> AppP (go l) (go r) p
-        TyApp q t p           -> TyApp (go q) t p
-        ConvProof t q u p     -> ConvProof t (go q) u p
-        ConvIntro q p         -> ConvIntro (go q) p
-        ConvElim  q p         -> ConvElim  (go q) p
-        Pair l r p            -> Pair (go l) (go r) p
-        PMacro n as p         -> PMacro n as p  -- MacroArgs are already heterogeneous
-        other                 -> other
-  substFreeVar targetName replacement = go
-    where
-      go pr = case pr of
-        FPVar name pos | name == targetName -> replacement
-        FPVar{} -> pr
-        PVar{} -> pr
-        LamP n t b p -> LamP n t (go b) p  -- RType unchanged, only proof
-        TyLam n b p -> TyLam n (go b) p
-        RhoElim x t u p1 p2 p -> RhoElim x t u (go p1) (go p2) p  -- Terms unchanged, proofs substituted
-        Pi p1 x u v p2 p -> Pi (go p1) x u v (go p2) p  -- Terms unchanged, proofs substituted
-        AppP l r p -> AppP (go l) (go r) p
-        TyApp q t p -> TyApp (go q) t p  -- RType unchanged, only proof
-        ConvProof t q u p -> ConvProof t (go q) u p  -- Terms unchanged, only proof
-        ConvIntro q p -> ConvIntro (go q) p
-        ConvElim q p -> ConvElim (go q) p
-        Pair l r p -> Pair (go l) (go r) p
-        PMacro n as p -> PMacro n (map substMacroArg as) p
-          where substMacroArg = \case
-                  MTerm t -> MTerm t      -- Terms unaffected by proof substitution
-                  MRel r -> MRel r        -- Relations unaffected by proof substitution
-                  MProof p -> MProof (go p)
-        other -> other
   toArg = MProof
   fromArg (MProof p) = Just p
   fromArg _ = Nothing
@@ -320,28 +217,7 @@ instance ParamInferAst MacroArg where
 
 -- | MacroAst instance for MacroArg
 instance MacroAst MacroArg where
-  shiftN amount = \case
-    MTerm t -> MTerm (shiftN amount t)
-    MRel r -> MRel (shiftN amount r) 
-    MProof p -> MProof (shiftN amount p)
-  
-  varNameOf = \case
-    MTerm t -> varNameOf t
-    MRel r -> varNameOf r
-    MProof p -> varNameOf p
-  
-  mapBinders rename = \case
-    MTerm t -> MTerm (mapBinders rename t)
-    MRel r -> MRel (mapBinders rename r)
-    MProof p -> MProof (mapBinders rename p)
-  
-  substFreeVar targetName replacement = \case
-    MTerm t -> MTerm (substFreeVar targetName (case replacement of MTerm repl -> repl; _ -> t) t)
-    MRel r -> MRel (substFreeVar targetName (case replacement of MRel repl -> repl; _ -> r) r)
-    MProof p -> MProof (substFreeVar targetName (case replacement of MProof repl -> repl; _ -> p) p)
-  
   toArg = id  -- MacroArg is already the target type
-  
   fromArg = Just  -- Any MacroArg can be converted to MacroArg
 
 --------------------------------------------------------------------------------
@@ -353,15 +229,6 @@ binderPrefixCount :: [ParamInfo] -> Int -> Int
 binderPrefixCount sig j =
   length [ () | (k,ParamInfo{pBinds=True}) <- zip [0..] sig, k < j ]
 
--- | α-rename each binder parameter to the printed name of its actual argument
-renameBinderVarsG :: MacroAst a => [ParamInfo] -> [a] -> a -> a
-renameBinderVarsG sig actuals =
-  let renameOne acc (j,ParamInfo{pBinds=True}) =
-        case varNameOf (actuals !! j) of
-          Just new -> mapBinders (\n -> if n == pName (sig!!j) then new else n) acc
-          Nothing  -> error "binder argument must be a variable"
-      renameOne acc _ = acc
-  in  \body -> foldl renameOne body (zip [0..] sig)
 
 -- | Free variable substitution for macro parameters
 substituteArgsG :: MacroAst a => [ParamInfo] -> [a] -> a -> a
@@ -389,8 +256,7 @@ elabMacroAppG ctx name sig body actuals
       Left $ MacroArityMismatch name (length sig) (length actuals)
              (ErrorContext (initialPos "<elab>") "macro application")
   | otherwise = do
-      let body1 = renameBinderVarsG sig actuals body
-          body2 = substituteArgsG   sig actuals body1
+      let body2 = substituteArgsG   sig actuals body
           -- Convert arguments to MacroArgs for context extension
           macroArgs = map toArg actuals
           -- Build dependency-aware contexts

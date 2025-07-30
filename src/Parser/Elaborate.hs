@@ -19,7 +19,7 @@ import Core.Syntax
 import Core.Raw
 import qualified Operations.Generic.Elaborate as Generic
 import Core.Errors (RelTTError(..))
-import Core.Context (ElaborateM, bindTermVar, bindRelVar, bindProofVar, emptyContext)
+import Core.Context (ElaborateM, emptyContext)
 
 -- Main elaboration function
 elaborate :: Context -> RawDeclaration
@@ -36,12 +36,18 @@ elaborateDeclaration (RawMacroDef name params body) = do
   pure $ MacroDef (nameString name) pNames elaboratedBody
   
 elaborateDeclaration (RawTheorem name bindings judgment proof) = do
-  -- Elaborate bindings and extend context
-  (elaboratedBindings, newCtx) <- elaborateBindings bindings
-  -- Elaborate judgment and proof in extended context
-  elaboratedJudgment <- local (const newCtx) (elaborateJudgment judgment)
-  elaboratedProof <- local (const newCtx) (Generic.elaborate proof)
+  -- Elaborate bindings but don't extend context - theorem bodies should keep parameter references as free variables
+  elaboratedBindings <- mapM elaborateBinding bindings
+  -- Elaborate judgment and proof in original context (parameters become free vars)
+  elaboratedJudgment <- elaborateJudgment judgment
+  elaboratedProof <- Generic.elaborate proof
   return $ TheoremDef (nameString name) elaboratedBindings elaboratedJudgment elaboratedProof
+  where
+    elaborateBinding (RawTermBinding name) = return $ TermBinding (nameString name)
+    elaborateBinding (RawRelBinding name) = return $ RelBinding (nameString name)
+    elaborateBinding (RawProofBinding name rawJudgment) = do
+      elaboratedJudgment <- elaborateJudgment rawJudgment
+      return $ ProofBinding (nameString name) elaboratedJudgment
 
 elaborateDeclaration (RawFixityDecl fixity name) = do
   ctx <- ask
@@ -56,27 +62,6 @@ elaborateDeclaration (RawImportDecl (RawImportModule path)) = do
 elaborateDeclarations :: Context -> [RawDeclaration] -> Either RelTTError [Declaration]
 elaborateDeclarations ctx rawDecls = runExcept (runReaderT (mapM elaborateDeclaration rawDecls) ctx)
 
-elaborateBindings :: [RawBinding] -> ElaborateM ([Binding], Context)
-elaborateBindings bindings = do
-  ctx <- ask
-  foldM elaborateBinding ([], ctx) bindings
-  where
-    elaborateBinding (acc, ctx) (RawTermBinding name) = do
-      let binding = TermBinding (nameString name)
-      let newCtx = bindTermVar (nameString name) ctx
-      return (acc ++ [binding], newCtx)
-    
-    elaborateBinding (acc, ctx) (RawRelBinding name) = do
-      let binding = RelBinding (nameString name)
-      -- Theorem parameters should NOT increment relDepth - they're just added to lookup context
-      let newCtx = bindRelVar (nameString name) ctx
-      return (acc ++ [binding], newCtx)
-    
-    elaborateBinding (acc, ctx) (RawProofBinding name rawJudgment) = do
-      elaboratedJudgment <- local (const ctx) (elaborateJudgment rawJudgment)
-      let binding = ProofBinding (nameString name) elaboratedJudgment
-      let newCtx = bindProofVar (nameString name) elaboratedJudgment ctx
-      return (acc ++ [binding], newCtx)
 
 elaborateMacroBody :: RawMacroBody -> ElaborateM MacroBody
 elaborateMacroBody (RawTermBody rawTerm) = do
