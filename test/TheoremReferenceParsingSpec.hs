@@ -31,7 +31,7 @@ spec = do
             PTheoremApp name [] _ -> name `shouldBe` "simple_thm"
             _ -> expectationFailure $ "Expected PTheoremApp, got: " ++ show proof
 
-      it "should parse theorem reference as proof argument (BUG - currently fails)" $ do
+      it "should parse theorem reference as proof argument" $ do
         -- Create theorems where one legitimately takes a proof argument from another
         let innerThm = RelJudgment (Var "x" 0 pos) (RMacro "λy.y" [] pos) (Var "x" 0 pos)
             outerThm = RelJudgment (Var "z" 0 pos) (RMacro "λw.w" [] pos) (Var "z" 0 pos)
@@ -47,23 +47,24 @@ spec = do
             ctx = emptyParseContext { theoremEnv = theoremEnv, termVars = termContext }
             input = "use_proof a (identity a)"
         case runReader (runParserT (parseProof <* eof) "test" input) ctx of
-          Left err -> expectationFailure $ "BUG DETECTED: Failed to parse theorem reference as proof argument. This should work but currently fails with: " ++ errorBundlePretty err
+          Left err -> expectationFailure $ "Failed to parse theorem reference as proof argument: " ++ errorBundlePretty err
           Right proof -> case proof of
-            AppP (AppP (PTheoremApp "use_proof" [] _) _ _) (AppP (PTheoremApp "identity" [] _) _ _) _ -> 
-              return () -- This is what we expect when bug is fixed
+            PTheoremApp "use_proof" [ TermArg (Var "a" _ _)
+                                      , ProofArg (PTheoremApp "identity" [TermArg (Var "a" _ _)] _) ] _ ->
+              return ()
             _ -> expectationFailure $ "Expected nested theorem application structure, got: " ++ show proof
 
     -- TEST 2: Proof Checker Integration Test  
     -- Tests that proof checker can handle nested theorem references
     describe "Proof checker with nested theorem references" $ do
       
-      it "should type check nested theorem references (BUG - currently fails at parse stage)" $ do
+      it "should type check nested theorem references" $ do
         -- Create theorems where one legitimately takes a proof argument from another
         let idThm = RelJudgment (Var "x" 0 pos) (RMacro "λy.y" [] pos) (Var "x" 0 pos)
             idProof = ConvProof (Var "x" 0 pos) (Iota (Var "x" 0 pos) (Lam "y" (Var "y" 0 pos) pos) pos) (Var "x" 0 pos) pos
             
             theoremEnv = extendTheoremEnvironment "identity" [TermBinding "x"] idThm idProof $
-                         extendTheoremEnvironment "proof_user" [TermBinding "y", ProofBinding "p" idThm] idThm idProof $
+                         extendTheoremEnvironment "proof_user" [TermBinding "x", ProofBinding "p" idThm] idThm idProof $
                          noTheorems
             
         -- Try to create a theorem that uses valid nested references: proof_user a (identity a)
@@ -72,33 +73,34 @@ spec = do
             nestedProofInput = "proof_user a (identity a)"
             
         case runReader (runParserT (parseProof <* eof) "test" nestedProofInput) ctx of
-          Left err -> expectationFailure $ "BUG DETECTED: Parser should handle valid nested theorem references but failed with: " ++ errorBundlePretty err
+          Left err -> expectationFailure $ "Parser failed: " ++ errorBundlePretty err
           Right nestedProof -> do
-            -- If parsing succeeds, try type checking
             let typingCtx = emptyTypingContext
-            case checkProof typingCtx noMacros theoremEnv nestedProof idThm of
-              Left err -> expectationFailure $ "Type checking failed (this might be expected): " ++ show err  
-              Right _ -> return () -- Success case when bug is fixed
+                expectedJudgment = RelJudgment (Var "a" 0 pos) (RMacro "λy.y" [] pos) (Var "a" 0 pos)
+            case checkProof typingCtx noMacros theoremEnv nestedProof expectedJudgment of
+              Left err -> expectationFailure $ "Type checking failed: " ++ show err
+              Right _ -> return ()
 
     -- TEST 3: File Parsing Test
     -- Tests parsing complete files with nested theorem references
     describe "File parsing with nested theorem references" $ do
       
-      it "should parse file containing nested theorem references (BUG - currently fails)" $ do
+      it "should parse file containing nested theorem references" $ do
         let fileContent = unlines
               [ "⊢ identity (x : Term) : x [λy.y] x := x ⇃ ι⟨x,λy.y⟩ ⇂ x;",
                 "⊢ proof_wrapper (y : Term) (p : y [λz.z] y) : y [λz.z] y := p;", 
                 "⊢ nested_thm (a : Term) : a [λw.w] a := proof_wrapper a (identity a);"
               ]
         case runParserEmpty parseFile fileContent of
-          Left err -> expectationFailure $ "BUG DETECTED: File with valid nested theorem references should parse but failed with: " ++ errorBundlePretty err
+          Left err -> expectationFailure $ "File with valid nested theorem references should parse but failed with: " ++ errorBundlePretty err
           Right decls -> do
             length decls `shouldBe` 3
             -- Check that the last theorem has the expected nested structure
             case decls !! 2 of
               TheoremDef "nested_thm" _ _ proof -> case proof of
-                AppP (AppP (PTheoremApp "proof_wrapper" [] _) _ _) (AppP (PTheoremApp "identity" [] _) _ _) _ ->
-                  return () -- This is what we expect when bug is fixed
+                PTheoremApp "proof_wrapper" [ TermArg (Var "a" _ _)
+                                             , ProofArg (PTheoremApp "identity" [TermArg (Var "a" _ _)] _) ] _ ->
+                  return ()
                 _ -> expectationFailure $ "Expected nested theorem application structure in parsed proof, got: " ++ show proof
               _ -> expectationFailure "Expected TheoremDef as third declaration"
 

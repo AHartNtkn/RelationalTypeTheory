@@ -402,10 +402,16 @@ parseTheoremArgs bindings = do
 -- Parse a single theorem argument based on its expected binding type
 parseTheoremArg :: Binding -> Parser TheoremArg
 parseTheoremArg (TermBinding _) = do
-  term <- parseTerm
+  -- Use 'parseTermAtom' to avoid greedily consuming subsequent
+  -- arguments when a term is followed by another argument.
+  -- Complex terms can still be provided by wrapping them in
+  -- parentheses, which 'parseTermAtom' handles.
+  term <- parseTermAtom
   return (TermArg term)
 parseTheoremArg (RelBinding _) = do
-  rtype <- parseRType
+  -- Similar to term arguments, use 'parseRTypeAtom' so a relation
+  -- argument doesn't consume following arguments inadvertently.
+  rtype <- parseRTypeAtom
   return (RelArg rtype)
 parseTheoremArg (ProofBinding _ _) = do
   proof <- parseProof
