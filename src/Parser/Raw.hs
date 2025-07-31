@@ -84,7 +84,7 @@ rawExpr = do
 
 rawAtom :: P Raw
 rawAtom = choice
-  [ withPosAfter RawVar (identName <* notFollowedBy (symbol ":")) -- avoid "x :"
+  [ withPosAfter RawVar identName
   , withPosAfter RawParens (parens rawExpr)
   ] <?> "raw atom"
 
