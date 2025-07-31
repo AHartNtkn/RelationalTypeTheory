@@ -72,9 +72,7 @@ instance ResolveAst Term where
       resolvedF <- resolveWithContext ctx f
       resolvedX <- resolveWithContext ctx x
       Right $ App resolvedF resolvedX p
-    TMacro n as p -> do
-      resolvedArgs <- resolveMacroArgs ctx n as
-      Right $ TMacro n resolvedArgs p
+    TMacro n as p -> Right $ TMacro n as p
 
 --------------------------------------------------------------------------------
 -- | Instance for RType
@@ -88,9 +86,7 @@ instance ResolveAst RType where
       Nothing -> case lookupParameter n ctx of             -- Check parameter context
         Just RelK -> Right $ FRVar n p                     -- Parameter -> keep as free variable
         _ -> Left $ UnboundTypeVariable n (ErrorContext p "relational variable resolution")
-    RMacro n as p -> do
-      resolvedArgs <- resolveMacroArgs ctx n as
-      Right $ RMacro n resolvedArgs p
+    RMacro n as p -> Right $ RMacro n as p
     Arr a b p    -> do
       resolvedA <- resolveWithContext ctx a
       resolvedB <- resolveWithContext ctx b
@@ -181,9 +177,7 @@ instance ResolveAst Proof where
       resolvedP1 <- resolveWithContext ctx p1
       resolvedP2 <- resolveWithContext ctx' p2
       Right $ Pi resolvedP1 x u v resolvedP2 p
-    PMacro n as p -> do
-      resolvedArgs <- resolveMacroArgs ctx n as
-      Right $ PMacro n resolvedArgs p
+    PMacro n as p -> Right $ PMacro n as p
 
 -- | MacroArg resolution instance
 instance ResolveAst MacroArg where
