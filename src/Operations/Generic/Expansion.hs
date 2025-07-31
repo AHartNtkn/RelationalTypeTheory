@@ -77,7 +77,7 @@ class (MacroAst a, ResolveAst a) => ExpandAst a where
 expandWithLimit :: (ExpandAst a, SubstInto MacroArg a) => Context -> ExpansionMode -> Int -> a -> Either RelTTError (ExpansionResult a)
 expandWithLimit env mode maxSteps ast = 
   if maxSteps <= 0
-    then Left $ InternalError "Macro expansion step limit exceeded" (ErrorContext (initialPos "<expansion>") "expansion")
+    then Left $ InternalError ("Macro expansion step limit of " ++ show maxSteps ++ " steps exceeded") (ErrorContext (initialPos "<expansion>") "expansion step limit check")
     else expandStep env mode maxSteps 0 ast
 
 -- | Fully expand all macros
@@ -116,7 +116,7 @@ expandStep env mode remainingSteps stepsSoFar ast =
         Just (paramInfo, macroBody) ->
           case isRightBody @a macroBody of
             Nothing -> 
-              Left $ InternalError ("Wrong macro body type for " ++ name) (ErrorContext pos "expansion")
+              Left $ InternalError ("Macro body type mismatch: " ++ name ++ " has wrong AST type for current expansion context") (ErrorContext pos "macro body type validation")
             Just body -> do
               -- Expand arguments if needed (args are already [MacroArg])
               expandedArgs <- case mode of
@@ -130,7 +130,7 @@ expandStep env mode remainingSteps stepsSoFar ast =
               
               -- Continue expansion
               if remainingSteps <= 1
-                then Left $ InternalError "Macro expansion step limit exceeded" (ErrorContext pos "expansion")
+                then Left $ InternalError ("Macro expansion step limit exceeded during expansion of " ++ name) (ErrorContext pos "macro expansion step limit")
                 else expandStep env mode (remainingSteps - 1) (stepsSoFar + 1) substituted
     
     Nothing ->

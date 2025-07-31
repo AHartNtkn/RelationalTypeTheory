@@ -31,6 +31,9 @@ class SubstInto a b where
   -- | Apply multiple renamings and substitutions in a single pass
   -- First argument: bound variable renamings [(oldName, newName)]  
   -- Second argument: free variable substitutions [(varName, replacement)]
+  -- This is only applied during macro expanstion, where variables appearing
+  -- in binders cannot appear elsewhere. This means we don't need to apply
+  -- the renamings to free variables, just the bound variables.
   substBatch :: [(String, String)] -> [(String, a)] -> b -> b
 
 --------------------------------------------------------------------------------
@@ -270,7 +273,7 @@ instance SubstInto MacroArg Term where
         FVar name pos -> 
           case lookup name substitutions of
             Just (MTerm replacement) -> replacement
-            Just _ -> error $ "Type mismatch: expected MTerm for variable " ++ name
+            Just actualArg -> error $ "Substitution type mismatch in term substitution: variable " ++ name ++ " expected MTerm but got " ++ show actualArg
             Nothing -> 
               case lookup name renamings of
                 Just newName -> FVar newName pos
@@ -321,7 +324,7 @@ instance SubstInto MacroArg RType where
         FRVar name pos -> 
           case lookup name substitutions of
             Just (MRel replacement) -> replacement
-            Just _ -> error $ "Type mismatch: expected MRel for variable " ++ name
+            Just actualArg -> error $ "Substitution type mismatch in relational type substitution: variable " ++ name ++ " expected MRel but got " ++ show actualArg
             Nothing -> 
               case lookup name renamings of
                 Just newName -> FRVar newName pos
@@ -382,7 +385,7 @@ instance SubstInto MacroArg Proof where
         FPVar name pos -> 
           case lookup name substitutions of
             Just (MProof replacement) -> replacement
-            Just _ -> error $ "Type mismatch: expected MProof for variable " ++ name
+            Just actualArg -> error $ "Substitution type mismatch in proof substitution: variable " ++ name ++ " expected MProof but got " ++ show actualArg
             Nothing -> 
               case lookup name renamings of
                 Just newName -> FPVar newName pos

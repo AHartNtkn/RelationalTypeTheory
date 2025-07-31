@@ -69,14 +69,14 @@ inferProofType ctx proof = case proof of
         let argCount = 0
             bindingCount = length bindings
         if argCount > bindingCount
-          then Left $ InternalError ("Too many arguments for theorem " ++ name ++ ": expected " ++ show bindingCount ++ ", got " ++ show argCount) (ErrorContext pos "proof parameter lookup")
+          then Left $ TheoremArityMismatch name bindingCount argCount (ErrorContext pos "free proof variable lookup")
           else do
             -- No arguments to validate
             -- No substitutions needed for zero arguments
             return $ ProofCheckResult judgment ctx
       Left _ -> 
         -- Not found in theorem context - this is the original error case
-        Left $ InternalError ("Free proof variable " ++ name ++ " not found in theorem context") (ErrorContext pos "proof variable lookup")
+        Left $ UnknownTheorem name (ErrorContext pos "free proof variable lookup")
 
   -- Theorem application rule: Γ ⊢ theorem_name args : instantiated_judgment
   PTheoremApp name args pos -> do
@@ -87,7 +87,7 @@ inferProofType ctx proof = case proof of
     let bindingCount = length bindings
         argCount = length args
     if argCount > bindingCount
-      then Left $ InternalError ("Too many arguments for theorem " ++ name ++ ": expected " ++ show bindingCount ++ ", got " ++ show argCount) (ErrorContext pos "theorem application")
+      then Left $ TheoremArityMismatch name bindingCount argCount (ErrorContext pos "theorem application")
       else do
         -- Type check each argument against its expected binding type
         validatedArgs <- checkTheoremArgs bindings args ctx pos
@@ -336,7 +336,7 @@ inferProofType ctx proof = case proof of
                   InvalidContext
                     "Pi elimination result references bound variables (x, u, or v)"
                     (ErrorContext pos "pi elimination bounds check")
-      _ -> Left $ CompositionError proof1 proof1 term1 term2 (ErrorContext pos "pi elimination: first proof must have composition type")
+      _ -> Left $ InvalidTypeApplication rtype (ErrorContext pos "pi elimination: first proof must have composition type")
 
   -- PMacro case - expand and recurse
   PMacro name args pos -> do
@@ -345,7 +345,7 @@ inferProofType ctx proof = case proof of
       Just (sig, ProofMacro body) -> 
         case elabMacroAppG ctx name sig body args of
           Right expandedProof -> inferProofType ctx expandedProof
-          Left err -> Left $ InternalError ("Proof macro expansion failed: " ++ show err) (ErrorContext pos "proof macro expansion")
+          Left err -> Left $ MacroElaborationError name (show err) (ErrorContext pos "proof macro expansion")
       Just (_, TermMacro _) -> Left $ InvalidMixfixPattern ("Term macro " ++ name ++ " used in proof context") (ErrorContext pos "proof macro application")
       Just (_, RelMacro _) -> Left $ InvalidMixfixPattern ("Relational macro " ++ name ++ " used in proof context") (ErrorContext pos "proof macro application")
 

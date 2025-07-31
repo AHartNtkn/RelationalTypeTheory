@@ -145,7 +145,7 @@ loadModule registry modulePathArg = do
   -- First resolve the file path
   resolvedPath <- resolveModulePath (searchPaths registry) modulePathArg
   case resolvedPath of
-    Nothing -> return $ Left (FileNotFound modulePathArg (ErrorContext (initialPos "<resolve>") "module path resolution"))
+    Nothing -> return $ Left (FileNotFound modulePathArg (ErrorContext (initialPos "<resolve>") "module path resolution: file not found in search paths"))
     Just filePath -> do
       -- Check if already loaded
       case Map.lookup filePath (loadedModules registry) of
@@ -342,7 +342,7 @@ buildCompleteImportGraph :: [FilePath] -> ModulePath -> IO (Either ModuleLoadErr
 buildCompleteImportGraph searchPathList entryFile = do
   resolvedEntry <- resolveModulePath searchPathList entryFile
   case resolvedEntry of
-    Nothing -> return $ Left (FileNotFound entryFile (ErrorContext (initialPos entryFile) "dependency graph building"))
+    Nothing -> return $ Left (FileNotFound entryFile (ErrorContext (initialPos entryFile) "dependency graph: entry file resolution"))
     Just entryPath -> do
       -- Use unified processing to get all dependencies
       let registry = emptyModuleRegistry { searchPaths = searchPathList }
@@ -396,18 +396,18 @@ validateDependencyGraph :: DependencyGraph -> Either ModuleLoadError [ModulePath
 validateDependencyGraph graph = do
   -- Check for circular dependencies
   case detectCircularDependencies graph of
-    Just cyclePath -> Left (CircularDependency cyclePath (ErrorContext (initialPos "<dependency>") "circular dependency check"))
+    Just cyclePath -> Left (CircularDependency cyclePath (ErrorContext (initialPos "<dependency>") "dependency analysis: circular dependency detected"))
     Nothing -> do
       -- Validate that all referenced modules exist in the graph
       let allNodes = Map.keys graph
           allReferencedNodes = concatMap snd (Map.toList graph)
           missingNodes = filter (`notElem` allNodes) allReferencedNodes
       case missingNodes of
-        (missing : _) -> Left (FileNotFound missing (ErrorContext (initialPos "<validation>") "dependency validation"))
+        (missing : _) -> Left (FileNotFound missing (ErrorContext (initialPos "<validation>") "dependency validation: missing dependency file"))
         [] -> do
           -- Return topological sort order
           case topologicalSort graph of
-            Left cyclePath -> Left (CircularDependency cyclePath (ErrorContext (initialPos "<sort>") "topological sort"))
+            Left cyclePath -> Left (CircularDependency cyclePath (ErrorContext (initialPos "<sort>") "dependency sorting: topological sort failed"))
             Right sortedOrder -> Right sortedOrder
 
 -- | Parse concatenated content from multiple files as a single unit
@@ -450,7 +450,7 @@ loadModuleWithDependenciesIntegrated registry entryFile = do
       -- Resolve the module path
       resolvedPath <- liftIO $ resolveModulePath (searchPaths currentRegistry) inputPath
       case resolvedPath of
-        Nothing -> return $ Left (FileNotFound inputPath (ErrorContext (initialPos "<resolve>") "module path resolution"))
+        Nothing -> return $ Left (FileNotFound inputPath (ErrorContext (initialPos "<resolve>") "input file resolution: path not found"))
         Just filePath -> do
           -- Check if already loaded
           case Map.lookup filePath (loadedModules currentRegistry) of
@@ -471,7 +471,7 @@ loadModuleWithDependenciesIntegrated registry entryFile = do
                         ([], processed) -> do
                           -- Find the entry file's processed module
                           case find (\p -> procModulePath p == filePath) processed of
-                            Nothing -> return $ Left (FileNotFound filePath (ErrorContext (initialPos filePath) "processed module lookup"))
+                            Nothing -> return $ Left (FileNotFound filePath (ErrorContext (initialPos filePath) "module processing: processed module not found in registry"))
                             Just entryProcessed -> do
                               -- Create ModuleInfo from the processed entry module
                               let moduleInfo = ModuleInfo

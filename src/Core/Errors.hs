@@ -47,9 +47,11 @@ data RelTTError
   | TheoremArityMismatch String Int Int ErrorContext
   | InvalidMixfixPattern String ErrorContext
   | CircularMacroReference String ErrorContext
+  | MacroElaborationError String String ErrorContext -- macro name, error details
   | -- Term normalization errors
     InfiniteNormalization Term ErrorContext
   | SubstitutionError String Term ErrorContext -- variable name, term
+  | SubstitutionTypeMismatch String String String ErrorContext -- variable name, expected type, actual type
   | InvalidDeBruijnIndex Int ErrorContext
   | -- Context errors
     InvalidContext String ErrorContext
@@ -116,11 +118,16 @@ formatError err = case err of
     formatWithContext ctx $ "Invalid mixfix pattern: " ++ msg
   CircularMacroReference name ctx ->
     formatWithContext ctx $ "Circular macro reference in: " ++ name
+  MacroElaborationError name details ctx ->
+    formatWithContext ctx $ "Macro elaboration error in " ++ name ++ ": " ++ details
   InfiniteNormalization term ctx ->
     formatWithContext ctx $ "Infinite normalization for term: " ++ prettyDefault term
   SubstitutionError var term ctx ->
     formatWithContext ctx $
       "Substitution error for variable " ++ var ++ " in term: " ++ prettyDefault term
+  SubstitutionTypeMismatch var expected actual ctx ->
+    formatWithContext ctx $
+      "Substitution type mismatch for variable " ++ var ++ ": expected " ++ expected ++ " but got " ++ actual
   InvalidDeBruijnIndex idx ctx ->
     formatWithContext ctx $ "Invalid de Bruijn index: " ++ show idx
   InvalidContext msg ctx ->

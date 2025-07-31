@@ -63,7 +63,7 @@ instance ResolveAst Term where
       Just (i, _)  -> Right $ Var n i p                   -- Bound variable -> de Bruijn index
       Nothing -> case lookupParameter n ctx of            -- Check parameter context
         Just TermK -> Right $ FVar n p                    -- Parameter -> keep as free variable
-        _ -> Left $ UnboundVariable ("unbound term variable \"" ++ n ++ "\" after macro resolution") (ErrorContext p "term resolution")
+        _ -> Left $ UnboundVariable n (ErrorContext p "term variable resolution")
     Lam n b p   -> do
       let ctx' = bindTermVar n ctx
       resolvedBody <- resolveWithContext ctx' b
@@ -87,7 +87,7 @@ instance ResolveAst RType where
       Just i  -> Right $ RVar n i p                        -- Bound variable -> de Bruijn index
       Nothing -> case lookupParameter n ctx of             -- Check parameter context
         Just RelK -> Right $ FRVar n p                     -- Parameter -> keep as free variable
-        _ -> Left $ UnboundVariable ("unbound relational variable \"" ++ n ++ "\"") (ErrorContext p "relational type resolution")
+        _ -> Left $ UnboundTypeVariable n (ErrorContext p "relational variable resolution")
     RMacro n as p -> do
       resolvedArgs <- resolveMacroArgs ctx n as
       Right $ RMacro n resolvedArgs p
@@ -121,7 +121,7 @@ instance ResolveAst Proof where
       Just (i, _, _)  -> Right $ PVar n i p               -- Bound variable -> de Bruijn index
       Nothing -> case lookupParameter n ctx of            -- Check parameter context
         Just ProofK -> Right $ FPVar n p                  -- Parameter -> keep as free variable
-        _ -> Left $ UnboundVariable ("unbound proof variable \"" ++ n ++ "\"") (ErrorContext p "proof resolution")
+        _ -> Left $ UnboundVariable n (ErrorContext p "proof variable resolution")
     PTheoremApp n args p -> do
       resolvedArgs <- mapM resolveArg args
       Right $ PTheoremApp n resolvedArgs p

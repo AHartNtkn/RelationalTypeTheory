@@ -159,15 +159,15 @@ lookupTerm :: String -> Context -> Either RelTTError (Int, RType)
 lookupTerm name ctx =
   case Map.lookup name (termBindings ctx) of
     Just (index, Just ty) -> Right (index, ty)
-    Just (index, Nothing) -> Left $ InternalError ("Term " ++ name ++ " has no type information") (ErrorContext (initialPos "<context>") "term lookup")
-    Nothing -> Left $ throwUnboundVar name (initialPos "<context>") "term lookup"
+    Just (index, Nothing) -> Left $ InternalError ("Context corruption: term " ++ name ++ " at index " ++ show index ++ " has no type information") (ErrorContext (initialPos "<context>") "term lookup")
+    Nothing -> Left $ UnboundVariable name (ErrorContext (initialPos "<context>") "term context lookup")
 
 -- | Look up a relation variable in the context
 lookupRel :: String -> Context -> Either RelTTError Int
 lookupRel name ctx =
   case Map.lookup name (relBindings ctx) of
     Just idx -> Right idx
-    Nothing -> Left $ throwUnboundVar name (initialPos "<context>") "relation lookup"
+    Nothing -> Left $ UnboundTypeVariable name (ErrorContext (initialPos "<context>") "relation context lookup")
 
 -- | Look up a proof variable in the context
 lookupProof :: String -> Context -> Either RelTTError (Int, RelJudgment)
@@ -183,30 +183,30 @@ lookupProof name ctx =
               (shiftTermsInRType termShift rt)
               (shift termShift t2)
       Right (proofIdx, shiftedJudgment)
-    Just (proofIdx, Nothing, Just _) -> Left $ InternalError ("Proof " ++ name ++ " has no depth information") (ErrorContext (initialPos "<context>") "proof lookup")
-    Just (proofIdx, _, Nothing) -> Left $ InternalError ("Proof " ++ name ++ " has no judgment information") (ErrorContext (initialPos "<context>") "proof lookup")
-    Nothing -> Left $ throwUnboundVar name (initialPos "<context>") "proof lookup"
+    Just (proofIdx, Nothing, Just _) -> Left $ InternalError ("Context corruption: proof " ++ name ++ " at index " ++ show proofIdx ++ " has no depth information") (ErrorContext (initialPos "<context>") "proof lookup")
+    Just (proofIdx, _, Nothing) -> Left $ InternalError ("Context corruption: proof " ++ name ++ " at index " ++ show proofIdx ++ " has no judgment information") (ErrorContext (initialPos "<context>") "proof lookup")
+    Nothing -> Left $ UnboundVariable name (ErrorContext (initialPos "<context>") "proof context lookup")
 
 -- | Look up a type variable in the environment
 lookupTypeVar :: String -> TypeEnvironment -> Either RelTTError RType
 lookupTypeVar name env =
   case Map.lookup name (typeVarBindings env) of
     Just ty -> Right ty
-    Nothing -> Left $ UnboundTypeVariable name (ErrorContext (initialPos "<context>") "type variable lookup")
+    Nothing -> Left $ UnboundTypeVariable name (ErrorContext (initialPos "<context>") "type variable context lookup")
 
 -- | Look up a macro in the context
 lookupMacro :: String -> Context -> Either RelTTError MacroSig
 lookupMacro name ctx =
   case Map.lookup name (macroDefinitions ctx) of
     Just macroSig -> Right macroSig
-    Nothing -> Left $ UnboundMacro name (ErrorContext (initialPos "<context>") "macro lookup")
+    Nothing -> Left $ UnboundMacro name (ErrorContext (initialPos "<context>") "macro context lookup")
 
 -- | Look up a theorem in the context
 lookupTheorem :: String -> Context -> Either RelTTError ([Binding], RelJudgment, Proof)
 lookupTheorem name ctx =
   case Map.lookup name (theoremDefinitions ctx) of
     Just theorem -> Right theorem
-    Nothing -> Left $ UnknownTheorem name (ErrorContext (initialPos "<context>") "theorem lookup")
+    Nothing -> Left $ UnknownTheorem name (ErrorContext (initialPos "<context>") "theorem context lookup")
 
 -- | Look up a parameter in the context
 lookupParameter :: String -> Context -> Maybe VarKind
@@ -246,10 +246,10 @@ validateContext ctx = do
       minIndex = if null allIndices then 0 else minimum allIndices
 
   if minIndex < 0
-    then Left $ InvalidDeBruijnIndex minIndex (ErrorContext (initialPos "<context>") "context validation")
+    then Left $ InvalidDeBruijnIndex minIndex (ErrorContext (initialPos "<context>") "context validation: negative de Bruijn index")
     else
       if maxIndex >= contextSize ctx
-        then Left $ InvalidDeBruijnIndex maxIndex (ErrorContext (initialPos "<context>") "context validation")
+        then Left $ InvalidDeBruijnIndex maxIndex (ErrorContext (initialPos "<context>") "context validation: de Bruijn index exceeds context size")
         else Right ()
 
 -- | Get all bound variable names in a context
