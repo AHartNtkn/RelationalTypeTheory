@@ -1084,9 +1084,10 @@ quantifierDeBruijnBugSpec = describe "quantifier de Bruijn index bug (integratio
         let ctx = buildContextFromBindings bindings
         case inferProofType ctx proof of
           Right result -> 
-            if resultJudgment result == judgment
-            then return () -- Should work when bug is fixed
-            else expectationFailure $ "Judgment mismatch: inferred " ++ show (resultJudgment result) ++ " vs expected " ++ show judgment
+            case relJudgmentEqual ctx (resultJudgment result) judgment of
+              Right True -> return () -- Should work when bug is fixed
+              Right False -> expectationFailure $ "Judgment mismatch: inferred " ++ show (resultJudgment result) ++ " vs expected " ++ show judgment
+              Left err -> expectationFailure $ "Error checking judgment equality: " ++ show err
           Left err ->
             expectationFailure $
               "Quantifier commutativity theorem should work but failed: " ++ show err

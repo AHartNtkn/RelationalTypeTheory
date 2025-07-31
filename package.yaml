@@ -60,6 +60,7 @@ library:
   - Operations.Generic.PrettyPrint
   - Operations.Generic.Shift
   - Operations.Generic.Substitution
+  - Operations.Resolve
   # Parser modules
   - Parser.Lexer
   - Parser.Raw

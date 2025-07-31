@@ -37,6 +37,7 @@ library
       Operations.Generic.PrettyPrint
       Operations.Generic.Shift
       Operations.Generic.Substitution
+      Operations.Resolve
       Parser.Lexer
       Parser.Raw
       Parser.Elaborate
@@ -47,7 +48,6 @@ library
   other-modules:
       Operations.Generic.Elaborate
       Operations.Generic.Token
-      Operations.Resolve
       Paths_reltt_haskell
   autogen-modules:
       Paths_reltt_haskell

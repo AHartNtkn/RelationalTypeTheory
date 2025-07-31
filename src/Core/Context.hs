@@ -340,11 +340,12 @@ buildContextFromModuleInfo fixityOracle baseContext moduleInfo =
 buildContextFromBindings :: [Binding] -> Context
 buildContextFromBindings bindings = foldl addBinding emptyContext bindings
   where
-    addBinding ctx (TermBinding name) = extendTermContext name (RMacro "Type" [] (initialPos "<repl>")) ctx
-    addBinding ctx (RelBinding name) = extendRelContext name ctx
+    addBinding ctx (TermBinding name) = extendParameterContext name TermK ctx
+    addBinding ctx (RelBinding name) = extendParameterContext name RelK ctx
     addBinding ctx (ProofBinding name judgment) = 
-      -- Register proof parameters in both proof context (for PVar) and theorem context (for FPVar)
-      let ctxWithProof = extendProofContext name judgment ctx
+      -- Register proof parameters in parameter context (for FPVar) and proof context (for PVar)
+      let ctxWithParam = extendParameterContext name ProofK ctx
+          ctxWithProof = extendProofContext name judgment ctxWithParam
           -- Create a zero-argument theorem for this proof parameter
           -- Use a dummy proof since we only care about the judgment for FPVar resolution
           dummyProof = PVar name 0 (initialPos "<param>")

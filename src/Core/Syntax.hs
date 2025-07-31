@@ -45,7 +45,7 @@ data MacroArg
   = MTerm  Term
   | MRel   RType
   | MProof Proof
-  deriving (Show)
+  deriving (Show, Eq)
 
 -- | Lambda calculus terms
 data Term
@@ -54,7 +54,7 @@ data Term
   | Lam String Term SourcePos        -- ^ Lambda abstraction
   | App Term Term SourcePos          -- ^ Application
   | TMacro String [MacroArg] SourcePos   -- ^ Term macro application with heterogeneous arguments
-  deriving (Show)
+  deriving (Show, Eq)
 
 -- | Relational types
 data RType
@@ -66,7 +66,7 @@ data RType
   | Conv RType SourcePos                -- ^ Converse (˘)
   | Comp RType RType SourcePos          -- ^ Composition (∘)
   | Prom Term SourcePos                 -- ^ Promotion (⌈t⌉)
-  deriving (Show)
+  deriving (Show, Eq)
 
 -- | Proof terms
 data Proof
@@ -85,11 +85,11 @@ data Proof
   | Pair Proof Proof SourcePos                             -- ^ Pair (⟨p,q⟩)
   | Pi Proof String String String Proof SourcePos          -- ^ Pi (π p - x . u . v .q)
   | PMacro String [MacroArg] SourcePos                     -- ^ Proof macro with heterogeneous arguments
-  deriving (Show)
+  deriving (Show, Eq)
 
 -- | Relational judgment: t [R] t'
 data RelJudgment = RelJudgment Term RType Term
-  deriving (Show)
+  deriving (Show, Eq)
 
 -- | Macro body variants
 data MacroBody
@@ -164,56 +164,6 @@ data Fixity
 
 -- | Kind of variable for macro parameters
 data VarKind = TermK | RelK | ProofK deriving (Show, Eq)
-
--- | Position-ignoring, alpha-equivalent equality instances
--- These use structural equality that ignores source positions and variable names
--- All semantic equality checks should use these instances
-
-instance Eq Term where
-  Var _ i1 _ == Var _ i2 _ = i1 == i2  -- Ignore names, only compare de Bruijn indices
-  FVar x1 _ == FVar x2 _ = x1 == x2    -- Free variables compared by name
-  Lam _ b1 _ == Lam _ b2 _ = b1 == b2   -- Ignore binder names, compare bodies
-  App f1 x1 _ == App f2 x2 _ = f1 == f2 && x1 == x2
-  TMacro n1 args1 _ == TMacro n2 args2 _ = n1 == n2 && args1 == args2
-  _ == _ = False
-
-instance Eq RType where
-  RVar _ i1 _ == RVar _ i2 _ = i1 == i2  -- Ignore names, only compare de Bruijn indices  
-  FRVar x1 _ == FRVar x2 _ = x1 == x2   -- Free variables compared by name
-  RMacro n1 args1 _ == RMacro n2 args2 _ = n1 == n2 && args1 == args2
-  Arr r1 s1 _ == Arr r2 s2 _ = r1 == r2 && s1 == s2
-  All _ r1 _ == All _ r2 _ = r1 == r2    -- Ignore quantifier names, compare bodies
-  Conv r1 _ == Conv r2 _ = r1 == r2
-  Comp r1 s1 _ == Comp r2 s2 _ = r1 == r2 && s1 == s2
-  Prom t1 _ == Prom t2 _ = t1 == t2
-  _ == _ = False
-
-instance Eq RelJudgment where
-  RelJudgment t1 r1 u1 == RelJudgment t2 r2 u2 = t1 == t2 && r1 == r2 && u1 == u2
-
-instance Eq Proof where
-  PVar _ i1 _ == PVar _ i2 _ = i1 == i2  -- Ignore names, only compare de Bruijn indices
-  FPVar x1 _ == FPVar x2 _ = x1 == x2   -- Free variables compared by name
-  PMacro n1 args1 _ == PMacro n2 args2 _ = n1 == n2 && args1 == args2
-  LamP _ ty1 p1 _ == LamP _ ty2 p2 _ = ty1 == ty2 && p1 == p2  -- Ignore binder names
-  AppP p1 q1 _ == AppP p2 q2 _ = p1 == p2 && q1 == q2
-  TyLam _ p1 _ == TyLam _ p2 _ = p1 == p2  -- Ignore type binder names
-  TyApp p1 ty1 _ == TyApp p2 ty2 _ = p1 == p2 && ty1 == ty2
-  ConvProof t1 p1 s1 _ == ConvProof t2 p2 s2 _ = t1 == t2 && p1 == p2 && s1 == s2
-  ConvIntro p1 _ == ConvIntro p2 _ = p1 == p2
-  ConvElim p1 _ == ConvElim p2 _ = p1 == p2
-  RhoElim _ t1 s1 p1 q1 _ == RhoElim _ t2 s2 p2 q2 _ = t1 == t2 && s1 == s2 && p1 == p2 && q1 == q2
-  Iota t1 s1 _ == Iota t2 s2 _ = t1 == t2 && s1 == s2
-  Pair p1 q1 _ == Pair p2 q2 _ = p1 == p2 && q1 == q2
-  Pi p1 _ _ _ q1 _ == Pi p2 _ _ _ q2 _ = p1 == p2 && q1 == q2  -- Ignore all binder names
-  PTheoremApp n1 args1 _ == PTheoremApp n2 args2 _ = n1 == n2 && args1 == args2
-  _ == _ = False
-
-instance Eq MacroArg where
-  MTerm t1 == MTerm t2 = t1 == t2
-  MRel r1 == MRel r2 = r1 == r2
-  MProof p1 == MProof p2 = p1 == p2
-  _ == _ = False
 
 -- | Information about a macro parameter
 data ParamInfo = ParamInfo
