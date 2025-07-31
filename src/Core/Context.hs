@@ -55,22 +55,22 @@ import Control.Monad.Except
 import Data.List (foldl')
 
 
--- | Built-in macro fixities
-builtinFixities :: [(String,Fixity)]
-builtinFixities =
-  [ ("∀_._"        , Prefix  3)   -- quantifier  (prefix, closes with '.')
-  , ("λ_._"        , Prefix  3)
-  , ("Λ_._"        , Prefix  3)
-  , ("λ_:_._"      , Prefix  3)
-  , ("_{_}"        , Postfix 4)   -- type application
-  , ("_˘"          , Postfix 8)   -- converse
-  , ("_∘_"         , Infixr  6)   -- composition
-  , ("_→_"         , Infixr  2)   -- function arrow
-  , ("ι⟨_,_⟩"      , Prefix  7)   -- iota
-  , ("_,_"         , Infixr  1)
-  , ("_⇃_⇂_"       , Prefix  4)
-  , ("π_-_._._._"  , Prefix  4)
-  , ("ρ{_._,_}_-_" , Prefix  4)
+-- | Built-in macro precedences for the new mixfix system
+builtinMixfixInfo :: [(String, Int)]  -- (name, precedence)
+builtinMixfixInfo =
+  [ ("∀_._"        , 3)   -- quantifier  (prefix, closes with '.')
+  , ("λ_._"        , 3)
+  , ("Λ_._"        , 3)
+  , ("λ_:_._"      , 3)
+  , ("_{_}"        , 4)   -- type application
+  , ("_˘"          , 8)   -- converse
+  , ("_∘_"         , 6)   -- composition
+  , ("_→_"         , 2)   -- function arrow
+  , ("ι⟨_,_⟩"      , 7)   -- iota
+  , ("_,_"         , 1)   -- pairs
+  , ("_⇃_⇂_"       , 4)   -- conversion
+  , ("π_-_._._._"  , 4)   -- pi elimination
+  , ("ρ{_._,_}_-_" , 4)   -- rho elimination
   ]
 
 -- | Helper to create simple ParamInfo for non-cross-category macros
@@ -99,7 +99,6 @@ builtinMacroBodies =
 emptyContext :: Context
 emptyContext = 
   let builtinMacros = Map.fromList [(n, (pInfo, body)) | (n, pInfo, body) <- builtinMacroBodies]
-      builtinFixityMap = Map.fromList builtinFixities
   in Context 
   { termBindings = Map.empty
   , relBindings = Map.empty
@@ -109,7 +108,6 @@ emptyContext =
   , relDepth = 0
   , proofDepth = 0
   , macroDefinitions = builtinMacros
-  , macroFixities = builtinFixityMap
   , theoremDefinitions = Map.empty
   , gensymCounter = 0
   }
@@ -278,11 +276,10 @@ freshVarPair prefix1 prefix2 ctx =
    in (name1, name2, newCtx)
 
 -- | Extend context with a macro definition (requires explicit parameter info)
-extendMacroContext :: String -> [ParamInfo] -> MacroBody -> Fixity -> Context -> Context
-extendMacroContext name pInfo body fixity ctx =
-  ctx { macroDefinitions = Map.insert name (pInfo, body) (macroDefinitions ctx)
-      , macroFixities = Map.insert name fixity (macroFixities ctx)
-      }
+-- Note: Fixity/precedence is now handled by the mixfix system
+extendMacroContext :: String -> [ParamInfo] -> MacroBody -> Context -> Context
+extendMacroContext name pInfo body ctx =
+  ctx { macroDefinitions = Map.insert name (pInfo, body) (macroDefinitions ctx) }
 
 
 -- | Extend context with a theorem definition  
@@ -323,8 +320,9 @@ bindProofVar p j ctx =
 --------------------------------------------------------------------------------
 
 -- | Build unified context from ModuleInfo
-buildContextFromModuleInfo :: (String -> Fixity) -> Context -> ModuleInfo -> Context
-buildContextFromModuleInfo fixityOracle baseContext moduleInfo = 
+-- Note: Fixity information is now handled by the mixfix system
+buildContextFromModuleInfo :: Context -> ModuleInfo -> Context
+buildContextFromModuleInfo baseContext moduleInfo = 
   let macros = loadedMacros moduleInfo
       theorems = loadedTheorems moduleInfo
       -- Extend base context with macros
@@ -333,7 +331,7 @@ buildContextFromModuleInfo fixityOracle baseContext moduleInfo =
       contextWithTheorems = Map.foldrWithKey addTheorem contextWithMacros theorems
   in contextWithTheorems
   where
-    addMacro name (params, body) ctx = extendMacroContext name params body (fixityOracle name) ctx
+    addMacro name (params, body) ctx = extendMacroContext name params body ctx
     addTheorem name (bindings, judgment, proof) ctx = extendTheoremContext name bindings judgment proof ctx
 
 -- | Build context from bindings

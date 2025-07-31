@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeFamilies #-}
 -- | Core syntax definitions for RelTT
 -- This module contains all the core data types for the RelTT language.
 module Core.Syntax
@@ -29,8 +30,7 @@ module Core.Syntax
     Visibility (..),
     ModuleInfo (..),
     ModulePath,
-    -- * Fixity and Parameters
-    Fixity (..),
+    -- * Parameters
     VarKind (..),
     ParamInfo (..),
     MacroSig,
@@ -39,6 +39,10 @@ where
 
 import qualified Data.Map as Map
 import Text.Megaparsec (SourcePos)
+import qualified Data.Text as T
+-- import RelTT.Mixfix.Core (MixfixCat(..), Macro(..), HoleMap, LitOrHole(..))
+-- import RelTT.Mixfix.Util (Span, startSpan)
+import qualified Data.Text as Text
 
 -- | A polymorphic macro argument that can be a term, relation type, or proof
 data MacroArg
@@ -104,7 +108,6 @@ data Declaration
   | TheoremDef String [Binding] RelJudgment Proof
   | ImportDecl ImportDeclaration
   | ExportDecl ExportDeclaration
-  | FixityDecl Fixity String
   deriving (Show, Eq)
 
 -- | Theorem parameter bindings
@@ -138,7 +141,6 @@ data Context = Context
     
     -- Macro and theorem definitions (unified into context)
     macroDefinitions :: Map.Map String MacroSig,     -- ^ macro name -> (param info, body)
-    macroFixities :: Map.Map String Fixity,          -- ^ macro name -> fixity declaration
     theoremDefinitions :: Map.Map String ([Binding], RelJudgment, Proof), -- ^ theorem name -> (bindings, judgment, proof)
     
     -- Fresh variable generation
@@ -152,15 +154,6 @@ data TypeEnvironment = TypeEnvironment
   }
   deriving (Show, Eq)
 
--- | Fixity declarations for mixfix operators
-data Fixity
-  = Infixl Int  -- ^ left associative, level 0-9
-  | Infixr Int  -- ^ right associative, level 0-9
-  | InfixN Int  -- ^ non-associative, level 0-9
-  | Prefix Int  -- ^ prefix operator, level 0-9
-  | Postfix Int -- ^ postfix operator, level 0-9
-  | Closed Int  -- ^ closed/delimited operator, level 0-9
-  deriving (Show, Eq)
 
 -- | Kind of variable for macro parameters
 data VarKind = TermK | RelK | ProofK deriving (Show, Eq)
@@ -243,3 +236,9 @@ proofPos (RhoElim _ _ _ _ _ pos) = pos
 proofPos (Pair _ _ pos) = pos
 proofPos (Pi _ _ _ _ _ pos) = pos
 proofPos (PMacro _ _ pos) = pos
+
+
+
+
+
+

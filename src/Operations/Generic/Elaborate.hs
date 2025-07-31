@@ -24,8 +24,6 @@ import Core.Syntax (Term(..), RType(..), Proof(..), MacroArg(..), MacroBody(..),
 import Core.Raw
 import Core.Errors
 import Core.Context
-import Operations.Generic.Mixfix (MixfixAst(..), reparseG, mixfixKeywords)
-import Operations.Generic.Token (toTok, hasOperatorG)
 
 --------------------------------------------------------------------------------
 -- | Main elaboration function - context-driven typing
@@ -183,25 +181,30 @@ handleVar name pos = do
           -- Unknown variable - emit as free variable
           return $ mkFreeVar @a varName pos
 
--- | Generic application handler
+-- | Generic application handler (TEMPORARY STUB - no mixfix support)
 handleAppGeneric :: forall a. ElaborateTarget a => Raw -> SourcePos -> (Raw -> ElaborateM a) -> ([Raw] -> String -> [ParamInfo] -> SourcePos -> ElaborateM a) -> ElaborateM a
 handleAppGeneric raw pos fallback macroHandler = do
   ctx <- ask
   let flattened = flattenApps raw
-      ops = mixfixKeywords ctx
-      toks = map (toTok ops) flattened
   
-  if hasOperatorG toks
-    then reparseG elaborate pos flattened
-    else case flattened of
-      (firstRaw : args) -> do
-        case extractVarName firstRaw of
-          Just macroName -> do
-            case Map.lookup macroName (macroDefinitions ctx) of
-              Nothing -> fallback raw
-              Just (params, _) -> macroHandler args macroName params pos
-          Nothing -> fallback raw
-      _ -> fallback raw
+  -- TODO: Integrate new mixfix system here
+  -- For now, just handle simple macro applications without operators
+  case flattened of
+    (firstRaw : args) -> do
+      case extractVarName firstRaw of
+        Just macroName -> do
+          case Map.lookup macroName (macroDefinitions ctx) of
+            Nothing -> fallback raw
+            Just (params, _) -> macroHandler args macroName params pos
+        Nothing -> fallback raw
+    _ -> fallback raw
+
+-- | Flatten left-nested applications into a list
+flattenApps :: Raw -> [Raw]
+flattenApps = go []
+  where
+    go acc (RawApp f x _) = go (x:acc) f
+    go acc r = r:acc
 
 -- | Extract variable name from Raw
 extractVarName :: Raw -> Maybe String

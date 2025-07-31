@@ -1,7 +1,8 @@
-{-# LANGUAGE OverloadedStrings, LambdaCase #-}
--- | Unified raw (unelaborated) AST type
+{-# LANGUAGE OverloadedStrings, LambdaCase, TypeFamilies #-}
+-- | Unified raw (unelaborated) AST type with mixfix support
 -- This module contains the unified raw AST type as parsed from source,
--- before elaboration into the typed AST.
+-- before elaboration into the typed AST. It implements MixfixCat to support
+-- the new grammar-based mixfix parsing system.
 module Core.Raw 
   ( Name(..)
   , Raw(..)
@@ -18,21 +19,37 @@ module Core.Raw
   , getValue
   , dummyPos
   , StripPos(..)
+  -- Mixfix integration
+  , RawHoleMap
   ) where
 
 import Text.Megaparsec (SourcePos, initialPos)
-import Core.Syntax (Fixity(..))
+import qualified Data.Text as T
+import qualified Data.IntMap.Strict as IM
+
+import Mixfix.Core
+import Mixfix.Util
 
 -- Raw (unresolved) identifiers - just strings, no de Bruijn indices
 newtype Name = Name String deriving (Show, Eq, Ord)
 
--- Unified raw AST - parser + mixfix generated constructors
+-- Unified raw AST - supports mixfix parsing with proper spans
 -- This replaces RawTerm, RawRType, and RawProof with a single type
 data Raw
-  = RawVar Name SourcePos                    -- x, X, p
-  | RawApp Raw Raw SourcePos                 -- t u, R S, p q
-  | RawParens Raw SourcePos                  -- (t), (R), (p) - explicit parentheses
+  = RawVar Name Span                         -- x, X, p
+  | RawApp Raw Raw Span                      -- t u, R S, p q (application)
+  | RawParens Raw Span                       -- (t), (R), (p) - explicit parentheses
+  | RawMixfix T.Text [Raw] Span              -- mixfix macro application
   deriving (Show, Eq)
+
+-- Leaf values for the Raw category
+data RawLeaf
+  = RawVarLeaf Name                          -- Variable/identifier leaf
+  | RawLitLeaf T.Text                        -- Literal value leaf
+  deriving (Show, Eq)
+
+-- Hole type mapping for Raw category (unified - everything is Raw)
+type RawHoleMap = IM.IntMap ()  -- All holes have the same type in Raw
 
 -- Raw theorem/macro arguments - now just Raw
 data RawArg = RawArg Raw
@@ -43,11 +60,10 @@ data RawImportDeclaration
   = RawImportModule String                    -- import "path";
   deriving (Show, Eq)
 
--- Raw declarations
+-- Raw declarations (no more fixity declarations)
 data RawDeclaration
   = RawMacroDef Name [Name] RawMacroBody      -- macro name params ≔ body
   | RawTheorem Name [RawBinding] RawJudgment Raw  -- ⊢ name bindings : judgment ≔ proof
-  | RawFixityDecl Fixity Name                 -- fixity declarations
   | RawImportDecl RawImportDeclaration        -- import declarations
   deriving (Show, Eq)
 
@@ -90,14 +106,48 @@ getValue (Positioned val _) = val
 dummyPos :: SourcePos
 dummyPos = initialPos ""
 
+dummySpan :: Span
+dummySpan = (dummyPos, dummyPos)
+
+------------------------------------------------------------
+-- MixfixCat instance for Raw
+------------------------------------------------------------
+
+instance MixfixCat Raw where
+  data Node Raw = RawNode Raw deriving (Show, Eq)
+  data Leaf Raw = RawLeafNode RawLeaf deriving (Show, Eq)
+  type HoleMap Raw = RawHoleMap
+  
+  leafPos (RawLeafNode (RawVarLeaf (Name n))) = 
+    let pos = initialPos n in (pos, pos)  -- Approximate span
+  leafPos (RawLeafNode (RawLitLeaf t)) = 
+    let pos = initialPos (T.unpack t) in (pos, pos)
+    
+  nodeSpan (RawNode raw) = rawSpan raw
+    where
+      rawSpan (RawVar _ span) = span
+      rawSpan (RawApp _ _ span) = span  
+      rawSpan (RawParens _ span) = span
+      rawSpan (RawMixfix _ _ span) = span
+      
+  mkLeaf leaf = RawNode $ case leaf of
+    RawLeafNode (RawVarLeaf name) -> RawVar name (leafPos leaf)
+    RawLeafNode (RawLitLeaf text) -> RawVar (Name (T.unpack text)) (leafPos leaf)
+    
+  mkMacro span macro args =
+    let rawArgs = [raw | RawNode raw <- args]
+        macroName = mName macro
+    in RawNode $ RawMixfix macroName rawArgs span
+
 class StripPos a where
   stripPos :: a -> a
 
 instance StripPos Raw where
   stripPos = \case
-    RawVar n _          -> RawVar n dummyPos
-    RawApp f x _        -> RawApp (stripPos f) (stripPos x) dummyPos
-    RawParens t _       -> RawParens (stripPos t) dummyPos
+    RawVar n _              -> RawVar n dummySpan
+    RawApp f x _            -> RawApp (stripPos f) (stripPos x) dummySpan
+    RawParens t _           -> RawParens (stripPos t) dummySpan
+    RawMixfix name args _   -> RawMixfix name (map stripPos args) dummySpan
 
 instance StripPos RawArg where
   stripPos (RawArg r) = RawArg (stripPos r)
@@ -122,7 +172,6 @@ instance StripPos RawDeclaration where
     RawMacroDef n ps b     -> RawMacroDef n ps (stripPos b)
     RawTheorem n bs j p      -> RawTheorem n (map stripPos bs)
                                              (stripPos j) (stripPos p)
-    RawFixityDecl f n        -> RawFixityDecl f n
     RawImportDecl i          -> RawImportDecl (stripPos i)
 
 instance StripPos RawImportDeclaration where

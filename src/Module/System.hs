@@ -30,7 +30,6 @@ import System.Directory (doesFileExist)
 import System.FilePath (normalise, (</>))
 import Text.Megaparsec (errorBundlePretty, initialPos)
 import Core.Context (extendMacroContext, extendTheoremContext, emptyContext)
-import Operations.Generic.Mixfix (defaultFixity)
 import Operations.Generic.Macro (inferParamInfosG)
 import Core.Errors (RelTTError(..), ErrorContext(..))
 
@@ -206,7 +205,7 @@ elaborateDeclarationsWithContext ctx rawDecls =
         MacroDef name params body -> do
           -- For macros, we need to convert string params to ParamInfo and extend context
           let paramInfos = inferParamInfosG params body
-              newCtx = extendMacroContext name paramInfos body (defaultFixity name) currentCtx
+              newCtx = extendMacroContext name paramInfos body (Closed 5) currentCtx  -- Temporary: will be replaced by new mixfix system
           elaborateSequentially newCtx remaining (elaboratedDecl:acc)
         TheoremDef name bindings judgment proof -> do
           -- For theorems, extend the context with the theorem

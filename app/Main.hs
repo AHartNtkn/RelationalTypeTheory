@@ -5,7 +5,6 @@ import Operations.Generic.Macro (inferParamInfosG)
 import Control.Monad (when)
 import Core.Errors (formatError, RelTTError(..), ErrorContext(..))
 import Core.Syntax
-import Operations.Generic.Mixfix (defaultFixity)
 import Module.System (parseModuleWithDependencies)
 import Parser.Elaborate (elaborate)
 import qualified Core.Raw as Raw
@@ -57,7 +56,11 @@ buildContextFromDeclarations decls = foldr addDeclaration emptyContext decls
     addDeclaration (MacroDef name params body) ctx =
       -- Convert string params to ParamInfo using structural analysis
       let paramInfos = inferParamInfosG params body
-      in extendMacroContext name paramInfos body (defaultFixity name) ctx
+          -- Default fixity for mixfix operators - will be replaced by new system
+          fixity = if '_' `elem` name
+                  then if length (filter (=='_') name) == 2 then Infixl 6 else Prefix 9
+                  else Closed 9
+      in extendMacroContext name paramInfos body fixity ctx
     addDeclaration (TheoremDef name bindings judgment proof) ctx =
       extendTheoremContext name bindings judgment proof ctx
     addDeclaration _ ctx = ctx
@@ -93,7 +96,11 @@ parseOnlyMode filename = do
     updateContextWithDeclaration :: Declaration -> Context -> Context
     updateContextWithDeclaration (MacroDef name params body) ctx =
       let paramInfos = inferParamInfosG params body
-      in extendMacroContext name paramInfos body (defaultFixity name) ctx
+          -- Default fixity for mixfix operators - will be replaced by new system
+          fixity = if '_' `elem` name
+                  then if length (filter (=='_') name) == 2 then Infixl 6 else Prefix 9
+                  else Closed 9
+      in extendMacroContext name paramInfos body fixity ctx
     updateContextWithDeclaration (TheoremDef name bindings judgment proof) ctx =
       extendTheoremContext name bindings judgment proof ctx
     updateContextWithDeclaration _ ctx = ctx

@@ -38,6 +38,16 @@ library
       Operations.Generic.Shift
       Operations.Generic.Substitution
       Operations.Resolve
+      RelTT.Mixfix.Core
+      RelTT.Mixfix.Util
+      RelTT.Mixfix.Env
+      RelTT.Mixfix.Parse
+      RelTT.Mixfix.Conflict
+      RelTT.Mixfix.Fold
+      RelTT.Mixfix.Recover
+      RelTT.Mixfix.Pretty
+      RelTT.Mixfix.Interface
+      RelTT.Mixfix.IDE
       Parser.Lexer
       Parser.Raw
       Parser.Elaborate
@@ -46,8 +56,17 @@ library
       Module.System
       Core.Utils
   other-modules:
+      Mixfix.Conflict
+      Mixfix.Core
+      Mixfix.Env
+      Mixfix.Fold
+      Mixfix.IDE
+      Mixfix.Interface
+      Mixfix.Parse
+      Mixfix.Pretty
+      Mixfix.Recover
+      Mixfix.Util
       Operations.Generic.Elaborate
-      Operations.Generic.Token
       Paths_reltt_haskell
   autogen-modules:
       Paths_reltt_haskell
@@ -55,15 +74,24 @@ library
       src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wno-unused-matches
   build-depends:
-      base >=4.7 && <5
-    , containers
+      aeson
+    , aeson-pretty
+    , base >=4.17 && <5
+    , bytestring >=0.12
+    , containers >=0.6
+    , cryptohash-sha256
     , directory
     , filepath
-    , megaparsec
+    , hashable
+    , hashing >=0.1
+    , megaparsec >=9.6
     , mtl
     , parser-combinators
     , prettyprinter
-    , text
+    , stm
+    , text >=2.0
+    , time
+    , unordered-containers >=0.2
   default-language: Haskell2010
 
 executable reltt-haskell-exe
@@ -76,16 +104,25 @@ executable reltt-haskell-exe
       app
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
-    , containers
+      aeson
+    , aeson-pretty
+    , base >=4.17 && <5
+    , bytestring >=0.12
+    , containers >=0.6
+    , cryptohash-sha256
     , directory
     , filepath
-    , megaparsec
+    , hashable
+    , hashing >=0.1
+    , megaparsec >=9.6
     , mtl
     , parser-combinators
     , prettyprinter
     , reltt-haskell
-    , text
+    , stm
+    , text >=2.0
+    , time
+    , unordered-containers >=0.2
   default-language: Haskell2010
 
 test-suite reltt-haskell-test
@@ -124,15 +161,24 @@ test-suite reltt-haskell-test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N -Wno-type-defaults
   build-depends:
       QuickCheck
-    , base >=4.7 && <5
+    , aeson
+    , aeson-pretty
+    , base >=4.17 && <5
+    , bytestring >=0.12
     , containers
+    , cryptohash-sha256
     , directory
     , filepath
+    , hashable
+    , hashing >=0.1
     , hspec
     , megaparsec
     , mtl
     , parser-combinators
     , prettyprinter
     , reltt-haskell
-    , text
+    , stm
+    , text >=2.0
+    , time
+    , unordered-containers >=0.2
   default-language: Haskell2010

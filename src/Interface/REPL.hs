@@ -9,6 +9,7 @@ module Interface.REPL
 where
 
 import Core.Context (lookupMacro, lookupTerm, emptyContext, ElaborateM, extendMacroContext, extendTheoremContext, buildContextFromModuleInfo, buildContextFromBindings)
+import Core.DefaultFixity (defaultFixity)
 import Operations.Generic.Macro (inferParamInfosG)
 import Control.Monad.State
 import qualified Data.Map as Map
@@ -28,7 +29,6 @@ import Parser.Raw (raw, rawDeclaration, rawJudgment)
 import Data.Void (Void)
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.Except (runExcept)
-import Operations.Generic.Mixfix (defaultFixity)
 
 type Parser = Parsec Void String
 

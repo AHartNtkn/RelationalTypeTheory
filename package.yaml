@@ -19,15 +19,24 @@ extra-source-files:
 description:         Please see the README on GitHub at <https://github.com/githubuser/reltt-haskell#readme>
 
 dependencies:
-- base >= 4.7 && < 5
-- megaparsec
+- base >= 4.17 && < 5
+- megaparsec >= 9.6
 - prettyprinter
 - parser-combinators
 - mtl
-- containers
+- containers >= 0.6
+- unordered-containers >= 0.2
+- hashable
+- hashing >= 0.1
+- bytestring >= 0.12
 - filepath
 - directory
-- text
+- text >= 2.0
+- aeson
+- aeson-pretty
+- time
+- stm
+- cryptohash-sha256
 
 ghc-options:
 - -Wall
@@ -61,6 +70,17 @@ library:
   - Operations.Generic.Shift
   - Operations.Generic.Substitution
   - Operations.Resolve
+  # New mixfix modules
+  - RelTT.Mixfix.Core
+  - RelTT.Mixfix.Util
+  - RelTT.Mixfix.Env
+  - RelTT.Mixfix.Parse
+  - RelTT.Mixfix.Conflict
+  - RelTT.Mixfix.Fold
+  - RelTT.Mixfix.Recover
+  - RelTT.Mixfix.Pretty
+  - RelTT.Mixfix.Interface
+  - RelTT.Mixfix.IDE
   # Parser modules
   - Parser.Lexer
   - Parser.Raw
