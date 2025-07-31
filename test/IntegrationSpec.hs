@@ -1130,8 +1130,6 @@ checkDeclForBugTest globalContext (TheoremDef _ bindings judgment proof) = do
       ctx = buildContextFromBindings bindings
   case inferProofType ctx proof of
     Right result -> 
-      if resultJudgment result == judgment
-      then return ()
-      else expectationFailure $ "Judgment mismatch: inferred " ++ show (resultJudgment result) ++ " vs expected " ++ show judgment
+      shouldBeEqual (resultJudgment result) judgment
     Left err -> expectationFailure $ "Theorem should work: " ++ show err
 checkDeclForBugTest _ _ = return () -- Skip other declarations
