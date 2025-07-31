@@ -3,21 +3,43 @@
 module IntegrationSpec (spec) where
 
 import qualified Data.Set as Set
-import Parser.Elaborate (elaborate)
-import Core.Context (emptyContext, extendMacroContext, extendTheoremContext, extendTermContext, extendRelContext, extendProofContext, lookupProof)
+import Parser.Elaborate (elaborate, elaborateDeclarations)
+import Core.Context (emptyContext, extendMacroContext, extendTheoremContext, extendTermContext, extendRelContext, extendProofContext, lookupProof, buildContextFromBindings)
 import Core.Errors
 import Core.Syntax
 import Operations.Generic.Mixfix (defaultFixity)
+import Operations.Generic.Macro (inferParamInfosG)
 import Operations.Generic.BetaEta (betaEtaEquality, normalizeForBetaEta)
 import Operations.Generic.Expansion (expandFully, ExpansionResult(..))
 import Operations.Generic.Equality (alphaEquality)
 import Operations.Generic.FreeVars (freeVars)
 import Operations.Generic.Substitution (substIndex)
 import TypeCheck.Proof
-import Parser.Raw (rawDeclaration, raw)
+import Parser.Raw (rawDeclaration, raw, parseFile)
 import Test.Hspec
-import TestHelpers
+import TestHelpers (PositionInsensitive(..))
 import Text.Megaparsec (initialPos, runParser, errorBundlePretty)
+
+-- | Parse file content using library functions
+parseFileDeclarations :: String -> Either String [Declaration]
+parseFileDeclarations content = 
+  case runParser parseFile "test" content of
+    Left parseErr -> Left $ "Parse error: " ++ errorBundlePretty parseErr
+    Right rawDecls -> 
+      case elaborateDeclarations emptyContext rawDecls of
+        Left err -> Left $ "Elaboration error: " ++ show err
+        Right decls -> Right decls
+
+-- | Build context from declarations - simplified approach
+buildContextFromDeclarations :: [Declaration] -> Context
+buildContextFromDeclarations decls = foldr addDeclaration emptyContext decls
+  where
+    addDeclaration (MacroDef name params body) ctx =
+      let paramInfos = inferParamInfosG params body
+      in extendMacroContext name paramInfos body (defaultFixity "TEST") ctx
+    addDeclaration (TheoremDef name bindings judgment proof) ctx =
+      extendTheoremContext name bindings judgment proof ctx
+    addDeclaration _ ctx = ctx
 
 -- Helper functions for creating ParamInfo in tests
 testParamInfo :: String -> ParamInfo
@@ -407,8 +429,7 @@ compositionExamplesSpec :: Spec
 compositionExamplesSpec = describe "composition examples" $ do
   it "demonstrates basic composition R ∘ S" $ do
     -- Test with proof checking
-    let env = emptyContext
-        termCtx =
+    let termCtx =
           extendTermContext "z" (RMacro "C" [] ip) $
             extendTermContext "y" (RMacro "B" [] ip) $
               extendTermContext "x" (RMacro "A" [] ip) emptyContext
@@ -462,7 +483,6 @@ converseExamplesSpec = describe "converse examples" $ do
 
         -- Converse introduction: ∪ᵢ p : y[R ˘]x
         convProof = ConvIntro (PVar "p" 0 ip) ip
-        env = emptyContext
 
     case inferProofType proofCtx convProof of
       Right result ->
@@ -491,7 +511,6 @@ proofTermExamplesSpec = describe "proof term examples" $ do
 
         -- Iota proof: ι⟨t, λ x . x⟩ proves t[(λ x . x)^]((λ x . x) t)
         iotaProof = Iota (Var "t" 0 ip) idTerm ip
-        env = emptyContext
 
     case inferProofType termCtx iotaProof of
       Right result ->
@@ -555,7 +574,6 @@ proofTermExamplesSpec = describe "proof term examples" $ do
 
         -- Transitivity proof: (p, q) : t[R∘S]v
         transProof = Pair (PVar "p" 1 ip) (PVar "q" 0 ip) ip
-        env = emptyContext
 
     case inferProofType proofCtx transProof of
       Right result ->
@@ -594,8 +612,6 @@ basicPipelineSpec = describe "basic pipeline tests" $ do
         length _macroDefs `shouldBe` 1
         length theoremDefs `shouldBe` 1
 
-        -- Build macro environment from parsed macros
-        let newContext = buildContextFromDeclarations decls
         -- Test the theorem proof checking
         case theoremDefs of
           [TheoremDef "reflexivity" bindings _ proof] -> do
@@ -767,8 +783,7 @@ parseAndCheckTheorem fileContent theoremName =
           theoremDefs = [d | d@(TheoremDef _ _ _ _) <- decls]
 
       case [t | t@(TheoremDef name _ _ _) <- theoremDefs, name == theoremName] of
-        [TheoremDef _ bindings judgment proof] -> do
-          let ctx = buildContextFromBindings bindings
+        [TheoremDef _ _ judgment proof] -> do
           case inferProofType newContext proof of
             Left proofErr -> Left $ "Proof error: " ++ show proofErr
             Right result ->
@@ -782,8 +797,7 @@ parseAndCheckTheorem fileContent theoremName =
 
 -- | Check a theorem in a given macro environment
 checkTheoremInEnvironment :: Context -> Declaration -> Expectation
-checkTheoremInEnvironment newContext (TheoremDef name bindings judgment proof) = do
-  let ctx = buildContextFromBindings bindings
+checkTheoremInEnvironment newContext (TheoremDef name _ judgment proof) = do
   case checkProof newContext proof judgment of
     Right _ -> return ()
     Left err -> expectationFailure $ "Theorem " ++ name ++ " failed: " ++ show err
@@ -1113,7 +1127,7 @@ checkDeclForBugTest globalContext (TheoremDef _ bindings judgment proof) = do
                   let newCtx = extendProofContext name judgment ctx
                    in buildContext newCtx rest
         in buildContext baseContext bindings
-      ctx = extendMacroContextFromBindings globalContext bindings
+      ctx = buildContextFromBindings bindings
   case inferProofType ctx proof of
     Right result -> 
       if resultJudgment result == judgment

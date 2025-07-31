@@ -4,13 +4,37 @@ module NotPreservesBoolBugSpec (spec) where
 
 import Core.Context
 import Core.Syntax
-import Core.Context (emptyContext, extendMacroContext)
 import Operations.Generic.Expansion (expandFully)
 import Operations.Generic.Mixfix (defaultFixity)
+import Operations.Generic.Macro (inferParamInfosG)
 import TypeCheck.Proof
 import Test.Hspec
-import TestHelpers (buildContextFromDeclarations, buildContextFromBindings, simpleParamInfo, parseFileDeclarations)
+import TestHelpers (simpleParamInfo)
+import Parser.Raw (parseFile)
+import Parser.Elaborate (elaborateDeclarations)
+import Text.Megaparsec (runParser, errorBundlePretty)
 import Text.Megaparsec (initialPos)
+
+-- | Parse file content using library functions  
+parseFileDeclarations :: String -> Either String [Declaration]
+parseFileDeclarations content = 
+  case runParser parseFile "test" content of
+    Left parseErr -> Left $ "Parse error: " ++ errorBundlePretty parseErr
+    Right rawDecls -> 
+      case elaborateDeclarations emptyContext rawDecls of
+        Left err -> Left $ "Elaboration error: " ++ show err
+        Right decls -> Right decls
+
+-- | Build context from declarations - simplified approach  
+buildContextFromDeclarations :: [Declaration] -> Context
+buildContextFromDeclarations decls = foldr addDeclaration emptyContext decls
+  where
+    addDeclaration (MacroDef name params body) ctx =
+      let paramInfos = inferParamInfosG params body
+      in extendMacroContext name paramInfos body (defaultFixity "TEST") ctx
+    addDeclaration (TheoremDef name bindings judgment proof) ctx =
+      extendTheoremContext name bindings judgment proof ctx
+    addDeclaration _ ctx = ctx
 
 spec :: Spec
 spec = do
@@ -37,8 +61,7 @@ parseAndRunBoolRttContentSpec = describe "Parse and run bool.rtt content" $ do
             context = buildContextFromDeclarations decls
 
         case theorems of
-          [TheoremDef _ bindings judgment proof] -> do
-            let ctx = buildContextFromBindings bindings
+          [TheoremDef _ _ judgment proof] -> do
             case checkProof context proof judgment of
               Left err ->
                 expectationFailure $ "Proof checking failed: " ++ show err

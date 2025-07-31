@@ -3,9 +3,7 @@
 module ProofCheckerSpec (spec) where
 
 import Core.Context
-import qualified Data.Map as Map
 import Core.Errors
-import Core.Raw (RawDeclaration(..))
 import Core.Syntax
 import Operations.Generic.Mixfix (defaultFixity)
 import Parser.Raw (rawDeclaration)
@@ -13,7 +11,6 @@ import Parser.Elaborate (elaborate)
 import TypeCheck.Proof
 import Text.Megaparsec (runParser)
 import Test.Hspec
-import TestHelpers (buildContextFromBindings, simpleRelMacro)
 import Text.Megaparsec (initialPos)
 
 -- Helper to create ParamInfo for tests

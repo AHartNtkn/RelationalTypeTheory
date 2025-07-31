@@ -5,25 +5,15 @@ module TestHelpers
   ( PositionInsensitive (..),
     shouldBeEqualProof,
     shouldBeEqualDeclaration,
-    buildContextFromBindings,
-    parseFileDeclarations,
-    buildContextFromDeclarations,
     simpleParamInfo,
     simpleTermMacro,
     simpleRelMacro,
   )
 where
 
-import Core.Context
-import Control.Monad (unless)
-import Parser.Elaborate
 import Core.Syntax
-import Operations.Generic.Mixfix (defaultFixity)
-import Operations.Generic.Macro (inferParamInfosG)
-import qualified Core.Raw as Raw
-import Parser.Raw (parseFile)
+import Control.Monad (unless)
 import Test.Hspec ( expectationFailure, Expectation )
-import Text.Megaparsec (runParser, errorBundlePretty)
 
 
 shouldBeEqualProof :: Proof -> Proof -> Expectation
@@ -75,42 +65,6 @@ instance (PositionInsensitive a) => PositionInsensitive [a] where
     expectationFailure $ "Lists have different lengths:\nExpected: " ++ show (length expected) ++ " elements\nActual: " ++ show (length actual) ++ " elements"
 
 
--- | Parse file content using new parser pipeline
-parseFileDeclarations :: String -> Either String [Declaration]
-parseFileDeclarations content = 
-  case runParser parseFile "test" content of
-    Left parseErr -> Left $ "Parse error: " ++ errorBundlePretty parseErr
-    Right rawDecls -> elaborateDeclarationsSequentially emptyContext rawDecls []
-  where
-    elaborateDeclarationsSequentially :: Context -> [Raw.RawDeclaration] -> [Declaration] -> Either String [Declaration]
-    elaborateDeclarationsSequentially _ [] acc = Right (reverse acc)
-    elaborateDeclarationsSequentially ctx (rawDecl:remaining) acc = do
-      case elaborate ctx rawDecl of
-        Left err -> Left $ "Elaboration error: " ++ show err
-        Right decl -> do
-          -- Update context with the newly elaborated declaration
-          let newCtx = updateContextWithDeclaration decl ctx
-          elaborateDeclarationsSequentially newCtx remaining (decl:acc)
-    
-    updateContextWithDeclaration :: Declaration -> Context -> Context
-    updateContextWithDeclaration (MacroDef name params body) ctx =
-      let paramInfos = inferParamInfosG params body
-      in extendMacroContext name paramInfos body (defaultFixity "TEST") ctx
-    updateContextWithDeclaration (TheoremDef name bindings judgment proof) ctx =
-      extendTheoremContext name bindings judgment proof ctx
-    updateContextWithDeclaration _ ctx = ctx  -- Other declaration types don't affect elaboration context
-
-
--- | Build unified context from parsed declarations
-buildContextFromDeclarations :: [Declaration] -> Context
-buildContextFromDeclarations decls = foldr addDeclaration emptyContext decls
-  where
-    addDeclaration (MacroDef name params body) ctx =
-      let paramInfos = inferParamInfosG params body
-      in extendMacroContext name paramInfos body (defaultFixity "TEST") ctx
-    addDeclaration (TheoremDef name bindings judgment proof) ctx =
-      extendTheoremContext name bindings judgment proof ctx
-    addDeclaration _ ctx = ctx
 
 -- | Helper functions for creating test macro signatures
 simpleParamInfo :: String -> VarKind -> ParamInfo
