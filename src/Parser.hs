@@ -411,7 +411,7 @@ parseTheoremArg (TermBinding _) = do
 parseTheoremArg (RelBinding _) = do
   -- Similar to term arguments, use 'parseRTypeAtom' so a relation
   -- argument doesn't consume following arguments inadvertently.
-  rtype <- parseRTypeAtom
+  rtype <- parseRType
   return (RelArg rtype)
 parseTheoremArg (ProofBinding _ _) = do
   proof <- parseProof

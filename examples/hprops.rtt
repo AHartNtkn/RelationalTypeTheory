@@ -6,14 +6,18 @@ _∗_ t R := t · R · t;
 
 _⊆_ R S := (λx. λy. y) ∗ (R → S);
 
-
-⊢ subsetId (t : Term) (t' : Term) (x : Term) (y : Term) (R : Rel) (S : Rel) (q : t [R ⊆ S] t') : (λx. x) [R → S] (λy. y) := 
+⊢ subsetId (t : Term) (t' : Term) (x : Term) (y : Term) (R : Rel) (S : Rel)
+           (q : t [R ⊆ S] t') : (λx. x) [R → S] (λy. y) := 
   (λx. x) ⇃ 
-    (pi_right (R → S) (λy. y) t' (λx. λy. y)
-      (pi_left ((R → S) ∘ (λx. λy. y)˘) t t' (λx. λy. y) 
-        (pi_assoc_sym (λx. λy. y) (R → S) (λx. λy. y)˘ t t' q)))
+    pi_right (R → S) (λy. y) t' (λx. λy. y)
+      ((λy. y) ⇃ pi_left ((R → S) ∘ (λx. λy. y)˘) t t' (λx. λy. y) 
+        (pi_assoc_sym (λx. λy. y) (R → S) (λx. λy. y)˘ t t' q) ⇂ t')
   ⇂ (λy. y);
 
+⊢ idSubset (t : Term) (t' : Term) (x : Term) (y : Term) (R : Rel) (S : Rel)
+           (q : (λx. x) [R → S] (λy. y)) : t [R ⊆ S] t' := 
+  q;
+
 ⊢ subsetProp (t : Term) (t' : Term) (x : Term) (y : Term) (R : Rel) (S : Rel)
-                      (p : x [R] y) (q : t [R ⊆ S] t') : x [S] y := 
+             (p : x [R] y) (q : t [R ⊆ S] t') : x [S] y := 
   x ⇃ (subsetId t t' x y R S q) p ⇂ y;
