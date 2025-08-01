@@ -189,13 +189,19 @@ proofCheckingErrorsSpec = describe "proof checking errors" $ do
   it "detects left conversion failures in proof conversion" $ do
     let t1 = Lam "x" (Var "x" 0 (initialPos "test")) (initialPos "test")
         t1' = Var "a" (-1) (initialPos "test") -- Not equivalent
-        err = LeftConversionError t1 t1' (ErrorContext (initialPos "test") "proof conversion")
+        rel = Arrow (Var "R" (-1) (initialPos "test")) (Var "S" (-1) (initialPos "test")) (initialPos "test")
+        judgment = RelJudgment t1 rel (Var "b" (-1) (initialPos "test"))
+        dummyProof = PVar "p" 0 (initialPos "test")
+        err = LeftConversionError t1 t1' judgment t1' (Var "b" (-1) (initialPos "test")) dummyProof (ErrorContext (initialPos "test") "proof conversion")
     formatError err `shouldContain` "Left conversion error"
 
   it "detects right conversion failures in proof conversion" $ do
     let t2 = Var "a" (-1) (initialPos "test")
         t2' = Var "b" (-1) (initialPos "test") -- Not equivalent
-        err = RightConversionError t2 t2' (ErrorContext (initialPos "test") "proof conversion")
+        rel = Arrow (Var "R" (-1) (initialPos "test")) (Var "S" (-1) (initialPos "test")) (initialPos "test")
+        judgment = RelJudgment (Var "c" (-1) (initialPos "test")) rel t2
+        dummyProof = PVar "p" 0 (initialPos "test")
+        err = RightConversionError t2 t2' judgment (Var "c" (-1) (initialPos "test")) t2' dummyProof (ErrorContext (initialPos "test") "proof conversion")
     formatError err `shouldContain` "Right conversion error"
 
   it "detects converse elimination on non-converse types" $ do

@@ -46,8 +46,8 @@ data RelTTError
   | ContextInconsistency String ErrorContext
   | -- Proof checking errors
     ProofTypingError Proof RelJudgment RelJudgment (Maybe (RelJudgment, RelJudgment)) (Maybe (RelTTError, RelTTError)) ErrorContext -- proof, expected, actual, optional (normalized expected, normalized actual), optional (expected norm error, actual norm error)
-  | LeftConversionError Term Term ErrorContext -- expected, actual
-  | RightConversionError Term Term ErrorContext -- expected, actual
+  | LeftConversionError Term Term RelJudgment Term Term Proof ErrorContext -- proof_left, target_left, proof_judgment, target_left, target_right, actual_proof
+  | RightConversionError Term Term RelJudgment Term Term Proof ErrorContext -- proof_right, target_right, proof_judgment, target_left, target_right, actual_proof
   | ConverseError Proof RelJudgment ErrorContext -- proof, actual judgment
   | RhoEliminationNonPromotedError Proof RelJudgment ErrorContext -- proof, actual judgment
   | RhoEliminationTypeMismatchError Proof RelJudgment RelJudgment ErrorContext -- proof, expected, actual
@@ -121,19 +121,39 @@ formatError err = case err of
             ++ "\n  Actual judgment (normalized): "
             ++ prettyRelJudgment normActual
       ++ prettyContext ctx
-  LeftConversionError expected actual ctx ->
+  LeftConversionError proofLeft targetLeft proofJudgment targetLeft' targetRight actualProof ctx ->
     "Left conversion error: expected "
-      ++ prettyTerm expected
+      ++ prettyTerm targetLeft
       ++ " but got "
-      ++ prettyTerm actual
-      ++ " - these terms are not β-η equivalent"
+      ++ prettyTerm proofLeft
+      ++ " - these terms are not β-η equivalent\n"
+      ++ "  In conversion: "
+      ++ prettyTerm targetLeft'
+      ++ " ⇃ "
+      ++ prettyProof actualProof
+      ++ " ⇂ "
+      ++ prettyTerm targetRight
+      ++ "\n  Where proof "
+      ++ prettyProof actualProof
+      ++ " proves: "
+      ++ prettyRelJudgment proofJudgment
       ++ prettyContext ctx
-  RightConversionError expected actual ctx ->
+  RightConversionError proofRight targetRight proofJudgment targetLeft targetRight' actualProof ctx ->
     "Right conversion error: expected "
-      ++ prettyTerm expected
+      ++ prettyTerm targetRight
       ++ " but got "
-      ++ prettyTerm actual
-      ++ " - these terms are not β-η equivalent"
+      ++ prettyTerm proofRight
+      ++ " - these terms are not β-η equivalent\n"
+      ++ "  In conversion: "
+      ++ prettyTerm targetLeft
+      ++ " ⇃ "
+      ++ prettyProof actualProof
+      ++ " ⇂ "
+      ++ prettyTerm targetRight'
+      ++ "\n  Where proof "
+      ++ prettyProof actualProof
+      ++ " proves: "
+      ++ prettyRelJudgment proofJudgment
       ++ prettyContext ctx
   ConverseError proof judgment ctx ->
     "Converse elimination error: proof " ++ prettyProof proof ++ " must prove judgment with converse relation, but proves " ++ prettyRelJudgment judgment ++ prettyContext ctx

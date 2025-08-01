@@ -346,8 +346,8 @@ conversionProofSpec = describe "conversion proofs (ConvProof)" $ do
         macroEnv = noMacros
 
     case inferProofType ctx macroEnv noTheorems conversionProof of
-      Left (LeftConversionError _ _ _) -> return () -- Expected left conversion error
-      Left (RightConversionError _ _ _) -> return () -- Expected right conversion error
+      Left (LeftConversionError _ _ _ _ _ _ _) -> return () -- Expected left conversion error
+      Left (RightConversionError _ _ _ _ _ _ _) -> return () -- Expected right conversion error
       Left err -> expectationFailure $ "Expected conversion error, got: " ++ show err
       Right _ -> expectationFailure "Expected conversion to fail with non-equivalent terms"
 

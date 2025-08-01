@@ -230,8 +230,8 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
       (True, True) -> do
         let finalJudgment = RelJudgment term1' rtype term2'
         return $ ProofCheckResult finalJudgment ctx
-      (False, _) -> Left $ LeftConversionError term1 term1' (ErrorContext pos "left conversion")
-      (_, False) -> Left $ RightConversionError term2 term2' (ErrorContext pos "right conversion")
+      (False, _) -> Left $ LeftConversionError term1 term1' (RelJudgment term1 rtype term2) term1' term2' proof1 (ErrorContext pos "left conversion")
+      (_, False) -> Left $ RightConversionError term2 term2' (RelJudgment term1 rtype term2) term1' term2' proof1 (ErrorContext pos "right conversion")
 
   -- Converse introduction: Γ ⊢ ∪ᵢ p : t'[R^∪]t
   ConvIntro proof1 pos -> do
