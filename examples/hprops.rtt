@@ -1,16 +1,19 @@
+import "demo.rtt";
+
 _·_·_ t1 R t2 := t1 ∘ R ∘ t2˘;
 
 _∗_ t R := t · R · t;
 
 _⊆_ R S := (λx. λy. y) ∗ (R → S);
 
-⊢ subsetId (t : Term) (t' : Term) (x : Term) (y : Term) (R : Rel) (S : Rel) (q : t [R ⊆ S] t') : (λx. x) [R → S] (λy. y) :=
-  π q - z.u.v.                    -- u : t[(λx.λy.y)]z, v : z[(R→S)∘(λx.λy.y)˘]t'
-    π v - w.f.g.                  -- f : z[R→S]w, g : w[(λx.λy.y)˘]t'
-      (λx. x) ⇃ f ⇂ (λy. y);
+
+⊢ subsetId (t : Term) (t' : Term) (x : Term) (y : Term) (R : Rel) (S : Rel) (q : t [R ⊆ S] t') : (λx. x) [R → S] (λy. y) := 
+  (λx. x) ⇃ 
+    (pi_right (R → S) (λy. y) t' (λx. λy. y)
+      (pi_left ((R → S) ∘ (λx. λy. y)˘) t t' (λx. λy. y) 
+        (pi_assoc_sym (λx. λy. y) (R → S) (λx. λy. y)˘ t t' q)))
+  ⇂ (λy. y);
 
 ⊢ subsetProp (t : Term) (t' : Term) (x : Term) (y : Term) (R : Rel) (S : Rel)
-                      (p : x [R] y) (q : t [R ⊆ S] t') : x [S] y :=
-                      π q - z.u.v.                           -- u : t[(λx.λy.y)]z, v : z[(R→S)∘(λx.λy.y)˘]t'
-                        π v - w.f.g.                         -- f : z[R→S]w, g : w[(λx.λy.y)˘]t'
-                          f p;
+                      (p : x [R] y) (q : t [R ⊆ S] t') : x [S] y := 
+  x ⇃ (subsetId t t' x y R S q) p ⇂ y;
