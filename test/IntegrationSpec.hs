@@ -9,6 +9,7 @@ import Lib
 import Normalize
 import Parser
 import ProofChecker
+import Substitution (substituteTermVar)
 import Test.Hspec
 import TestHelpers
 import Text.Megaparsec (initialPos)

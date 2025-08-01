@@ -3,12 +3,8 @@ module ProofChecker
     inferProofType,
     ProofCheckResult (..),
     relJudgmentEqual,
-    substituteTermVar,
     checkTheoremArgs,
     instantiateTheoremJudgment,
-    applySubstitutionsToTerm,
-    applySubstitutionsToRType,
-    applySubstToJudgment,
   )
 where
 
@@ -18,6 +14,7 @@ import Errors
 import Lib
 import Normalize (TermExpansionResult (..), expandTermMacros, termEquality, termEqualityAlpha)
 import Shifting (shiftTerm, shiftTermWithBoundsCheck, shiftTermsInRType, shiftTermsInRTypeWithBoundsCheck)
+import Substitution (applySubstToJudgment, applySubstitutionsToTerm, applySubstitutionsToRType, substituteTermVar)
 import TypeOps (ExpansionResult (..), expandMacrosWHNF, substituteTypeVar, typeEquality)
 
 -------------------------------------------------------------------------------
@@ -389,23 +386,6 @@ relJudgmentEqual macroEnv (RelJudgment t1 r1 t1') (RelJudgment t2 r2 t2') = do
   typeEq <- typeEquality macroEnv r1 r2
   return $ termEq1 && termEq2 && typeEq
 
--- | Substitute a term for a variable in another term
-substituteTermVar :: String -> Term -> Term -> Term
-substituteTermVar var replacement term = case term of
-  Var name _ _ | name == var -> replacement
-  Var _ _ _ -> term
-  Lam name _ _ | name == var -> term -- Variable is shadowed
-  Lam name body pos -> Lam name (substituteTermVar var replacement body) pos
-  App t1 t2 pos -> App (substituteTermVar var replacement t1) (substituteTermVar var replacement t2) pos
-  TMacro name args pos -> TMacro name (map (substituteTermVar var replacement) args) pos
-
--- | Apply a (possibly partial) substitution list to a relational judgment
-applySubstToJudgment :: [(Binding, TheoremArg)] -> RelJudgment -> Either RelTTError RelJudgment
-applySubstToJudgment subs (RelJudgment t r t') = do
-  t1 <- applySubstitutionsToTerm subs t
-  r1 <- applySubstitutionsToRType subs r
-  t2 <- applySubstitutionsToTerm subs t'
-  return (RelJudgment t1 r1 t2)
 
 -- | Sequentially check theorem arguments, carrying the substitution that has
 --   already been established by earlier (term/rel/proof) arguments.
@@ -428,6 +408,7 @@ checkTheoremArgs bindings args ctx macroEnv theoremEnv pos =
         -- infer and compare
         ProofCheckResult {resultJudgment = actualJudg} <-
           inferProofType ctx macroEnv theoremEnv p
+        
         equal <- relJudgmentEqual macroEnv instTempl actualJudg
         if equal
           then go (accSubs ++ [(bind, arg)]) (arg : accArgs) rest
@@ -457,45 +438,3 @@ instantiateTheoremJudgment bindings args (RelJudgment leftTerm relType rightTerm
 
   return (RelJudgment leftTerm' relType' rightTerm')
 
--- | Apply substitutions to a term
-applySubstitutionsToTerm :: [(Binding, TheoremArg)] -> Term -> Either RelTTError Term
-applySubstitutionsToTerm [] term = return term
-applySubstitutionsToTerm ((TermBinding name, TermArg replacement) : rest) term = do
-  substituted <- applySubstitutionsToTerm rest term
-  return $ substituteTermVar name replacement substituted
-applySubstitutionsToTerm (_ : rest) term = applySubstitutionsToTerm rest term
-
--- | Apply substitutions to a relation type
-applySubstitutionsToRType :: [(Binding, TheoremArg)] -> RType -> Either RelTTError RType
-applySubstitutionsToRType [] rtype = return rtype
-applySubstitutionsToRType ((RelBinding name, RelArg replacement) : rest) rtype = do
-  substituted <- applySubstitutionsToRType rest rtype
-  return $ substituteRelVar name replacement substituted
-applySubstitutionsToRType ((TermBinding name, TermArg termReplacement) : rest) rtype = do
-  substituted <- applySubstitutionsToRType rest rtype
-  return $ substituteTermInRType name termReplacement substituted
-applySubstitutionsToRType (_ : rest) rtype = applySubstitutionsToRType rest rtype
-
--- | Substitute a relation variable in a relation type
-substituteRelVar :: String -> RType -> RType -> RType
-substituteRelVar var replacement rtype = case rtype of
-  RVar name _ _ | name == var -> replacement
-  RVar _ _ _ -> rtype
-  RMacro name args pos -> RMacro name (map (substituteRelVar var replacement) args) pos
-  Arr r1 r2 pos -> Arr (substituteRelVar var replacement r1) (substituteRelVar var replacement r2) pos
-  All name r pos | name == var -> rtype -- Variable is shadowed
-  All name r pos -> All name (substituteRelVar var replacement r) pos
-  Conv r pos -> Conv (substituteRelVar var replacement r) pos
-  Comp r1 r2 pos -> Comp (substituteRelVar var replacement r1) (substituteRelVar var replacement r2) pos
-  Prom term pos -> Prom (substituteTermVar var (error "Cannot substitute relation for term in promotion") term) pos
-
--- | Substitute a term variable in a relation type (for promoted terms)
-substituteTermInRType :: String -> Term -> RType -> RType
-substituteTermInRType var replacement rtype = case rtype of
-  RVar _ _ _ -> rtype
-  RMacro name args pos -> RMacro name (map (substituteTermInRType var replacement) args) pos
-  Arr r1 r2 pos -> Arr (substituteTermInRType var replacement r1) (substituteTermInRType var replacement r2) pos
-  All name r pos -> All name (substituteTermInRType var replacement r) pos
-  Conv r pos -> Conv (substituteTermInRType var replacement r) pos
-  Comp r1 r2 pos -> Comp (substituteTermInRType var replacement r1) (substituteTermInRType var replacement r2) pos
-  Prom term pos -> Prom (substituteTermVar var replacement term) pos

@@ -14,6 +14,7 @@ import qualified ParserSpec
 import qualified PrettyPrintSpec
 import qualified ProofCheckerSpec
 import qualified REPLSpec
+import qualified SubstitutionBugSpec
 import qualified TermOpsSpec
 import Test.Hspec
 import qualified TheoremApplicationSpec
@@ -46,4 +47,5 @@ main = hspec $ do
   describe "PTheoremApp Proof Checking" PTheoremAppSpec.spec
   describe "Comprehensive Theorem Applications" ComprehensiveTheoremAppSpec.spec
   describe "Not Preserves Bool Bug" NotPreservesBoolBugSpec.spec
+  describe "Substitution Order Bug" SubstitutionBugSpec.spec
   describe "Integration Tests" IntegrationSpec.spec

@@ -35,6 +35,7 @@ library
       REPL
       PrettyPrint
       ModuleSystem
+      Substitution
   other-modules:
       Parser.Mixfix
       Paths_reltt_haskell
@@ -91,6 +92,7 @@ test-suite reltt-haskell-test
       ProofCheckerSpec
       PTheoremAppSpec
       REPLSpec
+      SubstitutionBugSpec
       TermOpsSpec
       TestHelpers
       TheoremApplicationSpec

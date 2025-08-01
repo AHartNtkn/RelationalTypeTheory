@@ -55,6 +55,7 @@ library:
   - REPL
   - PrettyPrint
   - ModuleSystem
+  - Substitution
 
 executables:
   reltt-haskell-exe:

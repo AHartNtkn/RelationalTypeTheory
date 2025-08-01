@@ -241,7 +241,9 @@
     (S : Rel) (a : Term) (b : Term) (f : Term)
     (p : a [S ∘ f˘] b)
   : a [S] (f b)
-  := pi_left (S˘) b a f (pi_converse_mixed S f a b p);
+  := conv_elim S (f b) a
+       (pi_left (S˘) b a f
+          (pi_converse_mixed S f a b p));
 
 -- =============================================================================
 -- 12. COMPOSITION INTRODUCTION (Pairing)

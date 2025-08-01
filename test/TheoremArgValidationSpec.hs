@@ -4,6 +4,7 @@ import qualified Data.Map as Map
 import Errors
 import Lib
 import ProofChecker
+import Substitution (applySubstitutionsToTerm, applySubstitutionsToRType)
 import Test.Hspec
 import Text.Megaparsec (initialPos)
 
