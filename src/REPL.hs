@@ -11,11 +11,11 @@ where
 import Context (emptyTypingContext, extendMacroEnvironment, extendProofContext, extendRelContext, extendTermContext, lookupMacro, lookupTerm, noMacros, noTheorems)
 import Control.Monad.State
 import qualified Data.Map as Map
-import Errors
+import Errors (RelTTError, formatError)
 import Lib
 import ModuleSystem (ModuleLoadError (..), ModuleRegistry, emptyModuleRegistry, loadModuleWithDependenciesIntegrated)
 import Parser
-import PrettyPrint (prettyDeclaration, prettyError, prettyExportDeclaration, prettyImportDeclaration, prettyRType, prettyRelJudgment, prettyTerm)
+import PrettyPrint (prettyDeclaration, prettyExportDeclaration, prettyImportDeclaration, prettyRType, prettyRelJudgment, prettyTerm)
 import ProofChecker
 import System.IO (hFlush, hSetEncoding, stdin, stdout, utf8)
 import Text.Megaparsec (initialPos)
@@ -140,7 +140,7 @@ executeREPLCommand cmd = case cmd of
           Left err -> return $ "Parse error in judgment: " ++ show err
           Right judgment -> do
             case checkProof (replContext currentState) (replMacroEnv currentState) (replTheoremEnv currentState) proof judgment of
-              Left err -> return $ "Proof checking failed: " ++ prettyError err
+              Left err -> return $ "Proof checking failed: " ++ formatError err
               Right _ -> return $ "Proof is valid for judgment: " ++ prettyRelJudgment judgment
   InferProof proofStr -> do
     currentState <- get
@@ -148,7 +148,7 @@ executeREPLCommand cmd = case cmd of
       Left err -> return $ "Parse error: " ++ show err
       Right proof -> do
         case inferProofType (replContext currentState) (replMacroEnv currentState) (replTheoremEnv currentState) proof of
-          Left err -> return $ "Type inference failed: " ++ prettyError err
+          Left err -> return $ "Type inference failed: " ++ formatError err
           Right result -> return $ "Inferred judgment: " ++ prettyRelJudgment (resultJudgment result)
   ExpandMacro macroStr -> do
     currentState <- get
@@ -156,7 +156,7 @@ executeREPLCommand cmd = case cmd of
       Left err -> return $ "Parse error: " ++ show err
       Right rtype -> do
         case expandMacros (replMacroEnv currentState) rtype of
-          Left err -> return $ "Expansion error: " ++ prettyError err
+          Left err -> return $ "Expansion error: " ++ formatError err
           Right result -> return $ "Original: " ++ prettyRType rtype ++ "\nExpanded: " ++ prettyRType (expandedType result)
   ShowInfo name -> do
     currentState <- get

@@ -15,6 +15,7 @@ where
 
 import Control.Exception (IOException, catch)
 import Lib
+import PrettyPrint (prettyTerm, prettyRType, prettyProof, prettyRelJudgment)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Megaparsec (SourcePos, sourceColumn, sourceLine, sourceName, unPos)
 
@@ -59,97 +60,93 @@ data RelTTError
 formatError :: RelTTError -> String
 formatError err = case err of
   UnboundVariable var ctx ->
-    formatWithContext ctx $ "Unbound variable: " ++ var
+    "Unbound variable: " ++ var ++ prettyContext ctx
   UnboundTypeVariable var ctx ->
-    formatWithContext ctx $ "Unbound type variable: " ++ var
+    "Unbound type variable: " ++ var ++ prettyContext ctx
   UnboundMacro name ctx ->
-    formatWithContext ctx $ "Unbound macro: " ++ name
+    "Unbound macro: " ++ name ++ prettyContext ctx
   DuplicateBinding name ctx ->
-    formatWithContext ctx $ "Duplicate binding: " ++ name
+    "Duplicate binding: " ++ name ++ prettyContext ctx
   TypeMismatch expected actual ctx ->
-    formatWithContext ctx $
-      "Type mismatch:\n  Expected: "
-        ++ show expected
-        ++ "\n  Actual:   "
-        ++ show actual
-  InvalidTypeApplication ty ctx ->
-    formatWithContext ctx $ "Invalid type application: " ++ show ty
+    "Type mismatch:\n"
+      ++ "  Expected: "
+      ++ prettyRType expected
+      ++ "\n"
+      ++ "  Actual: "
+      ++ prettyRType actual
+      ++ prettyContext ctx
+  InvalidTypeApplication rtype ctx ->
+    "Invalid type application: " ++ prettyRType rtype ++ prettyContext ctx
   MacroArityMismatch name expected actual ctx ->
-    formatWithContext ctx $
-      "Macro "
-        ++ name
-        ++ " expects "
-        ++ show expected
-        ++ " arguments, but got "
-        ++ show actual
+    "Macro arity mismatch for "
+      ++ name
+      ++ ":\n"
+      ++ "  Expected: "
+      ++ show expected
+      ++ " arguments\n"
+      ++ "  Actual: "
+      ++ show actual
+      ++ " arguments"
+      ++ prettyContext ctx
   InfiniteNormalization term ctx ->
-    formatWithContext ctx $ "Infinite normalization for term: " ++ show term
+    "Infinite normalization for term: " ++ prettyTerm term ++ prettyContext ctx
   SubstitutionError var term ctx ->
-    formatWithContext ctx $
-      "Substitution error for variable " ++ var ++ " in term: " ++ show term
+    "Substitution error for variable " ++ var ++ " in term: " ++ prettyTerm term ++ prettyContext ctx
   InvalidDeBruijnIndex idx ctx ->
-    formatWithContext ctx $ "Invalid de Bruijn index: " ++ show idx
+    "Invalid de Bruijn index: " ++ show idx ++ prettyContext ctx
   InvalidContext msg ctx ->
-    formatWithContext ctx $ "Invalid context: " ++ msg
+    "Invalid context: " ++ msg ++ prettyContext ctx
   ContextInconsistency msg ctx ->
-    formatWithContext ctx $ "Context inconsistency: " ++ msg
+    "Context inconsistency: " ++ msg ++ prettyContext ctx
   ProofTypingError proof expected actual normalizedForms ctx ->
-    formatWithContext ctx $
-      "Proof error: proof "
-        ++ show proof
-        ++ " has wrong judgment\n  Expected judgment: "
-        ++ show expected
-        ++ "\n  Actual judgment:   "
-        ++ show actual
-        ++ case normalizedForms of
-          Nothing -> ""
-          Just (normExpected, normActual) ->
-            "\n  Expected judgment (normalized): "
-              ++ show normExpected
-              ++ "\n  Actual judgment (normalized):   "
-              ++ show normActual
+    "Proof error: proof "
+      ++ prettyProof proof
+      ++ " has wrong judgment\n"
+      ++ "  Expected judgment: "
+      ++ prettyRelJudgment expected
+      ++ "\n"
+      ++ "  Actual judgment: "
+      ++ prettyRelJudgment actual
+      ++ case normalizedForms of
+        Nothing -> ""
+        Just (normExpected, normActual) ->
+          "\n  Expected judgment (normalized): "
+            ++ prettyRelJudgment normExpected
+            ++ "\n  Actual judgment (normalized): "
+            ++ prettyRelJudgment normActual
+      ++ prettyContext ctx
   LeftConversionError expected actual ctx ->
-    formatWithContext ctx $
-      "Left conversion error: expected "
-        ++ show expected
-        ++ " but got "
-        ++ show actual
-        ++ " - these terms are not β-η equivalent"
+    "Left conversion error: expected "
+      ++ prettyTerm expected
+      ++ " but got "
+      ++ prettyTerm actual
+      ++ " - these terms are not β-η equivalent"
+      ++ prettyContext ctx
   RightConversionError expected actual ctx ->
-    formatWithContext ctx $
-      "Right conversion error: expected "
-        ++ show expected
-        ++ " but got "
-        ++ show actual
-        ++ " - these terms are not β-η equivalent"
-  ConverseError proof (RelJudgment t1 rtype t2) ctx ->
-    formatWithContext ctx $ "Converse elimination error: proof " ++ show proof ++ " must prove judgment with converse relation, but proves " ++ show t1 ++ " [" ++ show rtype ++ "] " ++ show t2
-  RhoEliminationNonPromotedError proof (RelJudgment t1 rtype t2) ctx ->
-    formatWithContext ctx $ "Rho elimination error: first proof " ++ show proof ++ " must prove a judgment with promoted relation, but proves " ++ show t1 ++ " [" ++ show rtype ++ "] " ++ show t2
+    "Right conversion error: expected "
+      ++ prettyTerm expected
+      ++ " but got "
+      ++ prettyTerm actual
+      ++ " - these terms are not β-η equivalent"
+      ++ prettyContext ctx
+  ConverseError proof judgment ctx ->
+    "Converse elimination error: proof " ++ prettyProof proof ++ " must prove judgment with converse relation, but proves " ++ prettyRelJudgment judgment ++ prettyContext ctx
+  RhoEliminationNonPromotedError proof judgment ctx ->
+    "Rho elimination error: first proof " ++ prettyProof proof ++ " must prove a judgment with promoted relation, but proves " ++ prettyRelJudgment judgment ++ prettyContext ctx
   RhoEliminationTypeMismatchError proof expected actual ctx ->
-    formatWithContext ctx $
-      "Rho elimination error: second proof "
-        ++ show proof
-        ++ " proves wrong judgment\n  Expected judgment: "
-        ++ show expected
-        ++ "\n  Actual judgment:   "
-        ++ show actual
-  CompositionError proof1 proof2 term1 term2 ctx ->
-    formatWithContext ctx $
-      "Composition error: proofs " ++ show proof1 ++ " and " ++ show proof2 ++ " have mismatched middle terms: " ++ show term1 ++ " ≢ " ++ show term2
+    "Rho elimination error: second proof "
+      ++ prettyProof proof
+      ++ " proves wrong judgment"
+      ++ prettyContext ctx
+      ++ "\n  Expected judgment: "
+      ++ prettyRelJudgment expected
+      ++ "\n  Actual judgment:   "
+      ++ prettyRelJudgment actual
+  CompositionError proof1 proof2 t1 t2 ctx ->
+    "Composition error: proofs " ++ prettyProof proof1 ++ " and " ++ prettyProof proof2 ++ " have mismatched middle terms " ++ prettyTerm t1 ++ " and " ++ prettyTerm t2 ++ prettyContext ctx
   InternalError msg ctx ->
-    formatWithContext ctx $ "Internal error: " ++ msg
+    "Internal error: " ++ msg ++ prettyContext ctx
 
--- | Helper to format error with context information
-formatWithContext :: ErrorContext -> String -> String
-formatWithContext ctx msg =
-  let pos = errorLocation ctx
-      filename = sourceName pos
-      line = unPos (sourceLine pos)
-      col = unPos (sourceColumn pos)
-      sourceContext = getSourceContext filename line col
-      contextDesc = errorContext ctx
-   in "Error in " ++ contextDesc ++ ": " ++ msg ++ "\n" ++ sourceContext
 
 -- | Get source context for error reporting (similar to Megaparsec format)
 getSourceContext :: String -> Int -> Int -> String
@@ -199,3 +196,12 @@ throwMacroError name pos context =
 throwNormalizationError :: Term -> SourcePos -> String -> RelTTError
 throwNormalizationError term pos context =
   InfiniteNormalization term (ErrorContext pos context)
+
+-- | Pretty print context for error messages
+prettyContext :: ErrorContext -> String
+prettyContext (ErrorContext pos _) =
+  let filename = sourceName pos
+      line = unPos (sourceLine pos)
+      col = unPos (sourceColumn pos)
+   in "\n" ++ getSourceContext filename line col
+

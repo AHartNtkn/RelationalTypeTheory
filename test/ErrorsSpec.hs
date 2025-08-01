@@ -20,7 +20,7 @@ errorFormattingSpec = describe "error formatting" $ do
     let err = UnboundVariable "undefined_var" (ErrorContext (initialPos "test") "variable lookup")
         formatted = formatError err
     formatted `shouldContain` "Unbound variable: undefined_var"
-    formatted `shouldContain` "variable lookup"
+    formatted `shouldContain` "at test:1:1"
 
   it "formats type mismatch errors with both types" $ do
     let expected = RMacro "Bool" [] (initialPos "test")
@@ -30,7 +30,7 @@ errorFormattingSpec = describe "error formatting" $ do
     formatted `shouldContain` "Type mismatch"
     formatted `shouldContain` "Expected:"
     formatted `shouldContain` "Actual:"
-    formatted `shouldContain` "type inference"
+    formatted `shouldContain` "at test:1:1"
 
   it "includes source location when available" $ do
     let pos = SourcePos "test.rt" (mkPos 42) (mkPos 15)
@@ -45,8 +45,8 @@ errorFormattingSpec = describe "error formatting" $ do
     let err = MacroArityMismatch "List" 1 3 (ErrorContext (initialPos "test") "macro expansion")
         formatted = formatError err
     formatted `shouldContain` "List"
-    formatted `shouldContain` "expects 1"
-    formatted `shouldContain` "got 3"
+    formatted `shouldContain` "Expected: 1 arguments"
+    formatted `shouldContain` "Actual: 3 arguments"
 
 -- | Test error context functionality
 errorContextSpec :: Spec
@@ -137,15 +137,15 @@ macroSystemErrorsSpec = describe "macro system errors" $ do
     let err = MacroArityMismatch "BiMacro" 2 1 (ErrorContext (initialPos "test") "macro application")
     let formatted = formatError err
     formatted `shouldContain` "BiMacro"
-    formatted `shouldContain` "expects 2"
-    formatted `shouldContain` "got 1"
+    formatted `shouldContain` "Expected: 2 arguments"
+    formatted `shouldContain` "Actual: 1 arguments"
 
   it "detects macro arity mismatches - too many arguments" $ do
     let err = MacroArityMismatch "SimpleId" 0 3 (ErrorContext (initialPos "test") "macro application")
     let formatted = formatError err
     formatted `shouldContain` "SimpleId"
-    formatted `shouldContain` "expects 0"
-    formatted `shouldContain` "got 3"
+    formatted `shouldContain` "Expected: 0 arguments"
+    formatted `shouldContain` "Actual: 3 arguments"
 
   it "detects nested macro expansion failures" $ do
     let err = UnboundMacro "InnerMacro" (ErrorContext (initialPos "test") "nested macro expansion")

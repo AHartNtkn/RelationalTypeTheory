@@ -3,13 +3,12 @@ module PrettyPrintSpec (spec) where
 import Context (extendMacroEnvironment, noMacros)
 import Control.Monad.Reader (runReader)
 import qualified Data.Map as Map
-import Errors
 import Lib
 import Parser (ParseContext (..), emptyParseContext, parseRType, relVars, runParserT)
 import PrettyPrint
 import Test.Hspec
 import TestHelpers
-import Text.Megaparsec (SourcePos (..), errorBundlePretty, initialPos, mkPos)
+import Text.Megaparsec (errorBundlePretty, initialPos)
 
 spec :: Spec
 spec = do
@@ -339,122 +338,6 @@ spec = do
       let judgment = RelJudgment (Var "x" 0 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (Var "y" 0 (initialPos "test"))
       prettyBinding (ProofBinding "p" judgment) `shouldBe` "p : x [R] y"
 
-  describe "Error Pretty Printing" $ do
-    let noCtx = ErrorContext (initialPos "test") ""
-    let withCtx = ErrorContext (SourcePos "test.rtt" (mkPos 1) (mkPos 1)) "checking theorem"
-
-    -- Helper to check error message content while ignoring location formatting
-    let shouldContainErrorMessage actual expected =
-          let actualLines = lines actual
-              -- Take the first line which contains the main error message
-              errorLine = if null actualLines then "" else head actualLines
-           in errorLine `shouldBe` expected
-
-    describe "variable and binding errors" $ do
-      it "pretty prints unbound variable errors" $ do
-        let err = UnboundVariable "x" noCtx
-        prettyError err `shouldContainErrorMessage` "Unbound variable: x"
-
-      it "pretty prints unbound type variable errors" $ do
-        let err = UnboundTypeVariable "X" noCtx
-        prettyError err `shouldContainErrorMessage` "Unbound type variable: X"
-
-      it "pretty prints unbound macro errors" $ do
-        let err = UnboundMacro "MyMacro" noCtx
-        prettyError err `shouldContainErrorMessage` "Unbound macro: MyMacro"
-
-      it "pretty prints duplicate binding errors" $ do
-        let err = DuplicateBinding "x" noCtx
-        prettyError err `shouldContainErrorMessage` "Duplicate binding: x"
-
-    describe "type system errors" $ do
-      it "pretty prints type mismatch errors" $ do
-        let err = TypeMismatch (RVar "X" 0 (initialPos "test")) (RVar "Y" 0 (initialPos "test")) noCtx
-        prettyError err `shouldContain` "Type mismatch:"
-        prettyError err `shouldContain` "Expected: X"
-        prettyError err `shouldContain` "Actual: Y"
-
-      it "pretty prints invalid type application errors" $ do
-        let err = InvalidTypeApplication (RVar "X" 0 (initialPos "test")) noCtx
-        prettyError err `shouldContainErrorMessage` "Invalid type application: X"
-
-      it "pretty prints macro arity mismatch errors" $ do
-        let err = MacroArityMismatch "MyMacro" 2 1 noCtx
-        prettyError err `shouldContain` "Macro arity mismatch for MyMacro:"
-        prettyError err `shouldContain` "Expected: 2 arguments"
-        prettyError err `shouldContain` "Actual: 1 arguments"
-
-    describe "normalization errors" $ do
-      it "pretty prints infinite normalization errors" $ do
-        let err = InfiniteNormalization (Var "x" 0 (initialPos "test")) noCtx
-        prettyError err `shouldContainErrorMessage` "Infinite normalization for term: x"
-
-      it "pretty prints substitution errors" $ do
-        let err = SubstitutionError "x" (Var "y" 0 (initialPos "test")) noCtx
-        prettyError err `shouldContainErrorMessage` "Substitution error for variable x in term: y"
-
-      it "pretty prints invalid de Bruijn index errors" $ do
-        let err = InvalidDeBruijnIndex 5 noCtx
-        prettyError err `shouldContainErrorMessage` "Invalid de Bruijn index: 5"
-
-    describe "context errors" $ do
-      it "pretty prints invalid context errors" $ do
-        let err = InvalidContext "context too deep" noCtx
-        prettyError err `shouldContainErrorMessage` "Invalid context: context too deep"
-
-      it "pretty prints context inconsistency errors" $ do
-        let err = ContextInconsistency "binding mismatch" noCtx
-        prettyError err `shouldContainErrorMessage` "Context inconsistency: binding mismatch"
-
-    describe "proof checking errors" $ do
-      it "pretty prints proof typing errors" $ do
-        let judgment1 = RelJudgment (Var "x" 0 (initialPos "test")) (RVar "R" 0 (initialPos "test")) (Var "y" 0 (initialPos "test"))
-        let judgment2 = RelJudgment (Var "x" 0 (initialPos "test")) (RVar "S" 0 (initialPos "test")) (Var "y" 0 (initialPos "test"))
-        let err = ProofTypingError (PVar "dummy" 0 (initialPos "test")) judgment1 judgment2 Nothing noCtx
-        prettyError err `shouldContain` "Proof error:"
-        prettyError err `shouldContain` "Expected judgment: x [R] y"
-        prettyError err `shouldContain` "Actual judgment: x [S] y"
-
-      it "pretty prints left conversion errors" $ do
-        let err = LeftConversionError (Var "x" 0 (initialPos "test")) (Var "x'" 0 (initialPos "test")) noCtx
-        prettyError err `shouldContain` "Left conversion error:"
-        prettyError err `shouldContain` "expected x but got x'"
-        prettyError err `shouldContain` "β-η equivalent"
-
-      it "pretty prints right conversion errors" $ do
-        let err = RightConversionError (Var "y" 0 (initialPos "test")) (Var "y'" 0 (initialPos "test")) noCtx
-        prettyError err `shouldContain` "Right conversion error:"
-        prettyError err `shouldContain` "expected y but got y'"
-        prettyError err `shouldContain` "β-η equivalent"
-
-      it "pretty prints converse errors" $ do
-        let dummyJudgment = RelJudgment (Var "x" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (Var "y" 0 (initialPos "test"))
-            err = ConverseError (PVar "dummy" 0 (initialPos "test")) dummyJudgment noCtx
-        prettyError err `shouldContainErrorMessage` "Converse elimination error: proof dummy must prove judgment with converse relation, but proves x [X] y"
-
-      it "pretty prints rho elimination errors" $ do
-        let dummyJudgment = RelJudgment (Var "x" 0 (initialPos "test")) (RVar "X" 0 (initialPos "test")) (Var "y" 0 (initialPos "test"))
-            err = RhoEliminationNonPromotedError (PVar "dummy" 0 (initialPos "test")) dummyJudgment noCtx
-        prettyError err `shouldContainErrorMessage` "Rho elimination error: first proof dummy must prove a judgment with promoted relation, but proves x [X] y"
-
-      it "pretty prints composition errors" $ do
-        let err = CompositionError (PVar "p1" 0 (initialPos "test")) (PVar "p2" 0 (initialPos "test")) (Var "x" 0 (initialPos "test")) (Var "y" 0 (initialPos "test")) noCtx
-        prettyError err `shouldContainErrorMessage` "Composition error: proofs p1 and p2 have mismatched middle terms x and y"
-
-    describe "general errors" $ do
-      it "pretty prints internal errors" $ do
-        let err = InternalError "something went wrong" noCtx
-        prettyError err `shouldContainErrorMessage` "Internal error: something went wrong"
-
-    describe "error context" $ do
-      it "includes source location when available" $ do
-        let err = UnboundVariable "x" withCtx
-        prettyError err `shouldContain` "at test.rtt"
-
-      it "omits context when not available" $ do
-        let err = UnboundVariable "x" noCtx
-        -- The error should contain "at" since noCtx still has a position
-        prettyError err `shouldContain` "at"
 
   describe "Comprehensive Integration Tests" $ do
     it "pretty prints complex boolean type definition" $ do
