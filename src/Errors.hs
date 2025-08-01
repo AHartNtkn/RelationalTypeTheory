@@ -45,13 +45,14 @@ data RelTTError
     InvalidContext String ErrorContext
   | ContextInconsistency String ErrorContext
   | -- Proof checking errors
-    ProofTypingError Proof RelJudgment RelJudgment (Maybe (RelJudgment, RelJudgment)) ErrorContext -- proof, expected, actual, optional (normalized expected, normalized actual)
+    ProofTypingError Proof RelJudgment RelJudgment (Maybe (RelJudgment, RelJudgment)) (Maybe (RelTTError, RelTTError)) ErrorContext -- proof, expected, actual, optional (normalized expected, normalized actual), optional (expected norm error, actual norm error)
   | LeftConversionError Term Term ErrorContext -- expected, actual
   | RightConversionError Term Term ErrorContext -- expected, actual
   | ConverseError Proof RelJudgment ErrorContext -- proof, actual judgment
   | RhoEliminationNonPromotedError Proof RelJudgment ErrorContext -- proof, actual judgment
   | RhoEliminationTypeMismatchError Proof RelJudgment RelJudgment ErrorContext -- proof, expected, actual
   | CompositionError Proof Proof Term Term ErrorContext -- proof1, proof2, middle term1, middle term2
+  | PiEliminationError Proof RelJudgment ErrorContext -- proof, actual judgment (should be composition type)
   | -- General errors
     InternalError String ErrorContext
   deriving (Show, Eq)
@@ -98,7 +99,7 @@ formatError err = case err of
     "Invalid context: " ++ msg ++ prettyContext ctx
   ContextInconsistency msg ctx ->
     "Context inconsistency: " ++ msg ++ prettyContext ctx
-  ProofTypingError proof expected actual normalizedForms ctx ->
+  ProofTypingError proof expected actual normalizedForms normErrors ctx ->
     "Proof error: proof "
       ++ prettyProof proof
       ++ " has wrong judgment\n"
@@ -108,7 +109,12 @@ formatError err = case err of
       ++ "  Actual judgment: "
       ++ prettyRelJudgment actual
       ++ case normalizedForms of
-        Nothing -> ""
+        Nothing -> case normErrors of
+          Nothing -> "\n  WARNING: Normalization failed - unable to show expanded macro forms"
+          Just (expectedErr, actualErr) ->
+            "\n  WARNING: Normalization failed:\n"
+              ++ "    Expected normalization error: " ++ formatError expectedErr ++ "\n"
+              ++ "    Actual normalization error: " ++ formatError actualErr
         Just (normExpected, normActual) ->
           "\n  Expected judgment (normalized): "
             ++ prettyRelJudgment normExpected
@@ -143,7 +149,14 @@ formatError err = case err of
       ++ "\n  Actual judgment:   "
       ++ prettyRelJudgment actual
   CompositionError proof1 proof2 t1 t2 ctx ->
-    "Composition error: proofs " ++ prettyProof proof1 ++ " and " ++ prettyProof proof2 ++ " have mismatched middle terms " ++ prettyTerm t1 ++ " and " ++ prettyTerm t2 ++ prettyContext ctx
+    "Composition error: proofs " ++ prettyProof proof1 ++ " and " ++ prettyProof proof2 ++ " have mismatched middle terms\n" ++
+    "  First proof middle term:  " ++ prettyTerm t1 ++ "\n" ++
+    "  Second proof middle term: " ++ prettyTerm t2 ++ "\n" ++
+    "  Middle terms must be alpha-equivalent for composition to be valid" ++ prettyContext ctx
+  PiEliminationError proof actual ctx ->
+    "Pi elimination error: proof " ++ prettyProof proof ++ " must have composition type for pi elimination\n" ++
+    "  Actual judgment: " ++ prettyRelJudgment actual ++ "\n" ++
+    "  Expected: judgment with composition type (R ∘ S)" ++ prettyContext ctx
   InternalError msg ctx ->
     "Internal error: " ++ msg ++ prettyContext ctx
 

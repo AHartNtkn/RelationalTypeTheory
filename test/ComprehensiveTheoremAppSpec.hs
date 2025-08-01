@@ -78,7 +78,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremApp = PTheoremApp theoremName [TermArg argTerm, RelArg argRel, ProofArg wrongProofArg] dummyPos
 
       case inferProofType emptyCtx emptyMacroEnv wrongAxiomEnv theoremApp of
-        Left (ProofTypingError _ _ _ _ _) -> return () -- Expected failure due to substitution type mismatch
+        Left (ProofTypingError _ _ _ _ _ _) -> return () -- Expected failure due to substitution type mismatch
         Left err -> expectationFailure $ "Expected ProofTypingError, got: " ++ show err
         Right _ -> expectationFailure "Expected type checking failure due to proof argument type mismatch after substitution"
 
@@ -169,7 +169,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremApp = PTheoremApp theoremName [TermArg argTerm, ProofArg wrongProofArg1, ProofArg wrongProofArg2] dummyPos
 
       case inferProofType emptyCtx emptyMacroEnv wrongIdTheoremEnv theoremApp of
-        Left (ProofTypingError _ _ _ _ _) -> return () -- Expected failure - first proof argument type mismatch
+        Left (ProofTypingError _ _ _ _ _ _) -> return () -- Expected failure - first proof argument type mismatch
         Left err -> expectationFailure $ "Expected ProofTypingError for first proof argument, got: " ++ show err
         Right _ -> expectationFailure "Expected type checking failure due to proof argument type mismatch"
 
@@ -292,7 +292,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremApp = PTheoremApp theoremName [TermArg argF, RelArg argR, ProofArg wrongProof] dummyPos
 
       case inferProofType emptyCtx emptyMacroEnv axiomRelTheoremEnv theoremApp of
-        Left (ProofTypingError _ _ _ _ _) -> return () -- Expected failure - proof uses wrong term
+        Left (ProofTypingError _ _ _ _ _ _) -> return () -- Expected failure - proof uses wrong term
         Left err -> expectationFailure $ "Expected ProofTypingError for wrong term in proof, got: " ++ show err
         Right _ -> expectationFailure "Expected type checking failure due to proof using wrong term"
 
@@ -316,7 +316,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremApp = PTheoremApp theoremName [TermArg argF, RelArg argR, ProofArg wrongProof] dummyPos
 
       case inferProofType emptyCtx emptyMacroEnv theoremEnv theoremApp of
-        Left (ProofTypingError _ _ _ _ _) -> return () -- Expected failure
+        Left (ProofTypingError _ _ _ _ _ _) -> return () -- Expected failure
         Left err -> expectationFailure $ "Expected ProofTypingError, got: " ++ show err
         Right _ -> expectationFailure "Expected type checking failure, but got success"
 
@@ -339,7 +339,7 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremApp = PTheoremApp theoremName [TermArg argF, RelArg argR, ProofArg wrongProof] dummyPos
 
       case inferProofType emptyCtx emptyMacroEnv theoremEnv theoremApp of
-        Left (ProofTypingError _ _ _ _ _) -> return () -- Expected failure
+        Left (ProofTypingError _ _ _ _ _ _) -> return () -- Expected failure
         Left err -> expectationFailure $ "Expected ProofTypingError, got: " ++ show err
         Right _ -> expectationFailure "Expected type checking failure, but got success"
 
@@ -488,6 +488,6 @@ spec = describe "Comprehensive Theorem Application Tests" $ do
           theoremApp = PTheoremApp theoremName [TermArg argF, TermArg argG, RelArg argR, ProofArg wrongProof] dummyPos
 
       case inferProofType emptyCtx emptyMacroEnv wrongComplexAxiomEnv theoremApp of
-        Left (ProofTypingError _ _ _ _ _) -> return () -- Expected failure - nested structure doesn't match
+        Left (ProofTypingError _ _ _ _ _ _) -> return () -- Expected failure - nested structure doesn't match
         Left err -> expectationFailure $ "Expected ProofTypingError for mismatched nested structure, got: " ++ show err
         Right _ -> expectationFailure "Expected type checking failure due to mismatched nested term structure"

@@ -180,7 +180,7 @@ proofCheckingErrorsSpec = describe "proof checking errors" $ do
   it "detects proof typing mismatches" $ do
     let expectedJudgment = RelJudgment (Var "x" 0 (initialPos "test")) (RMacro "R" [] (initialPos "test")) (Var "y" 0 (initialPos "test"))
         actualJudgment = RelJudgment (Var "x" 0 (initialPos "test")) (RMacro "S" [] (initialPos "test")) (Var "y" 0 (initialPos "test"))
-        err = ProofTypingError (PVar "dummy" 0 (initialPos "test")) expectedJudgment actualJudgment Nothing (ErrorContext (initialPos "test") "proof inference")
+        err = ProofTypingError (PVar "dummy" 0 (initialPos "test")) expectedJudgment actualJudgment Nothing Nothing (ErrorContext (initialPos "test") "proof inference")
     let formatted = formatError err
     formatted `shouldContain` "Proof error"
     formatted `shouldContain` "Expected judgment:"

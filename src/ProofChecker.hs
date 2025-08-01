@@ -15,7 +15,7 @@ import Lib
 import Normalize (TermExpansionResult (..), expandTermMacros, termEquality, termEqualityAlpha)
 import Shifting (shiftTerm, shiftTermWithBoundsCheck, shiftTermsInRType, shiftTermsInRTypeWithBoundsCheck)
 import Substitution (applySubstToJudgment, applySubstitutionsToTerm, applySubstitutionsToRType, substituteTermVar)
-import TypeOps (ExpansionResult (..), expandMacrosWHNF, substituteTypeVar, typeEquality)
+import TypeOps (ExpansionResult (..), expandMacros, expandMacrosWHNF, substituteTypeVar, typeEquality)
 
 -------------------------------------------------------------------------------
 -- Utilities: "lift everything except the protected names"
@@ -85,13 +85,20 @@ checkProof ctx macroEnv theoremEnv proof expectedJudgment = do
     then return result
     else do
       -- Try to normalize both judgments for better error reporting
-      normalizedForms <- case (normalizeJudgment macroEnv expectedJudgment, normalizeJudgment macroEnv actualJudgment) of
+      (normalizedForms, normErrors) <- case (normalizeJudgment macroEnv expectedJudgment, normalizeJudgment macroEnv actualJudgment) of
         (Right normExpected, Right normActual) ->
-          if normExpected == expectedJudgment && normActual == actualJudgment
-            then return Nothing -- No difference from original forms
-            else return $ Just (normExpected, normActual)
-        _ -> return Nothing -- Normalization failed, don't show normalized forms
-      Left $ ProofTypingError proof expectedJudgment actualJudgment normalizedForms (ErrorContext (proofPos proof) "proof checking")
+          -- Always show normalized forms when normalization succeeds - they help with macro debugging
+          return (Just (normExpected, normActual), Nothing)
+        (Left expectedErr, Right normActual) ->
+          -- Expected normalization failed, but actual succeeded - still show what we can
+          return (Just (expectedJudgment, normActual), Just (expectedErr, InternalError "Actual normalized successfully" (ErrorContext (proofPos proof) "normalization")))
+        (Right normExpected, Left actualErr) ->
+          -- Actual normalization failed, but expected succeeded - still show what we can
+          return (Just (normExpected, actualJudgment), Just (InternalError "Expected normalized successfully" (ErrorContext (proofPos proof) "normalization"), actualErr))
+        (Left expectedErr, Left actualErr) ->
+          -- Both failed - report the errors
+          return (Nothing, Just (expectedErr, actualErr))
+      Left $ ProofTypingError proof expectedJudgment actualJudgment normalizedForms normErrors (ErrorContext (proofPos proof) "proof checking")
 
 -- | Infer the relational judgment that a proof establishes
 inferProofType :: TypingContext -> MacroEnvironment -> TheoremEnvironment -> Proof -> Either RelTTError ProofCheckResult
@@ -362,17 +369,17 @@ inferProofType ctx macroEnv theoremEnv proof = case proof of
                   InvalidContext
                     "Pi elimination result references bound variables (x, u, or v)"
                     (ErrorContext pos "pi elimination bounds check")
-      _ -> Left $ CompositionError proof1 proof1 term1 term2 (ErrorContext pos "pi elimination: first proof must have composition type")
+      _ -> Left $ PiEliminationError proof1 (RelJudgment term1 rtype term2) (ErrorContext pos "pi elimination: first proof must have composition type")
 
 -- Helper functions
 
--- | Normalize a judgment by expanding macros in terms and types (NO BETA-ETA)
+-- | Normalize a judgment by fully expanding all macros in terms and types (NO BETA-ETA)
 normalizeJudgment :: MacroEnvironment -> RelJudgment -> Either RelTTError RelJudgment
 normalizeJudgment macroEnv (RelJudgment t1 rtype t2) = do
-  -- Only expand macros, do NOT do beta-eta normalization
+  -- Fully expand all macros, do NOT do beta-eta normalization
   termResult1 <- expandTermMacros macroEnv t1
   termResult2 <- expandTermMacros macroEnv t2
-  expandResult <- expandMacrosWHNF macroEnv rtype
+  expandResult <- expandMacros macroEnv rtype  -- Use full expansion instead of WHNF
   return $ RelJudgment (expandedTerm termResult1) (expandedType expandResult) (expandedTerm termResult2)
 
 -- | Check equality of relational judgments
@@ -412,13 +419,28 @@ checkTheoremArgs bindings args ctx macroEnv theoremEnv pos =
         equal <- relJudgmentEqual macroEnv instTempl actualJudg
         if equal
           then go (accSubs ++ [(bind, arg)]) (arg : accArgs) rest
-          else
+          else do
+            -- Try to normalize both judgments for better error reporting
+            (normalizedForms, normErrors) <- case (normalizeJudgment macroEnv instTempl, normalizeJudgment macroEnv actualJudg) of
+              (Right normExpected, Right normActual) ->
+                -- Always show normalized forms when normalization succeeds - they help with macro debugging
+                return (Just (normExpected, normActual), Nothing)
+              (Left expectedErr, Right normActual) ->
+                -- Expected normalization failed, but actual succeeded - still show what we can
+                return (Just (instTempl, normActual), Just (expectedErr, InternalError "Actual normalized successfully" (ErrorContext pos "normalization")))
+              (Right normExpected, Left actualErr) ->
+                -- Actual normalization failed, but expected succeeded - still show what we can
+                return (Just (normExpected, actualJudg), Just (InternalError "Expected normalized successfully" (ErrorContext pos "normalization"), actualErr))
+              (Left expectedErr, Left actualErr) ->
+                -- Both failed - report the errors
+                return (Nothing, Just (expectedErr, actualErr))
             Left $
               ProofTypingError
                 p
                 instTempl
                 actualJudg
-                Nothing
+                normalizedForms
+                normErrors
                 (ErrorContext pos "theorem argument proof type mismatch")
       _ ->
         Left $

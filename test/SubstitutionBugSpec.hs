@@ -168,7 +168,7 @@ theoremArgumentCheckingBugSpec = describe "theorem argument checking with variab
       Right validatedArgs -> do
         -- If we get here, the argument checking succeeded
         length validatedArgs `shouldBe` length args
-      Left (ProofTypingError _ expectedJudg actualJudg _ _) -> do
+      Left (ProofTypingError _ expectedJudg actualJudg _ _ _) -> do
         -- This is where the bug manifests - in the error message
         -- The expectedJudg will be wrong due to the substitution bug
         let RelJudgment _ _ expectedRightTerm = expectedJudg

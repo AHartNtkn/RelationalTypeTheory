@@ -372,7 +372,7 @@ conversionProofSpec = describe "conversion proofs (ConvProof)" $ do
         macroEnv = noMacros
 
     case checkProof ctx macroEnv noTheorems conversionProof expectedJudgment of
-      Left (ProofTypingError _ expected actual _ _) -> do
+      Left (ProofTypingError _ expected actual _ _ _) -> do
         -- Verify the expected and actual judgments are different
         expected `shouldBe` RelJudgment (Var "x" 1 (initialPos "test")) relType (Var "b" 0 (initialPos "test"))
         actual `shouldBe` RelJudgment lamTerm relType (Var "b" 0 (initialPos "test"))
@@ -693,8 +693,8 @@ piEliminationSpec = describe "pi elimination (Pi)" $ do
         macroEnv = noMacros
 
     case inferProofType ctx macroEnv noTheorems piProof of
-      Left (CompositionError _ _ _ _ _) -> return () -- Expected error
-      Left err -> expectationFailure $ "Expected CompositionError, got: " ++ show err
+      Left (PiEliminationError _ _ _) -> return () -- Expected error
+      Left err -> expectationFailure $ "Expected PiEliminationError, got: " ++ show err
       Right _ -> expectationFailure "Expected pi elimination to fail with non-composition proof"
 
   it "validates witness extraction in pi elimination context" $ do
