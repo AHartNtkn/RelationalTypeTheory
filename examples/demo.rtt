@@ -178,6 +178,14 @@
   : a [R ∘ S] b
   := π p - x.u.v.(∪ₑ v, ∪ₑ u);
 
+-- 11d''. Converse flip where the second factor is already a converse
+--       a[R∘S˘]b  ⇒  b[S∘R˘]a
+⊢ pi_converse_mixed
+    (R : Rel) (S : Rel) (a : Term) (b : Term)
+    (p : a [R ∘ S˘] b)
+  : b [S ∘ R˘] a
+  := π p - x.u.v.(∪ₑ v, ∪ᵢ u);
+
 -- 11e  :  left‑identity for composition
 -- Given  p : a [(λz.z) ∘ S] b              prove  a [S] b
 -- Uses:  π‑elim + ρ‑elim + simple identity conversion.
@@ -216,6 +224,24 @@
   := π p - x.u.v.           -- u : a[R∘S]x , v : x[T]d
        π u - y.w.z.         -- w : a[R]y   , z : y[S]x
          (w,(z,v));
+
+-- 11h.  Left‑projection:  a[f∘S]b  ⟹  (f a)[S]b
+⊢ pi_left
+    (S : Rel) (a : Term) (b : Term) (f : Term)
+    (p : a [f ∘ S] b)
+  : (f a) [S] b
+  := π p - x.u.v.                             -- u : a[f]x , v : x[S]b
+       ρ{z.z,b}                               -- rewrite the left endpoint of v
+         (ρ{z.z,(f a)} u                      -- build  x[λz.z](f a)
+             - (f a) ⇃ ι⟨f a,λz.z⟩ ⇂ (f a))
+       - ((λz.z) x) ⇃ v ⇂ b;
+
+-- 11i. Right‑projection:  a[S∘f˘]b  ⟹  a[S](f b)
+⊢ pi_right
+    (S : Rel) (a : Term) (b : Term) (f : Term)
+    (p : a [S ∘ f˘] b)
+  : a [S] (f b)
+  := pi_left (S˘) b a f (pi_converse_mixed S f a b p);
 
 -- =============================================================================
 -- 12. COMPOSITION INTRODUCTION (Pairing)

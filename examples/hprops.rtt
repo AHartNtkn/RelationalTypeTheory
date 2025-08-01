@@ -1,3 +1,16 @@
 _·_·_ t1 R t2 := t1 ∘ R ∘ t2˘;
 
 _∗_ t R := t · R · t;
+
+_⊆_ R S := (λx. λy. y) ∗ (R → S);
+
+⊢ subsetId (t : Term) (t' : Term) (x : Term) (y : Term) (R : Rel) (S : Rel) (q : t [R ⊆ S] t') : (λx. x) [R → S] (λy. y) :=
+  π q - z.u.v.                    -- u : t[(λx.λy.y)]z, v : z[(R→S)∘(λx.λy.y)˘]t'
+    π v - w.f.g.                  -- f : z[R→S]w, g : w[(λx.λy.y)˘]t'
+      (λx. x) ⇃ f ⇂ (λy. y);
+
+⊢ subsetProp (t : Term) (t' : Term) (x : Term) (y : Term) (R : Rel) (S : Rel)
+                      (p : x [R] y) (q : t [R ⊆ S] t') : x [S] y :=
+                      π q - z.u.v.                           -- u : t[(λx.λy.y)]z, v : z[(R→S)∘(λx.λy.y)˘]t'
+                        π v - w.f.g.                         -- f : z[R→S]w, g : w[(λx.λy.y)˘]t'
+                          f p;
