@@ -16,8 +16,8 @@ _⊆_ R S := (λx. λy. y) ∗ (R → S);
 
 ⊢ idSubset (t : Term) (t' : Term) (x : Term) (y : Term) (R : Rel) (S : Rel)
            (q : (λx. x) [R → S] (λy. y)) : t [R ⊆ S] t' :=
-    ( ( ι⟨t,  λx. λy. y⟩ ,                    --  t [λx.λy.y] (λy.y)
-        ((λx. λy. y) t) ⇃ q ⇂ (λy. y) ) ,     --  (λy.y) [R→S] (λy.y)  (η‑conversion)
+    ( ( ι⟨t,  λx. λy. y⟩ ,                    --  t [λx.λy.y] ((λx.λy.y) t)
+        ((λx. λy. y) t) ⇃ q ⇂ (λy. y) ) ,     --  ((λx.λy.y) t) [R→S] (λy.y)  (η‑conversion)
       ((λy. y) ⇃ ∪ᵢ ι⟨t', λx. λy. y⟩ ⇂ t')    --  (λy.y) [(λx.λy.y)˘] t'
     );
 
